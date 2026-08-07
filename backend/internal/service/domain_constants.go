@@ -411,6 +411,15 @@ const (
 	// Default false (show rates). Admin endpoints always keep full metrics.
 	SettingKeyChannelMonitorHideThroughput = "channel_monitor_hide_throughput"
 
+	// SettingKeyGrokDefaultTextModel is the fallback Grok text model for empty
+	// request models and built-in Grok aliases (e.g. "grok" → this id). Default grok-4.5.
+	SettingKeyGrokDefaultTextModel = "grok_default_text_model"
+
+	// SettingKeyGrokCrossClientModelMapEnabled, when true, includes gpt-*/codex-*/o*/claude-*
+	// wildcards in the default Grok account model_mapping so foreign client model names
+	// can reach Grok groups. Default false (no silent cross-vendor rewrite).
+	SettingKeyGrokCrossClientModelMapEnabled = "grok_cross_client_model_map_enabled"
+
 	// SettingKeyAvailableChannelsEnabled is a DB-backed soft switch for the "Available Channels"
 	// user-facing aggregate view. When false: user endpoint returns an empty list and the
 	// sidebar entry is hidden. Defaults to false (opt-in feature).
