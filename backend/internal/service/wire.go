@@ -16,6 +16,10 @@ import (
 	"go.uber.org/zap"
 )
 
+func ProvideGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthClient, cfg *config.Config) *GrokOAuthService {
+	return NewGrokOAuthService(proxyRepo, oauthClient, cfg)
+}
+
 // BuildInfo contains build information
 type BuildInfo struct {
 	Version   string
@@ -763,7 +767,7 @@ var ProviderSet = wire.NewSet(
 	wire.Bind(new(AccountRuntimeBlocker), new(*OpenAIGatewayService)),
 	NewOAuthService,
 	ProvideOpenAIOAuthService,
-	NewGrokOAuthService,
+	ProvideGrokOAuthService,
 	wire.Bind(new(GrokOAuthTokenService), new(*GrokOAuthService)),
 	NewGeminiOAuthService,
 	NewGeminiQuotaService,
