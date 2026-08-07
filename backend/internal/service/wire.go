@@ -230,6 +230,7 @@ func ProvideAccountTestService(
 	cfg *config.Config,
 	tlsFPProfileService *TLSFingerprintProfileService,
 	openAIGatewayService *OpenAIGatewayService,
+	settingService *SettingService,
 ) *AccountTestService {
 	service := NewAccountTestService(
 		accountRepo,
@@ -242,6 +243,7 @@ func ProvideAccountTestService(
 		tlsFPProfileService,
 	)
 	service.agentIdentityWS = openAIGatewayService
+	service.SetSettingService(settingService)
 	return service
 }
 
@@ -252,8 +254,11 @@ func ProvideGrokQuotaService(
 	httpUpstream HTTPUpstream,
 	cfg *config.Config,
 	usageLogRepo UsageLogRepository,
+	settingService *SettingService,
 ) *GrokQuotaService {
-	return NewGrokQuotaService(accountRepo, proxyRepo, tokenProvider, httpUpstream, cfg, usageLogRepo)
+	service := NewGrokQuotaService(accountRepo, proxyRepo, tokenProvider, httpUpstream, cfg, usageLogRepo)
+	service.SetSettingService(settingService)
+	return service
 }
 
 // ProvideGeminiTokenProvider creates GeminiTokenProvider with OAuthRefreshAPI injection

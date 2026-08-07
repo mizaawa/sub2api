@@ -376,6 +376,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 
 		GrokDefaultTextModel:           settings.GrokDefaultTextModel,
 		GrokCrossClientModelMapEnabled: settings.GrokCrossClientModelMapEnabled,
+		GrokDefaultBaseURLMode:         settings.GrokDefaultBaseURLMode,
 
 		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
 		LeaderboardEnabled:       settings.LeaderboardEnabled,
