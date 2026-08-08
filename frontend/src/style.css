@@ -5,32 +5,28 @@
 @layer base {
   :root {
     color-scheme: light;
-    --md-sys-color-background: #fff8f5;
-    --md-sys-color-surface: #fffdfb;
-    --md-sys-color-surface-container: #f8eee9;
-    --md-sys-color-surface-container-high: #f1e4de;
-    --md-sys-color-outline: #d8c7be;
-    --md-sys-color-on-surface: #241a17;
-    --md-sys-color-on-surface-variant: #5f514c;
-    --md-sys-color-primary: #b84b37;
+    --md-sys-color-background: #f7f6f2;
+    --md-sys-color-surface: #ffffff;
+    --md-sys-color-surface-container: #eeece6;
+    --md-sys-color-surface-container-high: #e3e0d8;
+    --md-sys-color-outline: #d4d1c9;
+    --md-sys-color-on-surface: #181817;
+    --md-sys-color-on-surface-variant: #5f5d58;
+    --md-sys-color-primary: #d97757;
     --md-sys-color-on-primary: #ffffff;
   }
 
   :root.dark {
     color-scheme: dark;
-    --md-sys-color-background: #171211;
-    --md-sys-color-surface: #211a18;
-    --md-sys-color-surface-container: #302623;
-    --md-sys-color-surface-container-high: #453934;
-    --md-sys-color-outline: #765f57;
-    --md-sys-color-on-surface: #f7eee8;
-    --md-sys-color-on-surface-variant: #d8c7be;
-    --md-sys-color-primary: #ffb5a3;
-    --md-sys-color-on-primary: #5d1f15;
-  }
-
-  * {
-    border-color: var(--md-sys-color-outline);
+    --md-sys-color-background: #151514;
+    --md-sys-color-surface: #20201e;
+    --md-sys-color-surface-container: #2d2c29;
+    --md-sys-color-surface-container-high: #3a3935;
+    --md-sys-color-outline: #56534d;
+    --md-sys-color-on-surface: #f7f6f2;
+    --md-sys-color-on-surface-variant: #c7c3ba;
+    --md-sys-color-primary: #efa98d;
+    --md-sys-color-on-primary: #3c1b14;
   }
 
   html {
@@ -790,25 +786,3 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 }
-
-/* Keep legacy utility classes on the same warm Material surface scale. */
-.bg-gray-50 { background-color: #fff8f5 !important; }
-.bg-gray-100 { background-color: #f7eee8 !important; }
-.bg-gray-200 { background-color: #eadfd8 !important; }
-.bg-white { background-color: #fffdfb !important; }
-.text-gray-900 { color: #241a17 !important; }
-.text-gray-700 { color: #5d4b45 !important; }
-.text-gray-600 { color: #765f57 !important; }
-.text-gray-500 { color: #927b72 !important; }
-.border-gray-100 { border-color: #f1e4de !important; }
-.border-gray-200 { border-color: #eadfd8 !important; }
-.dark .bg-white { background-color: #211a18 !important; }
-.dark .bg-gray-50 { background-color: #171211 !important; }
-.dark .bg-gray-100 { background-color: #302623 !important; }
-.dark .bg-gray-200 { background-color: #453934 !important; }
-.dark .text-gray-900 { color: #f7eee8 !important; }
-.dark .text-gray-700 { color: #d8c7be !important; }
-.dark .text-gray-600 { color: #b9a39a !important; }
-.dark .text-gray-500 { color: #927b72 !important; }
-.dark .border-gray-100,
-.dark .border-gray-200 { border-color: #453934 !important; }
