@@ -116,10 +116,12 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import UserBreakdownSubTable from './UserBreakdownSubTable.vue'
 import type { GroupStat, UserBreakdownItem } from '@/types'
 import { getUserBreakdown } from '@/api/admin/dashboard'
+import { useChartTheme } from '@/composables/useChartTheme'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
 const { t } = useI18n()
+const { distributionBorderColor, distributionHoverBorderColor } = useChartTheme()
 
 type DistributionMetric = 'tokens' | 'actual_cost'
 
@@ -204,9 +206,9 @@ const chartData = computed(() => {
       {
         data: displayGroupStats.value.map((g) => toFiniteNumber(props.metric === 'actual_cost' ? g.actual_cost : g.total_tokens)),
         backgroundColor: chartColors.slice(0, displayGroupStats.value.length),
-        borderColor: '#ffffff',
+        borderColor: distributionBorderColor.value,
         borderWidth: 2,
-        hoverBorderColor: '#ffffff',
+        hoverBorderColor: distributionHoverBorderColor.value,
         hoverBorderWidth: 3
       }
     ]

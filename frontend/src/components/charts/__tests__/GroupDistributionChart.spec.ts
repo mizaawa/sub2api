@@ -69,7 +69,8 @@ describe('GroupDistributionChart', () => {
     const chartData = JSON.parse(wrapper.find('.chart-data').text())
     expect(chartData.labels).toEqual(['group-a', 'group-b'])
     expect(chartData.datasets[0].data).toEqual([1200, 600])
-    expect(chartData.datasets[0].borderColor).toBe('#ffffff')
+    expect(chartData.datasets[0].borderColor).toBe('#39c5bb')
+    expect(chartData.datasets[0].hoverBorderColor).toBe('#177f79')
     expect(chartData.datasets[0].borderWidth).toBe(2)
     expect(chartData.datasets[0].hoverBorderWidth).toBe(3)
 

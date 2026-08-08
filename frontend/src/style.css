@@ -21,15 +21,46 @@
     color-scheme: dark;
     --md-sys-color-background: #131c1d;
     --md-sys-color-surface: #1b2728;
-    --md-sys-color-surface-container: #233233;
-    --md-sys-color-surface-container-high: #2c3e3f;
-    --md-sys-color-outline: #486365;
+    --md-sys-color-surface-container: #253637;
+    --md-sys-color-surface-container-high: #2f4748;
+    --md-sys-color-outline: #416062;
     --md-sys-color-on-surface: #edf8f7;
     --md-sys-color-on-surface-variant: #abc2bf;
     --md-sys-color-primary: #62d8d0;
     --md-sys-color-on-primary: #073b38;
     --md-sys-color-secondary: #f06aa9;
   }
+
+  /* Balance states are shared by the header and profile overview. */
+  .balance-tone-low {
+    color: #a96700 !important;
+  }
+
+  .balance-tone-negative {
+    color: #c73545 !important;
+  }
+
+  .balance-tone-premium {
+    color: transparent !important;
+    background: linear-gradient(110deg, #39c5bb, #62d8d0 38%, #e12885 68%, #39c5bb);
+    background-size: 240% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    animation: balance-rgb-shift 4s ease-in-out infinite;
+  }
+
+  @keyframes balance-rgb-shift {
+    0%,
+    100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .balance-tone-premium { animation: none; }
+  }
+
+  :root.dark .balance-tone-low { color: #f4cf69 !important; }
+  :root.dark .balance-tone-negative { color: #ff7f8c !important; }
 
   html {
     @apply scroll-smooth antialiased;
@@ -810,7 +841,8 @@
 
   /* 玻璃效果 */
   .glass {
-    @apply bg-white/80 backdrop-blur-xl dark:bg-dark-800/80;
+    background: color-mix(in srgb, var(--md-sys-color-surface) 86%, transparent);
+    @apply backdrop-blur-xl;
   }
 
   /* 隐藏滚动条 */

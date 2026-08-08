@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 
 import ModelDistributionChart from '../ModelDistributionChart.vue'
@@ -48,6 +48,10 @@ vi.mock('vue-chartjs', () => ({
 }))
 
 describe('ModelDistributionChart', () => {
+  afterEach(() => {
+    document.documentElement.classList.remove('dark')
+  })
+
   const modelStats = [
     {
       model: 'model-a',
@@ -88,7 +92,8 @@ describe('ModelDistributionChart', () => {
     const chartData = JSON.parse(wrapper.find('.chart-data').text())
     expect(chartData.labels).toEqual(['model-a', 'model-b'])
     expect(chartData.datasets[0].data).toEqual([1000, 500])
-    expect(chartData.datasets[0].borderColor).toBe('#ffffff')
+    expect(chartData.datasets[0].borderColor).toBe('#39c5bb')
+    expect(chartData.datasets[0].hoverBorderColor).toBe('#177f79')
     expect(chartData.datasets[0].borderWidth).toBe(2)
     expect(chartData.datasets[0].hoverBorderWidth).toBe(3)
 
@@ -189,7 +194,7 @@ describe('ModelDistributionChart', () => {
     expect(chartData.datasets[0].backgroundColor[0]).toBe('#3b82f6')
     expect(chartData.datasets[0].backgroundColor[3]).toBe('#94a3b8')
     expect(chartData.datasets[0].backgroundColor[3]).not.toBe(chartData.datasets[0].backgroundColor[0])
-    expect(chartData.datasets[0].borderColor).toBe('#ffffff')
+    expect(chartData.datasets[0].borderColor).toBe('#39c5bb')
     expect(chartData.datasets[0].borderWidth).toBe(2)
 
     const rows = wrapper.findAll('tbody tr')
@@ -202,5 +207,23 @@ describe('ModelDistributionChart', () => {
     expect(rows[3].text()).toContain('4')
     expect(rows[3].text()).toContain('400')
     expect(rows[3].text()).toContain('$10.00')
+  })
+
+  it('uses the light Miku border palette in dark mode', () => {
+    document.documentElement.classList.add('dark')
+    const wrapper = mount(ModelDistributionChart, {
+      props: {
+        modelStats
+      },
+      global: {
+        stubs: {
+          LoadingSpinner: true
+        }
+      }
+    })
+
+    const chartData = JSON.parse(wrapper.find('.chart-data').text())
+    expect(chartData.datasets[0].borderColor).toBe('#82dfd8')
+    expect(chartData.datasets[0].hoverBorderColor).toBe('#b5eee9')
   })
 })

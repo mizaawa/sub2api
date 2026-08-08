@@ -62,7 +62,7 @@ onUnmounted(() => {
 .table-scroll-container {
   @apply flex h-full flex-col overflow-hidden rounded-2xl border shadow-sm;
   border-color: var(--md-sys-color-outline);
-  background: color-mix(in srgb, var(--md-sys-color-surface) 72%, var(--md-sys-color-surface-container));
+  background: var(--md-sys-color-surface);
 }
 
 .table-scroll-container :deep(.table-wrapper) {
@@ -79,7 +79,6 @@ onUnmounted(() => {
 
 .table-scroll-container :deep(thead) {
   background: var(--md-sys-color-surface-container);
-  @apply backdrop-blur-sm;
 }
 
 .table-scroll-container :deep(tbody) {

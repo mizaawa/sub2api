@@ -251,10 +251,12 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import UserBreakdownSubTable from './UserBreakdownSubTable.vue'
 import type { ModelStat, UserSpendingRankingItem, UserBreakdownItem } from '@/types'
 import { getUserBreakdown } from '@/api/admin/dashboard'
+import { useChartTheme } from '@/composables/useChartTheme'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
 const { t } = useI18n()
+const { distributionBorderColor, distributionHoverBorderColor } = useChartTheme()
 
 type DistributionMetric = 'tokens' | 'actual_cost'
 type ModelSource = 'requested' | 'upstream' | 'mapping'
@@ -375,9 +377,9 @@ const chartData = computed(() => {
       {
         data: displayModelStats.value.map((m) => toFiniteNumber(props.metric === 'actual_cost' ? m.actual_cost : m.total_tokens)),
         backgroundColor: chartColors.slice(0, displayModelStats.value.length),
-        borderColor: '#ffffff',
+        borderColor: distributionBorderColor.value,
         borderWidth: 2,
-        hoverBorderColor: '#ffffff',
+        hoverBorderColor: distributionHoverBorderColor.value,
         hoverBorderWidth: 3
       }
     ]
@@ -403,9 +405,9 @@ const rankingChartData = computed(() => {
       {
         data,
         backgroundColor,
-        borderColor: '#ffffff',
+        borderColor: distributionBorderColor.value,
         borderWidth: 2,
-        hoverBorderColor: '#ffffff',
+        hoverBorderColor: distributionHoverBorderColor.value,
         hoverBorderWidth: 3
       }
     ]

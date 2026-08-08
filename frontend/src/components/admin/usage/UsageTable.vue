@@ -691,7 +691,7 @@ const hideTokenTooltip = () => {
   overflow: hidden;
   border: 1px solid var(--md-sys-color-outline);
   border-radius: 1.25rem;
-  background: color-mix(in srgb, var(--md-sys-color-surface) 58%, var(--md-sys-color-surface-container));
+  background: var(--md-sys-color-surface);
 }
 
 .usage-table-frame :deep(.table-wrapper) {

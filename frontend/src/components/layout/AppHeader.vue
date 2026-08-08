@@ -72,7 +72,10 @@
               d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"
             />
           </svg>
-          <span class="text-sm font-semibold text-primary-700 dark:text-primary-300">
+          <span
+            class="text-sm font-semibold text-primary-700 dark:text-primary-300"
+            :class="balanceToneClass(availableBalance)"
+          >
             {{ formatHeaderMoney(availableBalance) }}
           </span>
           <span
@@ -86,7 +89,10 @@
           >
             <div class="flex items-center justify-between">
               <span class="text-gray-500 dark:text-dark-400">{{ balanceAvailableText }}</span>
-              <span class="font-medium text-gray-900 dark:text-white">{{ formatHeaderMoney(availableBalance) }}</span>
+              <span
+                class="font-medium text-gray-900 dark:text-white"
+                :class="balanceToneClass(availableBalance)"
+              >{{ formatHeaderMoney(availableBalance) }}</span>
             </div>
             <div class="mt-2 flex items-center justify-between">
               <span class="text-gray-500 dark:text-dark-400">{{ balanceFrozenText }}</span>
@@ -95,7 +101,10 @@
             <div class="mt-2 border-t border-gray-100 pt-2 dark:border-dark-700">
               <div class="flex items-center justify-between">
                 <span class="text-gray-500 dark:text-dark-400">{{ balanceTotalText }}</span>
-                <span class="font-semibold text-gray-900 dark:text-white">{{ formatHeaderMoney(totalBalance) }}</span>
+                <span
+                  class="font-semibold text-gray-900 dark:text-white"
+                  :class="balanceToneClass(totalBalance)"
+                >{{ formatHeaderMoney(totalBalance) }}</span>
               </div>
             </div>
           </div>
@@ -144,7 +153,10 @@
                 <div class="text-xs text-gray-500 dark:text-dark-400">
                   {{ t('common.balance') }}
                 </div>
-                <div class="text-sm font-semibold text-primary-600 dark:text-primary-400">
+                <div
+                  class="text-sm font-semibold text-primary-600 dark:text-primary-400"
+                  :class="balanceToneClass(availableBalance)"
+                >
                   {{ formatHeaderMoney(availableBalance) }}
                 </div>
                 <div v-if="frozenBalance > 0" class="mt-1 text-xs text-amber-600 dark:text-amber-300">
@@ -364,6 +376,13 @@ function handleReplayGuide() {
 function formatHeaderMoney(value: number) {
   if (!Number.isFinite(value)) return '$0.00'
   return `$${value.toFixed(2)}`
+}
+
+function balanceToneClass(value: number) {
+  if (!Number.isFinite(value) || value < 0) return 'balance-tone-negative'
+  if (value <= 10) return 'balance-tone-low'
+  if (value > 100) return 'balance-tone-premium'
+  return 'balance-tone-default'
 }
 
 function handleClickOutside(event: MouseEvent) {

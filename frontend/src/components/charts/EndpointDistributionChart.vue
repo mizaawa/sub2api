@@ -141,10 +141,12 @@ import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import UserBreakdownSubTable from './UserBreakdownSubTable.vue'
 import type { EndpointStat, UserBreakdownItem } from '@/types'
 import { getUserBreakdown } from '@/api/admin/dashboard'
+import { useChartTheme } from '@/composables/useChartTheme'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
 const { t } = useI18n()
+const { distributionBorderColor, distributionHoverBorderColor } = useChartTheme()
 
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
@@ -249,9 +251,9 @@ const chartData = computed(() => {
           props.metric === 'actual_cost' ? item.actual_cost : item.total_tokens
         ),
         backgroundColor: chartColors.slice(0, displayEndpointStats.value.length),
-        borderColor: '#ffffff',
+        borderColor: distributionBorderColor.value,
         borderWidth: 2,
-        hoverBorderColor: '#ffffff',
+        hoverBorderColor: distributionHoverBorderColor.value,
         hoverBorderWidth: 3
       }
     ]

@@ -70,6 +70,28 @@ function createUser(overrides: Partial<User> = {}): User {
 }
 
 describe('ProfileInfoCard', () => {
+  it.each([
+    [-1, 'balance-tone-negative'],
+    [0, 'balance-tone-low'],
+    [10, 'balance-tone-low'],
+    [11, 'balance-tone-default'],
+    [100, 'balance-tone-default'],
+    [101, 'balance-tone-premium']
+  ])('uses the expected balance tone for %s', (balance, expectedClass) => {
+    const wrapper = mount(ProfileInfoCard, {
+      props: {
+        user: createUser({ balance })
+      },
+      global: {
+        stubs: {
+          Icon: true
+        }
+      }
+    })
+
+    expect(wrapper.get('[data-testid="profile-balance-value"]').classes()).toContain(expectedClass)
+  })
+
   it('renders basic account information inside the new overview shell', () => {
     const wrapper = mount(ProfileInfoCard, {
       props: {

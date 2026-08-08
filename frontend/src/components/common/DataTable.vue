@@ -960,13 +960,13 @@ defineExpose({
   flex: 1;
   min-height: 0;
   isolation: isolate;
-  background: color-mix(in srgb, var(--md-sys-color-surface) 58%, var(--md-sys-color-surface-container));
+  background: var(--md-sys-color-surface);
 }
 
 .data-mobile-card,
 .data-empty-panel {
   border-color: var(--md-sys-color-outline);
-  background: color-mix(in srgb, var(--md-sys-color-surface) 58%, var(--md-sys-color-surface-container));
+  background: var(--md-sys-color-surface);
   color: var(--md-sys-color-on-surface);
 }
 
@@ -982,7 +982,7 @@ defineExpose({
 .table-body {
   position: relative;
   z-index: 0;
-  background: color-mix(in srgb, var(--md-sys-color-surface) 58%, var(--md-sys-color-surface-container));
+  background: var(--md-sys-color-surface);
 }
 
 .table-body > tr:not(.data-empty-row):hover {

@@ -66,7 +66,11 @@
                 <p class="text-xs font-medium uppercase tracking-[0.16em] text-gray-400 dark:text-gray-500">
                   {{ t('profile.accountBalance') }}
                 </p>
-                <p class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">
+                <p
+                  data-testid="profile-balance-value"
+                  class="mt-1 text-lg font-semibold text-gray-900 dark:text-white"
+                  :class="balanceToneClass(user?.balance)"
+                >
                   {{ formatCurrency(user?.balance || 0) }}
                 </p>
               </div>
@@ -274,6 +278,14 @@ const providerLabels = computed<Record<UserAuthProvider, string>>(() => ({
 
 function formatCurrency(value: number): string {
   return `$${value.toFixed(2)}`
+}
+
+function balanceToneClass(value: number | null | undefined): string {
+  const amount = Number(value ?? 0)
+  if (!Number.isFinite(amount) || amount < 0) return 'balance-tone-negative'
+  if (amount <= 10) return 'balance-tone-low'
+  if (amount > 100) return 'balance-tone-premium'
+  return 'balance-tone-default'
 }
 
 function normalizeProvider(value: string): UserAuthProvider | null {
