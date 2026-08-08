@@ -1,7 +1,7 @@
 <template>
   <div v-if="!isDesktopViewport" class="space-y-3">
     <template v-if="loading">
-      <div v-for="i in 5" :key="i" class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900">
+      <div v-for="i in 5" :key="i" class="data-mobile-card rounded-xl border p-4">
         <div class="space-y-3">
           <div v-for="column in dataColumns" :key="column.key" class="flex justify-between">
             <div class="h-4 w-20 animate-pulse rounded bg-gray-200 dark:bg-dark-700"></div>
@@ -15,7 +15,7 @@
     </template>
 
     <template v-else-if="!data || data.length === 0">
-      <div class="rounded-lg border border-gray-200 bg-white p-12 text-center dark:border-dark-700 dark:bg-dark-900">
+      <div class="data-empty-panel rounded-xl border p-12 text-center">
         <slot name="empty">
           <div class="flex flex-col items-center">
             <Icon
@@ -48,7 +48,7 @@
       <div
         v-for="(row, index) in sortedData"
         :key="resolveRowKey(row, index)"
-        class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900"
+        class="data-mobile-card rounded-xl border p-4"
         :class="{
           'cursor-pointer': clickableRows,
           'border-primary-300 bg-primary-50/40 dark:border-primary-700 dark:bg-primary-900/10': selectable && isRowSelected(row, index)
@@ -180,7 +180,7 @@
         </tr>
 
         <!-- Empty state -->
-        <tr v-else-if="!data || data.length === 0">
+        <tr v-else-if="!data || data.length === 0" class="data-empty-row">
           <td
             :colspan="tableColumnCount"
             :class="['py-12 text-center text-gray-500 dark:text-dark-400', getAdaptivePaddingClass()]"
@@ -960,6 +960,14 @@ defineExpose({
   flex: 1;
   min-height: 0;
   isolation: isolate;
+  background: color-mix(in srgb, var(--md-sys-color-surface) 58%, var(--md-sys-color-surface-container));
+}
+
+.data-mobile-card,
+.data-empty-panel {
+  border-color: var(--md-sys-color-outline);
+  background: color-mix(in srgb, var(--md-sys-color-surface) 58%, var(--md-sys-color-surface-container));
+  color: var(--md-sys-color-on-surface);
 }
 
 /* 表头容器，确保在滚动时覆盖表体内容 */
@@ -974,6 +982,15 @@ defineExpose({
 .table-body {
   position: relative;
   z-index: 0;
+  background: color-mix(in srgb, var(--md-sys-color-surface) 58%, var(--md-sys-color-surface-container));
+}
+
+.table-body > tr:not(.data-empty-row):hover {
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.data-empty-row {
+  background: var(--md-sys-color-surface-container);
 }
 
 /* 所有表头单元格固定在顶部 */
@@ -1017,7 +1034,7 @@ defineExpose({
 
 /* 表体 sticky 列背景 */
 tbody .sticky-col {
-  background-color: var(--md-sys-color-surface);
+  background-color: color-mix(in srgb, var(--md-sys-color-surface) 58%, var(--md-sys-color-surface-container));
 }
 
 /* hover 状态保持 */

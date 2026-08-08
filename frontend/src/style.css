@@ -18,11 +18,11 @@
 
   :root.dark {
     color-scheme: dark;
-    --md-sys-color-background: #151514;
-    --md-sys-color-surface: #20201e;
-    --md-sys-color-surface-container: #2d2c29;
-    --md-sys-color-surface-container-high: #3a3935;
-    --md-sys-color-outline: #56534d;
+    --md-sys-color-background: #24221f;
+    --md-sys-color-surface: #2d2a26;
+    --md-sys-color-surface-container: #37332e;
+    --md-sys-color-surface-container-high: #443f38;
+    --md-sys-color-outline: #625b52;
     --md-sys-color-on-surface: #f7f6f2;
     --md-sys-color-on-surface-variant: #c7c3ba;
     --md-sys-color-primary: #efa98d;
@@ -270,6 +270,39 @@
   .card-footer {
     @apply border-t border-gray-100 dark:border-dark-700;
     @apply px-6 py-4;
+  }
+
+  .distribution-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.125rem;
+    padding: 0.1875rem;
+    border: 1px solid var(--md-sys-color-outline);
+    border-radius: 0.75rem;
+    background: var(--md-sys-color-surface-container);
+  }
+
+  .distribution-toggle-button {
+    min-height: 1.875rem;
+    padding: 0.25rem 0.625rem;
+    border-radius: 0.5625rem;
+    font-size: 0.75rem;
+    font-weight: 650;
+    transition: background-color 160ms ease, color 160ms ease;
+  }
+
+  .distribution-toggle-active {
+    background: var(--md-sys-color-primary);
+    color: var(--md-sys-color-on-primary);
+  }
+
+  .distribution-toggle-idle {
+    color: var(--md-sys-color-on-surface-variant);
+  }
+
+  .distribution-toggle-idle:hover {
+    background: var(--md-sys-color-surface-container-high);
+    color: var(--md-sys-color-on-surface);
   }
 
   /* ============ 统计卡片 ============ */

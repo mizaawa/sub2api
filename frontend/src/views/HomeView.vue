@@ -490,8 +490,11 @@ onMounted(() => {
 .landing-theme-toggle {
   display: inline-grid;
   grid-template-columns: repeat(2, 2rem);
-  min-width: 4.5rem;
+  width: 4.75rem;
+  min-width: 4.75rem;
   height: 2.5rem;
+  align-items: center;
+  justify-content: center;
   padding: 0.25rem;
   border: 1px solid var(--landing-hero-line);
   border-radius: 999px;
@@ -673,7 +676,7 @@ onMounted(() => {
   .landing-actions :deep(.relative button) { padding-inline: 0.5rem; }
   .landing-login { min-height: 2.5rem; padding: 0.5rem 0.875rem; }
   .landing-icon-button { width: 2.5rem; height: 2.5rem; }
-  .landing-theme-toggle { grid-template-columns: repeat(2, 1.75rem); min-width: 4rem; height: 2.25rem; }
+  .landing-theme-toggle { grid-template-columns: repeat(2, 1.75rem); width: 4.25rem; min-width: 4.25rem; height: 2.25rem; }
   .landing-theme-toggle span { width: 1.75rem; height: 1.75rem; }
   .landing-hero { min-height: 39rem; padding: 4.5rem 1rem 5rem; }
   .signal-line-one,

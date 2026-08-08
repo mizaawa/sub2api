@@ -956,15 +956,29 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.sidebar-header {
+  min-height: 3.75rem;
+  height: auto;
+  margin: 0.75rem 0.75rem 0.25rem;
+  padding: 0.625rem;
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: 1.25rem;
+  background: var(--md-sys-color-surface);
+  box-shadow: 0 0.375rem 1rem rgb(45 37 31 / 0.06);
+}
+
 .sidebar-logo {
   flex: 0 0 2.25rem;
   min-width: 2.25rem;
 }
 
 .sidebar-header-collapsed {
+  justify-content: center;
   gap: 0;
-  padding-left: 1.125rem;
-  padding-right: 1.125rem;
+  margin-right: 0.5rem;
+  margin-left: 0.5rem;
+  padding-right: 0.625rem;
+  padding-left: 0.625rem;
 }
 
 .sidebar-brand {

@@ -1,6 +1,6 @@
 <template>
-  <header class="glass sticky top-0 z-30 border-b border-gray-200/50 dark:border-dark-700/50">
-    <div class="flex h-16 items-center justify-between gap-2 px-2 sm:px-4 md:px-6">
+  <header class="app-header sticky top-3 z-30 mx-3 mt-3 md:mx-4">
+    <div class="flex h-14 items-center justify-between gap-2 px-2 sm:px-4 md:px-5">
       <!-- Left: Mobile Menu Toggle + Page Title -->
       <div class="flex shrink-0 items-center gap-2 sm:gap-4">
         <button
@@ -382,6 +382,18 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.app-header {
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: 1.25rem;
+  background: color-mix(in srgb, var(--md-sys-color-surface) 92%, transparent);
+  box-shadow: 0 0.5rem 1.5rem rgb(45 37 31 / 0.08);
+  backdrop-filter: blur(16px);
+}
+
+:global(.dark) .app-header {
+  box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 0.18);
+}
+
 .dropdown-enter-active,
 .dropdown-leave-active {
   transition: all 0.2s ease;

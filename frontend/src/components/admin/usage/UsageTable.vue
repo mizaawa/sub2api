@@ -16,7 +16,7 @@
         {{ ipGeoBatchLoading ? t('usage.ipGeo.batchFetching') : t('usage.ipGeo.batchFetch') }}
       </button>
     </div>
-    <div class="overflow-auto">
+    <div class="usage-table-frame">
       <DataTable
         :columns="columns"
         :data="data"
@@ -685,3 +685,16 @@ const hideTokenTooltip = () => {
   tokenTooltipData.value = null
 }
 </script>
+
+<style scoped>
+.usage-table-frame {
+  overflow: hidden;
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: 1.25rem;
+  background: color-mix(in srgb, var(--md-sys-color-surface) 58%, var(--md-sys-color-surface-container));
+}
+
+.usage-table-frame :deep(.table-wrapper) {
+  overflow: auto;
+}
+</style>
