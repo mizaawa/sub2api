@@ -170,40 +170,42 @@ function rateEnabled(r: number): boolean {
 }
 
 function chipClass(active: boolean): string {
-  return active
-    ? 'bg-gradient-to-r from-primary-500 to-primary-600 text-white shadow-sm shadow-primary-500/30'
-    : 'bg-white text-gray-600 ring-1 ring-inset ring-gray-200 enabled:hover:bg-gray-50 enabled:hover:text-gray-900 enabled:hover:ring-gray-300 dark:bg-dark-800/60 dark:text-dark-300 dark:ring-dark-700 dark:enabled:hover:bg-dark-800 dark:enabled:hover:text-white'
+  return active ? 'chip-neutral-active' : 'chip-neutral'
 }
 </script>
 
 <style scoped>
+.chip-neutral {
+  color: var(--md-sys-color-on-surface-variant);
+  background: var(--md-sys-color-surface-container);
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-outline);
+}
+
+.chip-neutral:not(:disabled):hover {
+  color: var(--md-sys-color-on-surface);
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.chip-neutral-active {
+  color: var(--md-sys-color-on-primary);
+  background: var(--md-sys-color-primary);
+}
+
 /* 平台/分组 chip 的配色统一从 --chip-accent(平台主色)派生,新增平台无需扩展样式。
    激活态与非激活态在模板上互斥挂载,避免选择器优先级互相覆盖。 */
 .chip-tinted {
-  color: var(--chip-accent);
-  color: color-mix(in srgb, var(--chip-accent) 78%, black);
-  background-color: color-mix(in srgb, var(--chip-accent) 9%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--chip-accent) 25%, transparent);
+  color: color-mix(in srgb, var(--chip-accent) 72%, var(--md-sys-color-on-surface));
+  background-color: color-mix(in srgb, var(--chip-accent) 9%, var(--md-sys-color-surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--chip-accent) 25%, var(--md-sys-color-outline));
 }
 
 .chip-tinted:not(:disabled):hover {
   background-color: color-mix(in srgb, var(--chip-accent) 16%, transparent);
 }
 
-.dark .chip-tinted {
-  color: color-mix(in srgb, var(--chip-accent) 72%, white);
-  background-color: color-mix(in srgb, var(--chip-accent) 12%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--chip-accent) 30%, transparent);
-}
-
-.dark .chip-tinted:not(:disabled):hover {
-  background-color: color-mix(in srgb, var(--chip-accent) 18%, transparent);
-}
-
 .chip-tinted-active {
   color: #fff;
-  background-color: var(--chip-accent);
-  background-color: color-mix(in srgb, var(--chip-accent) 85%, black);
+  background-color: color-mix(in srgb, var(--chip-accent) 82%, var(--md-sys-color-surface));
   box-shadow: 0 1px 2px 0 color-mix(in srgb, var(--chip-accent) 35%, transparent);
 }
 
@@ -211,11 +213,4 @@ function chipClass(active: boolean): string {
   background-color: color-mix(in srgb, var(--chip-accent) 75%, black);
 }
 
-.dark .chip-tinted-active {
-  background-color: color-mix(in srgb, var(--chip-accent) 80%, transparent);
-}
-
-.dark .chip-tinted-active:not(:disabled):hover {
-  background-color: var(--chip-accent);
-}
 </style>

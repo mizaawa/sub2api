@@ -1,6 +1,6 @@
 <template>
   <section
-    class="overflow-hidden rounded-2xl border bg-white shadow-card dark:bg-dark-800/50"
+    class="plaza-group-section overflow-hidden rounded-2xl border shadow-card"
     :class="[platformBorderStrongClass(group.platform)]"
   >
     <!-- 分组头部:名称/平台/倍率徽章/专属/订阅徽章 + 描述 -->
@@ -93,3 +93,9 @@ const peakNote = computed(() => {
   })
 })
 </script>
+
+<style scoped>
+.plaza-group-section {
+  background: color-mix(in srgb, var(--md-sys-color-surface) 64%, var(--md-sys-color-surface-container));
+}
+</style>

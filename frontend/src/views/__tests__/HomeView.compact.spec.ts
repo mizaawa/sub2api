@@ -100,6 +100,16 @@ describe('HomeView compact mode', () => {
     expect(wrapper.find('.terminal-container').exists()).toBe(true)
   })
 
+  it('links the public home only to the upstream GitHub repository', () => {
+    const wrapper = mountHome()
+
+    expect(wrapper.get('[data-testid="home-upstream-github"]').attributes('href'))
+      .toBe('https://github.com/Wei-Shaw/sub2api')
+    expect(wrapper.get('[data-testid="home-upstream-github-footer"]').attributes('href'))
+      .toBe('https://github.com/Wei-Shaw/sub2api')
+    expect(wrapper.html()).not.toContain('github.com/mizaawa/sub2api')
+  })
+
   it('links unauthenticated visitors to login', () => {
     expect(compactDestination(mountHome({ compact_home_enabled: true }))).toBe('/login')
   })
