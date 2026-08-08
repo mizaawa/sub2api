@@ -16,7 +16,7 @@
   <div
     v-else-if="compactHomeEnabled"
     data-testid="compact-home"
-    class="flex min-h-screen flex-col bg-gray-50 text-gray-900 dark:bg-dark-950 dark:text-white"
+    class="compact-home-page flex min-h-screen flex-col bg-gray-50 text-gray-900 dark:bg-dark-950 dark:text-white"
   >
     <header class="border-b border-gray-200 px-4 py-4 sm:px-6 dark:border-dark-800">
       <nav class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 sm:gap-4">
@@ -84,10 +84,10 @@
   <!-- Default Home Page -->
   <div
     v-else
-    class="relative flex min-h-screen flex-col overflow-hidden bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950"
+    class="home-page relative flex min-h-screen flex-col overflow-hidden bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950"
   >
     <!-- Background Decorations -->
-    <div class="pointer-events-none absolute inset-0 overflow-hidden">
+    <div class="home-decorations pointer-events-none absolute inset-0 overflow-hidden">
       <div
         class="absolute -right-40 -top-40 h-96 w-96 rounded-full bg-primary-400/20 blur-3xl"
       ></div>
@@ -106,13 +106,16 @@
     </div>
 
     <!-- Header -->
-    <header class="relative z-20 px-6 py-4">
+    <header class="home-header relative z-20 px-6 py-4">
       <nav class="mx-auto flex max-w-6xl items-center justify-between">
         <!-- Logo -->
-        <div class="flex items-center">
-          <div class="h-10 w-10 overflow-hidden rounded-xl shadow-md">
+        <div class="flex min-w-0 items-center gap-3">
+          <div class="h-10 w-10 shrink-0 overflow-hidden rounded-2xl">
             <img :src="siteLogo || '/logo.svg'" alt="Logo" class="h-full w-full object-contain" />
           </div>
+          <span class="hidden truncate text-base font-semibold text-gray-900 sm:block dark:text-white">
+            {{ siteName }}
+          </span>
         </div>
 
         <!-- Nav Actions -->
@@ -183,9 +186,9 @@
     <main class="relative z-10 flex-1 px-6 py-16">
       <div class="mx-auto max-w-6xl">
         <!-- Hero Section - Left/Right Layout -->
-        <div class="mb-12 flex flex-col items-center justify-between gap-12 lg:flex-row lg:gap-16">
+        <div class="home-hero mb-12 flex flex-col items-center justify-between gap-12 lg:flex-row lg:gap-16">
           <!-- Left: Text Content -->
-          <div class="flex-1 text-center lg:text-left">
+          <div class="home-hero-copy flex-1 text-center lg:text-left">
             <h1
               class="mb-4 text-4xl font-bold text-gray-900 dark:text-white md:text-5xl lg:text-6xl"
             >
@@ -208,7 +211,7 @@
           </div>
 
           <!-- Right: Terminal Animation -->
-          <div class="flex flex-1 justify-center lg:justify-end">
+          <div class="home-hero-preview flex flex-1 justify-center lg:justify-end">
             <div class="terminal-container">
               <div class="terminal-window">
                 <!-- Window header -->
@@ -246,7 +249,7 @@
         </div>
 
         <!-- Feature Tags - Centered -->
-        <div class="mb-12 flex flex-wrap items-center justify-center gap-4 md:gap-6">
+        <div class="home-tags mb-12 flex flex-wrap items-center justify-center gap-4 md:gap-6">
           <div
             class="inline-flex items-center gap-2.5 rounded-full border border-gray-200/50 bg-white/80 px-5 py-2.5 shadow-sm backdrop-blur-sm dark:border-dark-700/50 dark:bg-dark-800/80"
           >
@@ -274,10 +277,10 @@
         </div>
 
         <!-- Features Grid -->
-        <div class="mb-12 grid gap-6 md:grid-cols-3">
+        <div class="home-features mb-12 grid gap-6 md:grid-cols-3">
           <!-- Feature 1: Unified Gateway -->
           <div
-            class="group rounded-2xl border border-gray-200/50 bg-white/60 p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-primary-500/10 dark:border-dark-700/50 dark:bg-dark-800/60"
+            class="home-feature-card group rounded-2xl border border-gray-200/50 bg-white/60 p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-primary-500/10 dark:border-dark-700/50 dark:bg-dark-800/60"
           >
             <div
               class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg shadow-blue-500/30 transition-transform group-hover:scale-110"
@@ -294,7 +297,7 @@
 
           <!-- Feature 2: Account Pool -->
           <div
-            class="group rounded-2xl border border-gray-200/50 bg-white/60 p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-primary-500/10 dark:border-dark-700/50 dark:bg-dark-800/60"
+            class="home-feature-card group rounded-2xl border border-gray-200/50 bg-white/60 p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-primary-500/10 dark:border-dark-700/50 dark:bg-dark-800/60"
           >
             <div
               class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 shadow-lg shadow-primary-500/30 transition-transform group-hover:scale-110"
@@ -323,7 +326,7 @@
 
           <!-- Feature 3: Billing & Quota -->
           <div
-            class="group rounded-2xl border border-gray-200/50 bg-white/60 p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-primary-500/10 dark:border-dark-700/50 dark:bg-dark-800/60"
+            class="home-feature-card group rounded-2xl border border-gray-200/50 bg-white/60 p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-primary-500/10 dark:border-dark-700/50 dark:bg-dark-800/60"
           >
             <div
               class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 shadow-lg shadow-purple-500/30 transition-transform group-hover:scale-110"
@@ -352,7 +355,7 @@
         </div>
 
         <!-- Supported Providers -->
-        <div class="mb-8 text-center">
+        <div class="home-providers-heading mb-8 text-center">
           <h2 class="mb-3 text-2xl font-bold text-gray-900 dark:text-white">
             {{ t('home.providers.title') }}
           </h2>
@@ -361,7 +364,7 @@
           </p>
         </div>
 
-        <div class="mb-16 flex flex-wrap items-center justify-center gap-4">
+        <div class="home-providers mb-16 flex flex-wrap items-center justify-center gap-4">
           <!-- Claude - Supported -->
           <div
             class="flex items-center gap-2 rounded-xl border border-primary-200 bg-white/60 px-5 py-3 ring-1 ring-primary-500/20 backdrop-blur-sm dark:border-primary-800 dark:bg-dark-800/60"
@@ -442,7 +445,7 @@
     </main>
 
     <!-- Footer -->
-    <footer class="relative z-10 border-t border-gray-200/50 px-6 py-8 dark:border-dark-800/50">
+    <footer class="home-footer relative z-10 border-t border-gray-200/50 px-6 py-8 dark:border-dark-800/50">
       <div
         class="mx-auto flex max-w-6xl flex-col items-center justify-center gap-4 text-center sm:flex-row sm:text-left"
       >
@@ -712,5 +715,288 @@ onMounted(() => {
     0 0 0 1px rgba(20, 184, 166, 0.2),
     0 0 40px rgba(20, 184, 166, 0.1),
     inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* Material 3 warm homepage */
+.compact-home-page,
+.home-page {
+  background: var(--md-sys-color-background);
+  color: var(--md-sys-color-on-surface);
+}
+
+.home-decorations {
+  display: none;
+}
+
+.home-header {
+  border-bottom: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 55%, transparent);
+  background: color-mix(in srgb, var(--md-sys-color-background) 94%, transparent);
+}
+
+.home-header nav {
+  min-height: 3.5rem;
+}
+
+.home-header :is(a, button) {
+  border-radius: 1rem;
+}
+
+.home-page main {
+  padding-top: 2.5rem;
+  padding-bottom: 3.5rem;
+}
+
+@keyframes home-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(1rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.home-hero,
+.home-tags,
+.home-features,
+.home-providers-heading,
+.home-providers {
+  animation: home-rise-in 560ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.home-tags { animation-delay: 90ms; }
+.home-features { animation-delay: 160ms; }
+.home-providers-heading { animation-delay: 230ms; }
+.home-providers { animation-delay: 290ms; }
+
+.home-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(20rem, 0.92fr);
+  gap: 3rem;
+  min-height: 31rem;
+  padding: clamp(2rem, 5vw, 4.5rem);
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 45%, transparent);
+  border-radius: 2.5rem;
+  background: var(--md-sys-color-surface-container);
+}
+
+.home-hero-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: left;
+}
+
+.home-hero-copy h1 {
+  max-width: 12ch;
+  margin-bottom: 1.25rem;
+  color: var(--md-sys-color-on-surface);
+  letter-spacing: 0;
+  line-height: 1.05;
+}
+
+.home-hero-copy p {
+  max-width: 38rem;
+  margin-bottom: 2rem;
+  color: var(--md-sys-color-on-surface-variant);
+  line-height: 1.7;
+}
+
+.home-hero-copy .btn-primary {
+  min-height: 3.25rem;
+  padding-inline: 1.75rem;
+  border-radius: 1.25rem;
+  box-shadow: none;
+}
+
+.home-hero-preview {
+  align-items: center;
+  justify-content: center;
+}
+
+.home-hero-preview .terminal-window {
+  width: min(100%, 29rem);
+  border: 1px solid #5d4b45;
+  border-radius: 2rem;
+  background: #241c1a;
+  box-shadow: none;
+  transform: none;
+}
+
+.home-hero-preview .terminal-window:hover {
+  transform: none;
+}
+
+.home-hero-preview .terminal-header {
+  padding: 1rem 1.25rem;
+  background: #302623;
+  border-color: #5d4b45;
+}
+
+.home-hero-preview .terminal-title {
+  color: #b9a39a;
+}
+
+.home-hero-preview .code-cmd,
+.home-hero-preview .code-url {
+  color: #ffb5a3;
+}
+
+.home-tags {
+  justify-content: flex-start;
+  gap: 0.75rem;
+  margin: 0 0 3rem;
+}
+
+.home-tags > div {
+  border: 0;
+  border-radius: 1.25rem;
+  background: var(--md-sys-color-surface-container-high);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.home-features {
+  gap: 1rem;
+  margin-bottom: 4.5rem;
+}
+
+.home-feature-card {
+  min-height: 15rem;
+  padding: 2rem;
+  border-color: transparent;
+  border-radius: 2rem;
+  background: var(--md-sys-color-surface);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.home-feature-card:hover {
+  border-color: color-mix(in srgb, var(--md-sys-color-primary) 28%, transparent);
+  box-shadow: none;
+  transform: translateY(-0.25rem);
+  transition: transform 180ms ease, border-color 180ms ease, background-color 180ms ease;
+}
+
+.home-feature-card > div:first-child {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 1.25rem;
+  background: var(--md-sys-color-surface-container-high) !important;
+  background-image: none !important;
+  color: var(--md-sys-color-primary);
+  box-shadow: none;
+  transform: none !important;
+}
+
+.home-feature-card > div:first-child :is(svg) {
+  color: var(--md-sys-color-primary);
+}
+
+.home-feature-card h3,
+.home-providers-heading h2 {
+  color: var(--md-sys-color-on-surface);
+}
+
+.home-feature-card p,
+.home-providers-heading p {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.home-providers-heading {
+  text-align: left;
+}
+
+.home-providers {
+  justify-content: flex-start;
+  gap: 0.75rem;
+}
+
+.home-providers > div {
+  border-color: transparent;
+  border-radius: 1.25rem;
+  background: var(--md-sys-color-surface-container);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.home-providers > div > div:first-child {
+  border-radius: 0.875rem;
+  background: var(--md-sys-color-primary) !important;
+  background-image: none !important;
+}
+
+.home-providers > div > span:last-child {
+  border-radius: 999px;
+}
+
+.home-footer {
+  border-color: color-mix(in srgb, var(--md-sys-color-outline) 55%, transparent);
+  background: var(--md-sys-color-surface-container);
+}
+
+@media (max-width: 900px) {
+  .home-hero {
+    grid-template-columns: 1fr;
+    min-height: auto;
+    gap: 2.5rem;
+  }
+
+  .home-hero-copy {
+    text-align: center;
+    align-items: center;
+  }
+
+  .home-hero-copy h1 {
+    max-width: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .home-page main {
+    padding: 1.25rem 1rem 2.5rem;
+  }
+
+  .home-header {
+    padding-inline: 1rem;
+  }
+
+  .home-hero {
+    padding: 2rem 1.25rem;
+    border-radius: 2rem;
+  }
+
+  .home-hero-copy h1 {
+    font-size: 2.5rem;
+  }
+
+  .home-hero-preview .terminal-window {
+    border-radius: 1.5rem;
+  }
+
+  .home-tags > div,
+  .home-providers > div {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .home-feature-card {
+    min-height: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-hero,
+  .home-tags,
+  .home-features,
+  .home-providers-heading,
+  .home-providers {
+    animation: none;
+  }
+
+  .home-feature-card:hover {
+    transform: none;
+  }
 }
 </style>
