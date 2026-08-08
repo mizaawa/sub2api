@@ -5,11 +5,11 @@
 @layer base {
   :root {
     color-scheme: light;
-    --md-sys-color-background: #f7f6f2;
-    --md-sys-color-surface: #ffffff;
-    --md-sys-color-surface-container: #eeece6;
-    --md-sys-color-surface-container-high: #e3e0d8;
-    --md-sys-color-outline: #d4d1c9;
+    --md-sys-color-background: #ebe9e3;
+    --md-sys-color-surface: #f8f7f3;
+    --md-sys-color-surface-container: #dedbd3;
+    --md-sys-color-surface-container-high: #d1cdc4;
+    --md-sys-color-outline: #c4c0b7;
     --md-sys-color-on-surface: #181817;
     --md-sys-color-on-surface-variant: #5f5d58;
     --md-sys-color-primary: #d97757;
@@ -575,16 +575,16 @@
     @apply overflow-hidden;
     @apply text-sm font-medium;
     @apply text-gray-600 dark:text-dark-300;
-    @apply transition-all duration-200;
-    @apply hover:bg-gray-100 dark:hover:bg-dark-800;
+    @apply transition-colors duration-200;
+    @apply hover:bg-primary-100/70 dark:hover:bg-dark-800;
     @apply hover:text-gray-900 dark:hover:text-white;
     padding-left: 1.0625rem;
     padding-right: 0.875rem;
   }
 
   .sidebar-link-active {
-    @apply bg-primary-100 text-primary-800 dark:bg-primary-900/40 dark:text-primary-200;
-    @apply hover:bg-primary-200 dark:hover:bg-primary-900/60;
+    @apply bg-transparent text-primary-900 dark:text-primary-200;
+    @apply hover:bg-transparent dark:hover:bg-transparent;
   }
 
   .sidebar-section {

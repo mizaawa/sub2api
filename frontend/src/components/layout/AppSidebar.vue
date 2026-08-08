@@ -31,6 +31,16 @@
 
     <!-- Navigation -->
     <nav ref="sidebarNavRef" class="sidebar-nav scrollbar-hide">
+      <span
+        class="sidebar-active-indicator"
+        :style="{
+          width: `${activeIndicator.width}px`,
+          height: `${activeIndicator.height}px`,
+          opacity: activeIndicator.visible ? 1 : 0,
+          transform: `translate3d(${activeIndicator.left}px, ${activeIndicator.top}px, 0)`,
+        }"
+        aria-hidden="true"
+      ></span>
       <!-- Admin View: Admin menu first, then personal menu -->
       <template v-if="isAdmin">
         <!-- Admin Section -->
@@ -248,6 +258,14 @@ const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
 const mobileOpen = computed(() => appStore.mobileOpen)
 const isAdmin = computed(() => authStore.isAdmin)
 const sidebarNavRef = ref<HTMLElement | null>(null)
+const activeIndicator = ref({
+  top: 0,
+  left: 0,
+  width: 0,
+  height: 0,
+  visible: false,
+})
+let sidebarResizeObserver: ResizeObserver | null = null
 const isDark = ref(document.documentElement.classList.contains('dark'))
 
 const homePath = computed(() => (isAdmin.value ? '/admin/dashboard' : '/dashboard'))
@@ -888,6 +906,7 @@ function toggleGroup(item: NavItem) {
   } else {
     expandedGroups.value.add(item.path)
   }
+  void nextTick(updateActiveIndicator)
 }
 
 /**
@@ -910,7 +929,40 @@ function handleGroupClick(item: NavItem) {
   if (!expandedGroups.value.has(item.path)) {
     expandedGroups.value.add(item.path)
   }
+  void nextTick(updateActiveIndicator)
 }
+
+function updateActiveIndicator() {
+  const nav = sidebarNavRef.value
+  if (!nav) return
+
+  const activeLink = nav.querySelector<HTMLElement>('.sidebar-link-active')
+  if (!activeLink) {
+    activeIndicator.value = { ...activeIndicator.value, visible: false }
+    return
+  }
+
+  const navRect = nav.getBoundingClientRect()
+  const linkRect = activeLink.getBoundingClientRect()
+  activeIndicator.value = {
+    top: linkRect.top - navRect.top + nav.scrollTop,
+    left: linkRect.left - navRect.left + nav.scrollLeft,
+    width: linkRect.width,
+    height: linkRect.height,
+    visible: true,
+  }
+}
+
+watch(
+  [() => route.fullPath, sidebarCollapsed, adminNavItems, personalNavItems, userNavItems],
+  () => {
+    void nextTick(() => {
+      updateActiveIndicator()
+      window.setTimeout(updateActiveIndicator, 240)
+    })
+  },
+  { deep: true },
+)
 
 // Initialize theme
 const savedTheme = localStorage.getItem('theme')
@@ -946,16 +998,56 @@ onMounted(() => {
       }
     })
   }
+  void nextTick(updateActiveIndicator)
+  if (sidebarNavRef.value && typeof ResizeObserver !== 'undefined') {
+    sidebarResizeObserver = new ResizeObserver(updateActiveIndicator)
+    sidebarResizeObserver.observe(sidebarNavRef.value)
+  }
+  window.addEventListener('resize', updateActiveIndicator)
 })
 
 onBeforeUnmount(() => {
   if (sidebarNavRef.value) {
     appStore.sidebarScrollTop = sidebarNavRef.value.scrollTop
   }
+  sidebarResizeObserver?.disconnect()
+  window.removeEventListener('resize', updateActiveIndicator)
 })
 </script>
 
 <style scoped>
+.sidebar-nav {
+  position: relative;
+}
+
+.sidebar-active-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  border-radius: 1rem;
+  background: #efb9a4;
+  pointer-events: none;
+  transition:
+    transform 320ms cubic-bezier(0.2, 0, 0, 1),
+    width 220ms cubic-bezier(0.2, 0, 0, 1),
+    height 220ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 140ms ease;
+}
+
+.sidebar-link {
+  position: relative;
+  z-index: 1;
+}
+
+.sidebar-link-active {
+  background: transparent !important;
+}
+
+.sidebar-link-active:hover {
+  background: rgb(217 119 87 / 0.12) !important;
+}
+
 .sidebar-logo {
   flex: 0 0 2.25rem;
   min-width: 2.25rem;
@@ -1031,10 +1123,6 @@ onBeforeUnmount(() => {
   transition: opacity 0.18s ease;
 }
 
-.dark .sidebar-section-title::after {
-  background: rgb(55 65 81);
-}
-
 .sidebar-section-title-text-collapsed {
   opacity: 0;
   transform: translateX(-4px);
@@ -1081,5 +1169,19 @@ onBeforeUnmount(() => {
   display: block;
   width: 1.25rem;
   height: 1.25rem;
+}
+</style>
+
+<style>
+.dark .sidebar-active-indicator {
+  background: rgb(112 55 44 / 0.82);
+}
+
+.dark .sidebar-link-active:hover {
+  background: rgb(239 169 141 / 0.08) !important;
+}
+
+.dark .sidebar-section-title::after {
+  background: rgb(55 65 81);
 }
 </style>

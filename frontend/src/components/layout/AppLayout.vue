@@ -1,7 +1,5 @@
 <template>
-  <div class="min-h-screen bg-gray-50 dark:bg-dark-950">
-    <!-- Background Decoration -->
-    <div class="pointer-events-none fixed inset-0 bg-mesh-gradient"></div>
+  <div class="app-shell min-h-screen">
 
     <!-- Sidebar -->
     <AppSidebar />
@@ -50,3 +48,10 @@ onMounted(() => {
 
 defineExpose({ replayTour })
 </script>
+
+<style scoped>
+.app-shell {
+  background: var(--md-sys-color-background);
+  color: var(--md-sys-color-on-surface);
+}
+</style>

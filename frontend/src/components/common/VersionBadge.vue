@@ -4,7 +4,7 @@
     <template v-if="isAdmin">
       <button
         @click="toggleDropdown"
-        class="flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition-colors"
+        class="version-pill flex items-center gap-1.5 px-2.5 py-1 text-xs transition-colors"
         :class="[
           hasUpdate
             ? 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50'
@@ -31,7 +31,7 @@
         <div
           v-if="dropdownOpen"
           ref="dropdownRef"
-          class="absolute left-0 z-50 mt-2 overflow-hidden whitespace-normal rounded-xl border border-gray-200 bg-white shadow-lg transition-all duration-200 dark:border-dark-700 dark:bg-dark-800"
+          class="version-popover absolute left-0 z-50 mt-2 overflow-hidden whitespace-normal border shadow-lg transition-all duration-200"
           :class="rollbackPanelOpen && isReleaseBuild ? 'w-80' : 'w-64'"
         >
           <!-- Header with refresh button -->
@@ -631,7 +631,7 @@
     </template>
 
     <!-- Non-admin: Simple static version text -->
-    <span v-else-if="version" class="text-xs text-gray-500 dark:text-dark-400">
+    <span v-else-if="version" class="version-pill inline-flex text-xs text-gray-600 dark:text-dark-300">
       v{{ version }}
     </span>
   </div>
@@ -921,6 +921,43 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside)
 })
 </script>
+
+<style scoped>
+.version-pill {
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: 9999px;
+  background: var(--md-sys-color-surface-container-high);
+  line-height: 1.25rem;
+}
+
+.version-popover {
+  border-color: var(--md-sys-color-outline);
+  border-radius: 1.5rem;
+  background: var(--md-sys-color-surface);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: 0 18px 48px rgb(24 24 23 / 0.16);
+}
+
+.version-popover :deep(.bg-white) {
+  background-color: var(--md-sys-color-surface);
+}
+
+.version-popover :deep(.bg-gray-50),
+.version-popover :deep(.bg-gray-100) {
+  background-color: var(--md-sys-color-surface-container);
+}
+
+.version-popover :deep(.border-gray-100),
+.version-popover :deep(.border-gray-200) {
+  border-color: var(--md-sys-color-outline);
+}
+</style>
+
+<style>
+.dark .version-popover {
+  box-shadow: 0 18px 48px rgb(0 0 0 / 0.38);
+}
+</style>
 
 <style scoped>
 .dropdown-enter-active,
