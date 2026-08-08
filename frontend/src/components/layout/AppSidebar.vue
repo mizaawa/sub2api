@@ -19,7 +19,7 @@
       <div class="sidebar-brand" :class="{ 'sidebar-brand-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">
         <router-link
           :to="homePath"
-          class="sidebar-brand-title text-lg font-bold text-gray-900 transition-colors hover:text-primary-600 dark:text-white dark:hover:text-primary-400"
+          class="sidebar-brand-title text-lg font-bold transition-colors"
           @click="handleMenuItemClick(homePath)"
         >
           {{ siteName }}
@@ -961,15 +961,19 @@ onBeforeUnmount(() => {
   height: auto;
   margin: 0.75rem 0.75rem 0.25rem;
   padding: 0.625rem;
-  border: 1px solid var(--md-sys-color-outline);
+  position: relative;
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 34%, var(--md-sys-color-outline));
   border-radius: 1.25rem;
-  background: var(--md-sys-color-surface);
-  box-shadow: 0 0.375rem 1rem rgb(45 37 31 / 0.06);
+  background: color-mix(in srgb, var(--md-sys-color-surface) 78%, var(--md-sys-color-primary));
+  box-shadow: 0 0.5rem 1.25rem rgb(13 73 69 / 0.09);
 }
 
 .sidebar-logo {
   flex: 0 0 2.25rem;
   min-width: 2.25rem;
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 42%, var(--md-sys-color-outline));
+  background: var(--md-sys-color-surface);
+  box-shadow: 0 0.25rem 0.75rem rgb(13 73 69 / 0.12);
 }
 
 .sidebar-header-collapsed {
@@ -1005,6 +1009,21 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--md-sys-color-on-surface);
+}
+
+.sidebar-brand-title:hover {
+  color: color-mix(in srgb, var(--md-sys-color-primary) 82%, var(--md-sys-color-on-surface));
+}
+
+.sidebar-header :deep(.version-pill) {
+  border-color: color-mix(in srgb, var(--md-sys-color-primary) 38%, var(--md-sys-color-outline));
+  background: color-mix(in srgb, var(--md-sys-color-surface) 64%, var(--md-sys-color-primary));
+  color: color-mix(in srgb, var(--md-sys-color-primary) 72%, var(--md-sys-color-on-surface));
+}
+
+.sidebar-header :deep(.version-pill:hover) {
+  background: color-mix(in srgb, var(--md-sys-color-surface) 50%, var(--md-sys-color-primary));
 }
 
 .sidebar-link-collapsed {

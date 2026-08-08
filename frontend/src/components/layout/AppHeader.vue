@@ -1,6 +1,6 @@
 <template>
   <header class="app-header sticky top-3 z-30 mx-3 mt-3 md:mx-4">
-    <div class="flex h-14 items-center justify-between gap-2 px-2 sm:px-4 md:px-5">
+    <div class="app-header-inner flex min-h-14 items-center justify-between gap-2 px-2 sm:px-4 md:px-5">
       <!-- Left: Mobile Menu Toggle + Page Title -->
       <div class="flex shrink-0 items-center gap-2 sm:gap-4">
         <button
@@ -11,18 +11,18 @@
           <Icon name="menu" size="md" />
         </button>
 
-        <div class="hidden lg:block">
-          <h1 class="text-lg font-semibold text-gray-900 dark:text-white">
+        <div class="app-header-title hidden lg:block">
+          <h1 class="text-base font-bold">
             {{ pageTitle }}
           </h1>
-          <p v-if="pageDescription" class="text-xs text-gray-500 dark:text-dark-400">
+          <p v-if="pageDescription" class="app-header-description text-xs">
             {{ pageDescription }}
           </p>
         </div>
       </div>
 
       <!-- Right: Announcements + Docs + Language + Subscriptions + Balance + User Dropdown -->
-      <div class="flex min-w-0 items-center gap-1 sm:gap-3">
+      <div class="app-header-actions flex min-w-0 items-center gap-1 sm:gap-2">
         <!-- Announcement Bell -->
         <AnnouncementBell v-if="user" />
 
@@ -383,15 +383,50 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .app-header {
-  border: 1px solid var(--md-sys-color-outline);
-  border-radius: 1.25rem;
-  background: color-mix(in srgb, var(--md-sys-color-surface) 92%, transparent);
-  box-shadow: 0 0.5rem 1.5rem rgb(45 37 31 / 0.08);
-  backdrop-filter: blur(16px);
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 22%, var(--md-sys-color-outline));
+  border-radius: 1.375rem;
+  background: color-mix(in srgb, var(--md-sys-color-surface) 88%, transparent);
+  box-shadow: 0 0.625rem 1.75rem rgb(13 73 69 / 0.09);
+  backdrop-filter: blur(18px) saturate(1.08);
+}
+
+.app-header-inner {
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+}
+
+.app-header-title {
+  position: relative;
+  padding-left: 0.875rem;
+  color: var(--md-sys-color-on-surface);
+}
+
+.app-header-title::before {
+  position: absolute;
+  top: 0.125rem;
+  bottom: 0.125rem;
+  left: 0;
+  width: 0.25rem;
+  border-radius: 999px;
+  background: var(--md-sys-color-primary);
+  content: '';
+}
+
+.app-header-description {
+  margin-top: 0.0625rem;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.app-header-actions {
+  padding: 0.1875rem;
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 72%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--md-sys-color-surface-container) 64%, transparent);
 }
 
 :global(.dark) .app-header {
-  box-shadow: 0 0.5rem 1.5rem rgb(0 0 0 / 0.18);
+  background: color-mix(in srgb, var(--md-sys-color-surface) 90%, transparent);
+  box-shadow: 0 0.625rem 1.75rem rgb(0 0 0 / 0.22);
 }
 
 .dropdown-enter-active,

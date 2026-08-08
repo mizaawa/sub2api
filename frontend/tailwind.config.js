@@ -7,45 +7,45 @@ export default {
       colors: {
         // 主色调 - Teal/Cyan 青色系
         primary: {
-          50: '#fff8f3',
-          100: '#fce9de',
-          200: '#f7cfbc',
-          300: '#efa98d',
-          400: '#e38361',
-          500: '#d97757',
-          600: '#c45f42',
-          700: '#a54a33',
-          800: '#873e2f',
-          900: '#70372c',
-          950: '#3c1b14'
+          50: '#effcfb',
+          100: '#d8f7f4',
+          200: '#b5eee9',
+          300: '#82dfd8',
+          400: '#39c5bb',
+          500: '#168f87',
+          600: '#177f79',
+          700: '#146b66',
+          800: '#145854',
+          900: '#134a47',
+          950: '#082f2d'
         },
         // 辅助色 - 深蓝灰
         accent: {
-          50: '#f8f9fa',
-          100: '#f1f3f4',
-          200: '#e3e6e8',
-          300: '#c9cdd1',
-          400: '#9da3a8',
-          500: '#73787d',
-          600: '#5a5f63',
-          700: '#44484b',
-          800: '#303336',
-          900: '#202124',
-          950: '#131415'
+          50: '#fff1f7',
+          100: '#ffe3ef',
+          200: '#ffc6df',
+          300: '#ff98c5',
+          400: '#f861a3',
+          500: '#e12885',
+          600: '#c31d6f',
+          700: '#a3155b',
+          800: '#88154d',
+          900: '#721643',
+          950: '#460522'
         },
         // 深色模式背景
         dark: {
-          50: '#f7f6f2',
-          100: '#eeece6',
-          200: '#dedbd2',
-          300: '#c7c3ba',
-          400: '#9e9a92',
-          500: '#76736d',
-          600: '#5c5954',
-          700: '#45433f',
-          800: '#2d2c29',
-          900: '#20201e',
-          950: '#151514'
+          50: '#f2f8f7',
+          100: '#dce9e7',
+          200: '#bfd2cf',
+          300: '#99b6b2',
+          400: '#718f8b',
+          500: '#56726f',
+          600: '#415957',
+          700: '#324544',
+          800: '#233132',
+          900: '#182223',
+          950: '#101718'
         }
       },
       fontFamily: {
@@ -65,18 +65,18 @@ export default {
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace']
       },
       boxShadow: {
-        glass: '0 1px 2px rgba(73, 45, 36, 0.08)',
-        'glass-sm': '0 1px 2px rgba(73, 45, 36, 0.06)',
+        glass: '0 1px 2px rgba(12, 65, 62, 0.08)',
+        'glass-sm': '0 1px 2px rgba(12, 65, 62, 0.06)',
         glow: '0 0 0 transparent',
         'glow-lg': '0 0 0 transparent',
-        card: '0 1px 2px rgba(73, 45, 36, 0.08)',
-        'card-hover': '0 4px 12px rgba(73, 45, 36, 0.12)',
+        card: '0 1px 2px rgba(12, 65, 62, 0.08)',
+        'card-hover': '0 4px 12px rgba(12, 65, 62, 0.12)',
         'inner-glow': 'inset 0 1px 0 rgba(255, 255, 255, 0.1)'
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
-        'gradient-primary': '#d9654c',
-        'gradient-dark': '#302623',
+        'gradient-primary': '#39c5bb',
+        'gradient-dark': '#182223',
         'gradient-glass':
           'linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
         'mesh-gradient':
