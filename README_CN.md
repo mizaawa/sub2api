@@ -1,5 +1,11 @@
 # Sub2API 部署
 
+<p align="center">
+  <a href="README.md"><img src="https://img.shields.io/badge/English-README-0969da" alt="English"></a>
+  <a href="README_CN.md"><img src="https://img.shields.io/badge/%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-README-0969da" alt="简体中文"></a>
+  <a href="README_JA.md"><img src="https://img.shields.io/badge/%E6%97%A5%E6%9C%AC%E8%AA%9E-README-0969da" alt="日本語"></a>
+</p>
+
 本仓库由 [mizaawa/sub2api](https://github.com/mizaawa/sub2api) 维护。部署镜像、安装脚本以及后台的一键更新和版本回退均使用此仓库的 Release。
 
 ## Docker Compose 部署
@@ -31,6 +37,30 @@ docker compose -f docker-compose.local.yml up -d
 ```
 
 生产环境启动前，请在 `.env` 中设置强随机值 `POSTGRES_PASSWORD`、`JWT_SECRET` 和 `TOTP_ENCRYPTION_KEY`；可按需设置 `ADMIN_EMAIL`、`ADMIN_PASSWORD`、`SERVER_PORT`。
+
+### 从上游部署迁移并保留数据
+
+当前这种本地目录版 Compose 会把应用数据保存在 `./data`，PostgreSQL 保存在 `./postgres_data`，Redis 保存在 `./redis_data`。必须在**原来的部署目录**执行以下步骤，不要新建第二个目录，也不要再次运行 `docker-deploy.sh`，否则可能覆盖 `.env` 并生成新密钥。
+
+```bash
+cd /path/to/sub2api-deploy
+umask 077
+STAMP=$(date +%Y%m%d-%H%M%S)
+mkdir -p "backups/$STAMP"
+cp .env docker-compose.yml "backups/$STAMP/"
+docker compose exec -T postgres sh -ec 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "backups/$STAMP/sub2api.dump"
+
+# 只替换 sub2api 应用镜像，postgres 和 redis 保持不变
+sed -i 's#image: weishaw/sub2api:latest#image: ${SUB2API_IMAGE:-ghcr.io/mizaawa/sub2api:latest}#' docker-compose.yml
+printf '\nSUB2API_IMAGE=ghcr.io/mizaawa/sub2api:latest\n' >> .env
+
+docker compose config -q
+docker compose pull sub2api
+docker compose up -d --no-deps sub2api
+docker compose ps
+```
+
+该流程只重建 `sub2api`，不会删除或重建数据库、Redis 数据目录。请保留原 `.env` 中的 `POSTGRES_PASSWORD`、`JWT_SECRET`、`TOTP_ENCRYPTION_KEY` 以及代理和供应商配置。
 
 ### 更新与回退
 
