@@ -36,7 +36,7 @@ const mockTriggerRect = (left: number, width: number) => {
   })
 }
 
-const openSelect = async () => {
+const openSelect = async (centered = false) => {
   const wrapper = mount(Select, {
     props: {
       modelValue: null,
@@ -46,6 +46,7 @@ const openSelect = async () => {
           label: 'very-long-unbroken-option-value-that-must-not-overflow',
         },
       ],
+      centered,
     },
   })
   unmountWrapper = () => wrapper.unmount()
@@ -111,5 +112,18 @@ describe('Select dropdown viewport constraints', () => {
     expect(dropdown?.style.left).toBe('312px')
     expect(dropdown?.style.minWidth).toBe('0px')
     expect(dropdown?.style.maxWidth).toBe('0px')
+  })
+
+  it('centers the opt-in group picker within the viewport', async () => {
+    setViewportWidth(320)
+    mockTriggerRect(220, 80)
+
+    const dropdown = await openSelect(true)
+
+    expect(dropdown).not.toBeNull()
+    expect(dropdown?.style.left).toBe('50%')
+    expect(dropdown?.style.top).toBe('50%')
+    expect(dropdown?.style.transform).toBe('translate(-50%, -50%)')
+    expect(dropdown?.style.width).toBe('304px')
   })
 })

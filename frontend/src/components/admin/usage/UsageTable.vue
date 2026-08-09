@@ -2,7 +2,7 @@
   <div :class="flat ? '' : 'card overflow-hidden'">
     <div
       v-if="showIpGeoToolbar"
-      class="flex items-center justify-end gap-2 border-b border-gray-200 px-4 py-2 dark:border-dark-700"
+      class="flex items-center justify-end gap-2 px-4 py-2"
     >
       <span v-if="pendingIpCount > 0" class="text-xs text-gray-500 dark:text-gray-400">
         {{ t('usage.ipGeo.pending', { count: pendingIpCount }) }}

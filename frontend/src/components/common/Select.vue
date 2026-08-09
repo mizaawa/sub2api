@@ -154,6 +154,7 @@ interface Props {
   id?: string
   ariaLabel?: string
   ariaDescribedby?: string
+  centered?: boolean
 }
 
 interface Emits {
@@ -169,7 +170,8 @@ const props = withDefaults(defineProps<Props>(), {
   creatablePrefix: '',
   clearable: false,
   valueKey: 'value',
-  labelKey: 'label'
+  labelKey: 'label',
+  centered: false
 })
 
 const emit = defineEmits<Emits>()
@@ -202,6 +204,20 @@ const dropdownStyle = computed(() => {
   if (!triggerRect.value) return {}
 
   const rect = triggerRect.value
+  if (props.centered) {
+    const width = Math.min(380, Math.max(dropdownViewportPadding * 2, window.innerWidth - dropdownViewportPadding * 2))
+    return {
+      position: 'fixed',
+      top: '50%',
+      left: '50%',
+      width: `${width}px`,
+      minWidth: `${width}px`,
+      maxWidth: `${width}px`,
+      transform: 'translate(-50%, -50%)',
+      zIndex: '100000020'
+    }
+  }
+
   const viewportRight = Math.max(dropdownViewportPadding, window.innerWidth - dropdownViewportPadding)
   const left = Math.min(
     Math.max(dropdownViewportPadding, rect.left),
