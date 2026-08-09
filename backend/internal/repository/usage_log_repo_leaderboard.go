@@ -22,9 +22,17 @@ func (r *usageLogRepository) GetUserSpendingRank(ctx context.Context, startTime,
 			FROM user_spend
 		)
 		SELECT COALESCE((SELECT rank FROM ranked WHERE user_id = $3), 0)`
-	var rank int64
-	if err := r.sql.QueryRowContext(ctx, query, startTime, endTime, userID).Scan(&rank); err != nil {
+	rows, err := r.sql.QueryContext(ctx, query, startTime, endTime, userID)
+	if err != nil {
 		return 0, err
 	}
-	return rank, nil
+	defer rows.Close() //nolint:errcheck
+	if !rows.Next() {
+		return 0, rows.Err()
+	}
+	var rank int64
+	if err := rows.Scan(&rank); err != nil {
+		return 0, err
+	}
+	return rank, rows.Err()
 }

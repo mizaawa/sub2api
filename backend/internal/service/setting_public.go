@@ -440,7 +440,9 @@ func (s *SettingService) GetAvailableChannelsRuntime(ctx context.Context) Availa
 }
 
 // LeaderboardRuntime is the lightweight opt-in switch used by the user endpoint.
-type LeaderboardRuntime struct { Enabled bool }
+type LeaderboardRuntime struct {
+	Enabled bool
+}
 
 // GetLeaderboardRuntime fails closed, so a settings-store error cannot trigger a ranking query.
 func (s *SettingService) GetLeaderboardRuntime(ctx context.Context) LeaderboardRuntime {
