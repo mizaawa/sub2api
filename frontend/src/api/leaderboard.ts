@@ -9,6 +9,7 @@ export interface LeaderboardEntry {
 }
 
 export interface LeaderboardResponse {
+  period: 'today' | 'week' | 'month'
   period_days: number
   entries: LeaderboardEntry[]
   my_rank: number | null
@@ -17,8 +18,9 @@ export interface LeaderboardResponse {
   my_tokens: number
 }
 
-export async function getLeaderboard(options?: { signal?: AbortSignal }): Promise<LeaderboardResponse> {
+export async function getLeaderboard(period: 'today' | 'week' | 'month' = 'today', options?: { signal?: AbortSignal }): Promise<LeaderboardResponse> {
   const { data } = await apiClient.get<LeaderboardResponse>('/leaderboard', {
+    params: { period },
     signal: options?.signal,
   })
   return data

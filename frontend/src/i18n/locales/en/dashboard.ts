@@ -61,8 +61,12 @@ export default {
 
   leaderboard: {
     title: 'Leaderboard',
-    description: 'Top 25 users by usage in the last 30 days',
-    period: 'Last 30 days',
+    description: 'Top 25 users by usage in the selected period',
+    period: 'Today · Beijing time',
+    periodTimezone: 'All times use Beijing time (UTC+8)',
+    periodToday: 'Today',
+    periodWeek: 'This week',
+    periodMonth: 'This month',
     myRank: 'My rank',
     unranked: 'Unranked',
     noData: 'No ranking data yet',
@@ -71,7 +75,6 @@ export default {
     cost: 'Usage cost',
     requests: 'Requests',
     tokens: 'Tokens',
-    masked: 'Privacy-protected display names',
     loadFailed: 'Failed to load leaderboard',
   },
 

@@ -61,8 +61,12 @@ export default {
 
   leaderboard: {
     title: '排行榜',
-    description: '近 30 天使用量排名，最多显示 25 位用户',
-    period: '近 30 天',
+    description: '按所选时间段的使用量排名，最多显示 25 位用户',
+    period: '今日 · 北京时间',
+    periodTimezone: '时间按北京时间（UTC+8）统计',
+    periodToday: '今日',
+    periodWeek: '本周',
+    periodMonth: '本月',
     myRank: '我的排名',
     unranked: '暂未上榜',
     noData: '暂无排名数据',
@@ -71,7 +75,6 @@ export default {
     cost: '使用费用',
     requests: '请求数',
     tokens: 'Token',
-    masked: '用户名已脱敏显示',
     loadFailed: '排行榜加载失败',
   },
 

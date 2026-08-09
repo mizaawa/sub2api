@@ -26,6 +26,7 @@ type leaderboardEntryResponse struct {
 }
 
 type leaderboardResponse struct {
+	Period       string                       `json:"period"`
 	PeriodDays   int                        `json:"period_days"`
 	Entries      []leaderboardEntryResponse `json:"entries"`
 	MyRank       *int64                     `json:"my_rank"`
@@ -470,8 +471,35 @@ func (h *UsageHandler) GetLeaderboard(c *gin.Context) {
 		response.NotFound(c, "Leaderboard is disabled")
 		return
 	}
-	end := time.Now().UTC()
-	start := end.Add(-30 * 24 * time.Hour)
+	period := strings.ToLower(strings.TrimSpace(c.DefaultQuery("period", "today")))
+	if period != "today" && period != "week" && period != "month" {
+		response.BadRequest(c, "Invalid leaderboard period")
+		return
+	}
+	// Leaderboard boundaries are fixed to Beijing time, regardless of the
+	// server host timezone or the browser timezone.
+	beijing, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		beijing = time.FixedZone("CST", 8*60*60)
+	}
+	now := time.Now().In(beijing)
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, beijing)
+	switch period {
+	case "week":
+		weekday := int(start.Weekday())
+		if weekday == 0 {
+			weekday = 7
+		}
+		start = start.AddDate(0, 0, -(weekday - 1))
+	case "month":
+		start = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, beijing)
+	}
+	end := start.AddDate(0, 0, 1)
+	if period == "week" {
+		end = start.AddDate(0, 0, 7)
+	} else if period == "month" {
+		end = start.AddDate(0, 1, 0)
+	}
 	data, err := h.usageService.GetLeaderboard(c.Request.Context(), subject.UserID, start, end, 25)
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -486,7 +514,7 @@ func (h *UsageHandler) GetLeaderboard(c *gin.Context) {
 	}
 	myStats := data.MyStats
 	response.Success(c, leaderboardResponse{
-		PeriodDays: data.PeriodDays, Entries: entries, MyRank: data.MyRank,
+		Period: period, PeriodDays: data.PeriodDays, Entries: entries, MyRank: data.MyRank,
 		MyActualCost: myStats.TotalActualCost, MyRequests: myStats.TotalRequests, MyTokens: myStats.TotalTokens,
 	})
 }

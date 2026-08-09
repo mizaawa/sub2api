@@ -11,7 +11,7 @@
           </div>
           <p class="text-sm font-medium text-primary-100">{{ t('redeem.currentBalance') }}</p>
           <p
-            class="mt-2 text-4xl font-bold text-white"
+            class="redeem-balance-value mt-2 text-4xl font-bold text-white"
             :class="balanceToneClass(user?.balance)"
             data-testid="redeem-balance-value"
           >
@@ -509,5 +509,12 @@ onMounted(async () => {
 .fade-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+
+/* The balance sits on a Miku-teal hero, so a lighter coral-red keeps a
+   negative value readable without competing with the primary gradient. */
+.redeem-balance-value.balance-tone-negative {
+  color: #ffc1cc !important;
+  text-shadow: 0 1px 12px rgb(255 126 153 / 22%);
 }
 </style>
