@@ -161,6 +161,38 @@ func (r *userRepository) GetByID(ctx context.Context, id int64) (*service.User, 
 	return out, nil
 }
 
+func (r *userRepository) GetLeaderboardParticipation(ctx context.Context, userID int64) (bool, error) {
+	const query = `
+		SELECT COALESCE((
+			SELECT participating
+			FROM user_leaderboard_preferences
+			WHERE user_id = $1
+		), FALSE)`
+	rows, err := r.sql.QueryContext(ctx, query, userID)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close() //nolint:errcheck
+	if !rows.Next() {
+		return false, rows.Err()
+	}
+	var participating bool
+	if err := rows.Scan(&participating); err != nil {
+		return false, err
+	}
+	return participating, rows.Err()
+}
+
+func (r *userRepository) SetLeaderboardParticipation(ctx context.Context, userID int64, participating bool) error {
+	const query = `
+		INSERT INTO user_leaderboard_preferences (user_id, participating, updated_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (user_id) DO UPDATE
+		SET participating = EXCLUDED.participating, updated_at = NOW()`
+	_, err := r.sql.ExecContext(ctx, query, userID, participating)
+	return err
+}
+
 func (r *userRepository) GetByIDIncludeDeleted(ctx context.Context, id int64) (*service.User, error) {
 	ctx = mixins.SkipSoftDelete(ctx)
 	m, err := r.client.User.Query().Where(dbuser.IDEQ(id)).Only(ctx)

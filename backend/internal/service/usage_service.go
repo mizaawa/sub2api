@@ -65,6 +65,10 @@ type leaderboardRankReader interface {
 	GetUserSpendingRank(ctx context.Context, startTime, endTime time.Time, userID int64) (int64, error)
 }
 
+type publicLeaderboardReader interface {
+	GetPublicUserSpendingRanking(ctx context.Context, startTime, endTime time.Time, limit int) (*usagestats.UserSpendingRankingResponse, error)
+}
+
 // UsageService 使用统计服务
 type UsageService struct {
 	usageRepo            UsageLogRepository
@@ -222,7 +226,15 @@ func (s *UsageService) GetLeaderboard(ctx context.Context, userID int64, startTi
 	if limit <= 0 || limit > 25 {
 		limit = 25
 	}
-	ranking, err := s.usageRepo.GetUserSpendingRanking(ctx, startTime, endTime, limit)
+	var ranking *usagestats.UserSpendingRankingResponse
+	var err error
+	if reader, ok := s.usageRepo.(publicLeaderboardReader); ok {
+		ranking, err = reader.GetPublicUserSpendingRanking(ctx, startTime, endTime, limit)
+	} else {
+		// Keep lightweight test doubles and older repository implementations
+		// functional while the public reader is being introduced.
+		ranking, err = s.usageRepo.GetUserSpendingRanking(ctx, startTime, endTime, limit)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("get leaderboard: %w", err)
 	}
@@ -241,6 +253,24 @@ func (s *UsageService) GetLeaderboard(ctx context.Context, userID int64, startTi
 		return nil, fmt.Errorf("get leaderboard user stats: %w", err)
 	}
 	return &LeaderboardData{Ranking: ranking.Ranking, MyRank: myRank, MyStats: myStats, PeriodDays: int(endTime.Sub(startTime) / (24 * time.Hour))}, nil
+}
+
+// GetLeaderboardParticipation returns false when the optional store is not
+// available, preserving the privacy-first default for older deployments.
+func (s *UsageService) GetLeaderboardParticipation(ctx context.Context, userID int64) (bool, error) {
+	store, ok := s.userRepo.(LeaderboardParticipationStore)
+	if !ok {
+		return false, nil
+	}
+	return store.GetLeaderboardParticipation(ctx, userID)
+}
+
+func (s *UsageService) SetLeaderboardParticipation(ctx context.Context, userID int64, participating bool) error {
+	store, ok := s.userRepo.(LeaderboardParticipationStore)
+	if !ok {
+		return errors.New("leaderboard participation store is not configured")
+	}
+	return store.SetLeaderboardParticipation(ctx, userID, participating)
 }
 
 // GetStatsByAPIKey 获取API Key的使用统计

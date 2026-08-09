@@ -15,6 +15,7 @@ func (r *usageLogRepository) GetUserSpendingRank(ctx context.Context, startTime,
 				COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_creation_tokens + u.cache_read_tokens), 0) AS tokens
 			FROM usage_logs u
 			JOIN users us ON us.id = u.user_id AND us.deleted_at IS NULL
+			JOIN user_leaderboard_preferences lp ON lp.user_id = u.user_id AND lp.participating
 			WHERE u.created_at >= $1 AND u.created_at < $2
 			GROUP BY u.user_id
 		), ranked AS (

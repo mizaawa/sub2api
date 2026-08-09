@@ -84,6 +84,7 @@ func RegisterUserRoutes(
 
 		// 用户排行榜（功能关闭时 handler 在访问统计前直接返回 404）
 		authenticated.GET("/leaderboard", panelRateLimiter.Heavy(), h.Usage.GetLeaderboard)
+		authenticated.PATCH("/leaderboard/participation", panelRateLimiter.Heavy(), h.Usage.SetLeaderboardParticipation)
 
 		// 用户可用分组（非管理员接口）
 		groups := authenticated.Group("/groups")

@@ -26,13 +26,14 @@ type leaderboardEntryResponse struct {
 }
 
 type leaderboardResponse struct {
-	Period       string                       `json:"period"`
-	PeriodDays   int                        `json:"period_days"`
-	Entries      []leaderboardEntryResponse `json:"entries"`
-	MyRank       *int64                     `json:"my_rank"`
-	MyActualCost float64                    `json:"my_actual_cost"`
-	MyRequests   int64                      `json:"my_requests"`
-	MyTokens     int64                      `json:"my_tokens"`
+	Period        string                     `json:"period"`
+	PeriodDays    int                        `json:"period_days"`
+	Entries       []leaderboardEntryResponse `json:"entries"`
+	MyRank        *int64                     `json:"my_rank"`
+	MyActualCost  float64                    `json:"my_actual_cost"`
+	MyRequests    int64                      `json:"my_requests"`
+	MyTokens      int64                      `json:"my_tokens"`
+	Participating bool                       `json:"participating"`
 }
 
 func maskLeaderboardIdentity(username, email string) string {
@@ -471,6 +472,11 @@ func (h *UsageHandler) GetLeaderboard(c *gin.Context) {
 		response.NotFound(c, "Leaderboard is disabled")
 		return
 	}
+	participating, err := h.usageService.GetLeaderboardParticipation(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	period := strings.ToLower(strings.TrimSpace(c.DefaultQuery("period", "today")))
 	if period != "today" && period != "week" && period != "month" {
 		response.BadRequest(c, "Invalid leaderboard period")
@@ -495,9 +501,10 @@ func (h *UsageHandler) GetLeaderboard(c *gin.Context) {
 		start = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, beijing)
 	}
 	end := start.AddDate(0, 0, 1)
-	if period == "week" {
+	switch period {
+	case "week":
 		end = start.AddDate(0, 0, 7)
-	} else if period == "month" {
+	case "month":
 		end = start.AddDate(0, 1, 0)
 	}
 	data, err := h.usageService.GetLeaderboard(c.Request.Context(), subject.UserID, start, end, 25)
@@ -516,7 +523,36 @@ func (h *UsageHandler) GetLeaderboard(c *gin.Context) {
 	response.Success(c, leaderboardResponse{
 		Period: period, PeriodDays: data.PeriodDays, Entries: entries, MyRank: data.MyRank,
 		MyActualCost: myStats.TotalActualCost, MyRequests: myStats.TotalRequests, MyTokens: myStats.TotalTokens,
+		Participating: participating,
 	})
+}
+
+type leaderboardParticipationRequest struct {
+	Participating *bool `json:"participating"`
+}
+
+// SetLeaderboardParticipation updates only the authenticated user's opt-in
+// state. It never accepts a user ID, so it cannot change another user's preference.
+func (h *UsageHandler) SetLeaderboardParticipation(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.settingService == nil || !h.settingService.GetLeaderboardRuntime(c.Request.Context()).Enabled {
+		response.NotFound(c, "Leaderboard is disabled")
+		return
+	}
+	var req leaderboardParticipationRequest
+	if err := c.ShouldBindJSON(&req); err != nil || req.Participating == nil {
+		response.BadRequest(c, "participating must be a boolean")
+		return
+	}
+	if err := h.usageService.SetLeaderboardParticipation(c.Request.Context(), subject.UserID, *req.Participating); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"participating": *req.Participating})
 }
 
 const (

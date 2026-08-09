@@ -181,6 +181,14 @@ type UserRepository interface {
 	DisableTotp(ctx context.Context, userID int64) error
 }
 
+// LeaderboardParticipationStore persists the user's explicit leaderboard opt-in.
+// It is kept separate from UserRepository so existing repository test doubles
+// remain compatible while older users default to private participation.
+type LeaderboardParticipationStore interface {
+	GetLeaderboardParticipation(ctx context.Context, userID int64) (bool, error)
+	SetLeaderboardParticipation(ctx context.Context, userID int64, participating bool) error
+}
+
 // RedeemUserAdjustmentRepository provides the atomic, floor-at-zero updates
 // used by negative-value redeem codes. It is intentionally narrower than
 // UserRepository because normal usage billing is allowed to overdraw.

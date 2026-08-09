@@ -1135,6 +1135,7 @@ onBeforeUnmount(() => {
 
 .sidebar-label-flex {
   display: flex;
+  flex: 1 1 auto;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;

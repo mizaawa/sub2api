@@ -10,6 +10,7 @@ export interface LeaderboardEntry {
 
 export interface LeaderboardResponse {
   period: 'today' | 'week' | 'month'
+  participating: boolean
   period_days: number
   entries: LeaderboardEntry[]
   my_rank: number | null
@@ -26,5 +27,10 @@ export async function getLeaderboard(period: 'today' | 'week' | 'month' = 'today
   return data
 }
 
-export const leaderboardAPI = { get: getLeaderboard }
+export async function setLeaderboardParticipation(participating: boolean): Promise<{ participating: boolean }> {
+  const { data } = await apiClient.patch<{ participating: boolean }>('/leaderboard/participation', { participating })
+  return data
+}
+
+export const leaderboardAPI = { get: getLeaderboard, setParticipation: setLeaderboardParticipation }
 export default leaderboardAPI

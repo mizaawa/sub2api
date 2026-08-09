@@ -22,6 +22,16 @@
             <p class="muted mt-1 text-xs">{{ t('leaderboard.periodTimezone') }}</p>
           </div>
           <div class="flex w-full items-center gap-2 sm:w-auto">
+            <button
+              type="button"
+              class="participation-toggle shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors"
+              :class="participating ? 'participation-enabled' : 'participation-disabled'"
+              :disabled="loading || participationLoading"
+              :aria-pressed="participating"
+              @click="toggleParticipation"
+            >
+              {{ participating ? t('leaderboard.participating') : t('leaderboard.notParticipating') }}
+            </button>
             <div class="period-switcher flex min-w-0 flex-1 rounded-xl border p-1 sm:flex-none" role="tablist">
               <button
                 v-for="option in periodOptions"
@@ -100,6 +110,8 @@ const data = ref<LeaderboardResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
 const selectedPeriod = ref<LeaderboardPeriod>('today')
+const participating = ref(false)
+const participationLoading = ref(false)
 
 const periodOptions = computed(() => [
   { value: 'today' as const, label: t('leaderboard.periodToday') },
@@ -130,11 +142,26 @@ async function load(): Promise<void> {
   error.value = ''
   try {
     data.value = await leaderboardAPI.get(selectedPeriod.value)
+    participating.value = data.value.participating
     entries.value = data.value.entries.slice(0, 25)
   } catch {
     error.value = t('leaderboard.loadFailed')
   } finally {
     loading.value = false
+  }
+}
+
+async function toggleParticipation(): Promise<void> {
+  participationLoading.value = true
+  error.value = ''
+  try {
+    const result = await leaderboardAPI.setParticipation(!participating.value)
+    participating.value = result.participating
+    await load()
+  } catch {
+    error.value = t('leaderboard.participationFailed')
+  } finally {
+    participationLoading.value = false
   }
 }
 
@@ -173,6 +200,10 @@ onMounted(load)
 .period-option-active { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
 .period-option-idle { color: var(--md-sys-color-on-surface-variant); }
 .period-option-idle:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent); color: var(--md-sys-color-on-surface); }
+.participation-toggle { max-width: 10rem; }
+.participation-enabled { border-color: color-mix(in srgb, var(--md-sys-color-primary) 48%, var(--md-sys-color-outline)); background: color-mix(in srgb, var(--md-sys-color-primary) 14%, var(--md-sys-color-surface)); color: var(--md-sys-color-primary); }
+.participation-disabled { border-color: var(--md-sys-color-outline); background: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface-variant); }
+.participation-disabled:hover { border-color: var(--md-sys-color-primary); color: var(--md-sys-color-primary); }
 
 .table-heading { background: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface-variant); }
 .table-row { border-top: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 55%, transparent); }
@@ -192,6 +223,7 @@ onMounted(load)
   .leaderboard-page { max-width: 100%; }
   .hero-content { gap: 1rem; }
   .rank-summary { display: flex; width: 100%; align-items: center; justify-content: space-between; text-align: left; }
+  .participation-toggle { max-width: none; flex: 1 1 auto; }
   .rank-column { width: 3.75rem; }
   .user-column { width: 40%; }
   .metric-column { width: 28%; }
