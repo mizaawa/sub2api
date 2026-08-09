@@ -10,7 +10,11 @@
             <Icon name="creditCard" size="xl" class="text-white" />
           </div>
           <p class="text-sm font-medium text-primary-100">{{ t('redeem.currentBalance') }}</p>
-          <p class="mt-2 text-4xl font-bold text-white">
+          <p
+            class="mt-2 text-4xl font-bold text-white"
+            :class="balanceToneClass(user?.balance)"
+            data-testid="redeem-balance-value"
+          >
             ${{ user?.balance?.toFixed(2) || '0.00' }}
           </p>
           <p class="mt-2 text-sm text-primary-100">
@@ -358,6 +362,14 @@ const appStore = useAppStore()
 const subscriptionStore = useSubscriptionStore()
 
 const user = computed(() => authStore.user)
+
+function balanceToneClass(value: number | null | undefined): string {
+  const amount = Number(value)
+  if (!Number.isFinite(amount) || amount < 0) return 'balance-tone-negative'
+  if (amount <= 10) return 'balance-tone-low'
+  if (amount > 100) return 'balance-tone-premium'
+  return 'balance-tone-default'
+}
 
 const redeemCode = ref('')
 const submitting = ref(false)

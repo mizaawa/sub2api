@@ -496,7 +496,7 @@
     @apply max-h-[95vh] sm:max-h-[90vh];
     background: var(--md-sys-color-surface);
     border: 1px solid var(--md-sys-color-outline);
-    @apply rounded-4xl shadow-card-hover;
+    @apply overflow-hidden rounded-4xl shadow-card-hover;
     @apply flex flex-col;
   }
 
@@ -527,6 +527,7 @@
     background: var(--md-sys-color-surface-container);
     @apply px-4 py-3;
     @apply sm:px-6 sm:py-4;
+    @apply rounded-b-4xl;
     @apply flex items-center justify-end gap-3;
     @apply flex-shrink-0;
   }
@@ -644,7 +645,7 @@
   .sidebar {
     @apply fixed inset-y-0 left-0 z-50;
     @apply w-64 border-r border-transparent;
-    background: color-mix(in srgb, var(--md-sys-color-surface-container) 88%, var(--md-sys-color-primary));
+    background: transparent;
     @apply flex flex-col;
     @apply transition-transform duration-300;
     transition-property: width, transform;
@@ -660,7 +661,14 @@
   }
 
   .sidebar-nav {
-    @apply flex-1 overflow-y-auto px-3 py-4;
+    position: absolute;
+    inset: 0.35rem;
+    z-index: 1;
+    overflow-y: auto;
+    padding: 5.4rem 0.75rem 5rem;
+    border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 16%, var(--md-sys-color-outline));
+    border-radius: 1.5rem;
+    background: color-mix(in srgb, var(--md-sys-color-surface-container) 91%, var(--md-sys-color-primary));
   }
 
   .sidebar-link {

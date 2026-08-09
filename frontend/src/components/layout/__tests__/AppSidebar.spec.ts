@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest'
 
 const componentPath = resolve(dirname(fileURLToPath(import.meta.url)), '../AppSidebar.vue')
 const componentSource = readFileSync(componentPath, 'utf8')
+const layoutPath = resolve(dirname(fileURLToPath(import.meta.url)), '../AppLayout.vue')
+const layoutSource = readFileSync(layoutPath, 'utf8')
 const stylePath = resolve(dirname(fileURLToPath(import.meta.url)), '../../../style.css')
 const styleSource = readFileSync(stylePath, 'utf8')
 
@@ -67,5 +69,36 @@ describe('AppSidebar grouped navigation', () => {
     expect(componentSource).toContain('personal-panel-section')
     expect(componentSource).toContain('mobile-sidebar-backdrop fixed inset-0 z-40')
     expect(styleSource).toContain('@apply fixed inset-y-0 left-0 z-50;')
+  })
+})
+
+describe('AppSidebar console appearance', () => {
+  it('removes the console theme toggle without changing the saved Home preference', () => {
+    expect(componentSource).not.toContain('@click="toggleTheme"')
+    expect(componentSource).not.toContain("localStorage.setItem('theme'")
+    expect(layoutSource).toContain("document.documentElement.classList.remove('dark')")
+    expect(layoutSource).not.toContain("localStorage.removeItem('theme')")
+  })
+
+  it('centers every icon inside the collapsed sidebar width', () => {
+    const collapsedBlock = componentSource.match(/\.sidebar-link-collapsed\s*\{[\s\S]*?\n\}/)?.[0]
+
+    expect(collapsedBlock).toContain('width: 100%;')
+    expect(collapsedBlock).toContain('justify-content: center;')
+    expect(collapsedBlock).toContain('padding-left: 0;')
+    expect(collapsedBlock).toContain('padding-right: 0;')
+  })
+
+  it('floats matching brand and collapse panels above the scrolling navigation surface', () => {
+    expect(componentSource).toContain('class="sidebar-footer"')
+    expect(componentSource).toContain("'sidebar-footer-collapsed': sidebarCollapsed")
+    expect(componentSource).toContain('.sidebar-footer {')
+    expect(componentSource).toContain('.sidebar-footer-collapsed {')
+    expect(componentSource).toContain('top: 0.75rem;')
+    expect(componentSource).toContain('bottom: 0.75rem;')
+    expect(componentSource).toContain('backdrop-filter: blur(14px) saturate(135%);')
+    expect(styleSource).toContain('background: transparent;')
+    expect(styleSource).toContain('position: absolute;')
+    expect(styleSource).toContain('padding: 5.4rem 0.75rem 5rem;')
   })
 })

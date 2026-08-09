@@ -173,21 +173,10 @@
     </nav>
 
     <!-- Bottom Section -->
-    <div class="mt-auto border-t border-gray-100 p-3 dark:border-dark-800">
-      <!-- Theme Toggle -->
-      <button
-        @click="toggleTheme"
-        class="sidebar-link mb-2 w-full"
-        :class="{ 'sidebar-link-collapsed': sidebarCollapsed }"
-        :title="sidebarCollapsed ? (isDark ? t('nav.lightMode') : t('nav.darkMode')) : undefined"
-      >
-        <SunIcon v-if="isDark" class="h-5 w-5 flex-shrink-0 text-amber-500" />
-        <MoonIcon v-else class="h-5 w-5 flex-shrink-0" />
-        <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{
-          isDark ? t('nav.lightMode') : t('nav.darkMode')
-        }}</span>
-      </button>
-
+    <div
+      class="sidebar-footer"
+      :class="{ 'sidebar-footer-collapsed': sidebarCollapsed }"
+    >
       <!-- Collapse Button -->
       <button
         @click="toggleSidebar"
@@ -273,7 +262,6 @@ const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
 const mobileOpen = computed(() => appStore.mobileOpen)
 const isAdmin = computed(() => authStore.isAdmin)
 const sidebarNavRef = ref<HTMLElement | null>(null)
-const isDark = ref(document.documentElement.classList.contains('dark'))
 const adminPanelStorageKey = 'sub2api-admin-panel-expanded'
 const adminPanelExpanded = ref(localStorage.getItem(adminPanelStorageKey) === 'true')
 
@@ -544,36 +532,6 @@ const CogIcon = {
           'stroke-linecap': 'round',
           'stroke-linejoin': 'round',
           d: 'M15 12a3 3 0 11-6 0 3 3 0 016 0z'
-        })
-      ]
-    )
-}
-
-const SunIcon = {
-  render: () =>
-    h(
-      'svg',
-      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
-      [
-        h('path', {
-          'stroke-linecap': 'round',
-          'stroke-linejoin': 'round',
-          d: 'M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z'
-        })
-      ]
-    )
-}
-
-const MoonIcon = {
-  render: () =>
-    h(
-      'svg',
-      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
-      [
-        h('path', {
-          'stroke-linecap': 'round',
-          'stroke-linejoin': 'round',
-          d: 'M21.752 15.002A9.718 9.718 0 0118 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 003 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 009.002-5.998z'
         })
       ]
     )
@@ -871,12 +829,6 @@ function toggleAdminPanel() {
   localStorage.setItem(adminPanelStorageKey, String(adminPanelExpanded.value))
 }
 
-function toggleTheme() {
-  isDark.value = !isDark.value
-  document.documentElement.classList.toggle('dark', isDark.value)
-  localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
-}
-
 function closeMobile() {
   appStore.setMobileOpen(false)
 }
@@ -944,16 +896,6 @@ function handleGroupClick(item: NavItem) {
   }
 }
 
-// Initialize theme
-const savedTheme = localStorage.getItem('theme')
-if (
-  savedTheme === 'dark' ||
-  (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)
-) {
-  isDark.value = true
-  document.documentElement.classList.add('dark')
-}
-
 // Fetch admin settings (for feature-gated nav items like Ops).
 watch(
   isAdmin,
@@ -991,13 +933,49 @@ onBeforeUnmount(() => {
 .sidebar-header {
   min-height: 3.75rem;
   height: auto;
-  margin: 0.75rem 0.75rem 0.25rem;
+  position: absolute;
+  z-index: 2;
+  top: 0.75rem;
+  right: 0.75rem;
+  left: 0.75rem;
+  margin: 0;
   padding: 0.625rem;
-  position: relative;
   border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 34%, var(--md-sys-color-outline));
   border-radius: 1.25rem;
-  background: color-mix(in srgb, var(--md-sys-color-surface) 78%, var(--md-sys-color-primary));
-  box-shadow: 0 0.5rem 1.25rem rgb(13 73 69 / 0.09);
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--md-sys-color-surface) 90%, transparent),
+    color-mix(in srgb, var(--md-sys-color-surface-container-high) 82%, var(--md-sys-color-primary))
+  );
+  box-shadow:
+    0 0.9rem 1.7rem rgb(3 44 42 / 0.22),
+    0 0.3rem 0.75rem rgb(23 127 121 / 0.14);
+  backdrop-filter: blur(14px) saturate(135%);
+}
+
+.sidebar-footer {
+  position: absolute;
+  z-index: 2;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  left: 0.75rem;
+  padding: 0.375rem;
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 34%, var(--md-sys-color-outline));
+  border-radius: 1.25rem;
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--md-sys-color-surface) 90%, transparent),
+    color-mix(in srgb, var(--md-sys-color-surface-container-high) 82%, var(--md-sys-color-primary))
+  );
+  box-shadow:
+    0 -0.9rem 1.7rem rgb(3 44 42 / 0.2),
+    0 -0.3rem 0.75rem rgb(23 127 121 / 0.12);
+  backdrop-filter: blur(14px) saturate(135%);
+}
+
+.sidebar-footer-collapsed {
+  right: 0.5rem;
+  left: 0.5rem;
 }
 
 .admin-panel-toggle {
@@ -1030,8 +1008,8 @@ onBeforeUnmount(() => {
 .sidebar-header-collapsed {
   justify-content: center;
   gap: 0;
-  margin-right: 0.5rem;
-  margin-left: 0.5rem;
+  right: 0.5rem;
+  left: 0.5rem;
   padding-right: 0.625rem;
   padding-left: 0.625rem;
 }
@@ -1079,8 +1057,10 @@ onBeforeUnmount(() => {
 
 .sidebar-link-collapsed {
   gap: 0;
-  padding-left: 0.875rem;
-  padding-right: 0.875rem;
+  width: 100%;
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .sidebar-section-title {

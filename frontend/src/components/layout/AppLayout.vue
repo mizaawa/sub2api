@@ -32,6 +32,11 @@ import AppHeader from './AppHeader.vue'
 
 const appStore = useAppStore()
 const authStore = useAuthStore()
+
+// Console pages are light-only. Keep the saved preference untouched so Home
+// can restore and toggle its own dark appearance independently.
+document.documentElement.classList.remove('dark')
+
 const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
 const isAdmin = computed(() => authStore.user?.role === 'admin')
 
