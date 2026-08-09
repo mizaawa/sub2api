@@ -11,7 +11,7 @@
       <!-- Settings Form -->
       <form v-else @submit.prevent="saveSettings" class="space-y-6" novalidate>
         <!-- Tab Navigation -->
-        <div class="settings-tabs-shell">
+        <div class="settings-tabs-shell mt-2 md:mt-3">
           <nav
             class="settings-tabs-scroll"
             role="tablist"
@@ -6838,6 +6838,30 @@
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.features.leaderboard.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.features.leaderboard.description') }}
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.leaderboard.enabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.leaderboard.enabledHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.leaderboard_enabled" />
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
               {{ t('admin.settings.features.availableChannels.title') }}
             </h2>
             <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -9461,6 +9485,7 @@ const form = reactive<SettingsForm>({
   channel_monitor_default_interval_seconds: 60,
   // Available Channels feature switch
   available_channels_enabled: false,
+  leaderboard_enabled: false,
   // Model Plaza feature switches + description
   model_plaza_enabled: false,
   model_plaza_require_auth: false,
@@ -11096,6 +11121,7 @@ async function saveSettings() {
         Number(form.channel_monitor_default_interval_seconds) || 60,
       // Available Channels feature switch
       available_channels_enabled: form.available_channels_enabled,
+      leaderboard_enabled: form.leaderboard_enabled,
       // Model Plaza feature switches + description
       model_plaza_enabled: form.model_plaza_enabled,
       model_plaza_require_auth: form.model_plaza_require_auth,
@@ -12557,11 +12583,12 @@ watch(
 
 /* ============ 系统设置 Tab 导航 ============ */
 .settings-tabs-shell {
-  @apply sticky z-20 -mx-1 rounded-2xl border p-1.5;
+  @apply sticky z-20 -mx-1 rounded-2xl border p-2;
+  margin-bottom: 0.25rem;
   top: 4.75rem;
   border-color: var(--md-sys-color-outline);
   background: var(--md-sys-color-surface-container-high);
-  box-shadow: none;
+  box-shadow: 0 10px 24px rgb(15 118 110 / 0.08);
 }
 
 .settings-tabs-scroll {
@@ -12579,7 +12606,8 @@ watch(
 }
 
 .settings-tab {
-  @apply relative isolate flex h-10 min-w-[6.75rem] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-transparent px-3 text-sm font-medium text-gray-600 outline-none transition-colors duration-200 ease-out dark:text-gray-300;
+  @apply relative isolate flex h-11 min-w-[6.75rem] shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-transparent px-3 text-sm font-medium text-gray-600 outline-none transition-colors duration-200 ease-out dark:text-gray-300;
+  line-height: 1.2;
 }
 
 @media (min-width: 768px) {
@@ -12605,6 +12633,11 @@ watch(
 .settings-tab:hover::before,
 .settings-tab:focus-visible::before {
   opacity: 1;
+}
+
+.settings-tab:hover,
+.settings-tab:focus-visible {
+  color: var(--md-sys-color-on-surface);
 }
 
 .settings-tab:focus-visible {
@@ -12641,7 +12674,7 @@ watch(
 }
 
 .settings-tab-label {
-  @apply min-w-0 overflow-hidden text-ellipsis whitespace-nowrap leading-none;
+  @apply min-w-0 overflow-hidden text-ellipsis whitespace-nowrap leading-tight;
 }
 </style>
 
@@ -12653,6 +12686,11 @@ watch(
   border-color: var(--md-sys-color-outline);
   background: var(--md-sys-color-surface-container-high);
   box-shadow: none;
+}
+
+.dark .settings-tab:hover,
+.dark .settings-tab:focus-visible {
+  color: var(--md-sys-color-on-surface);
 }
 
 .dark .settings-tab::before {

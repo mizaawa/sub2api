@@ -54,6 +54,17 @@ type UsageStats struct {
 	AverageDurationMs        float64 `json:"average_duration_ms"`
 }
 
+type LeaderboardData struct {
+	Ranking         []usagestats.UserSpendingRankingItem
+	MyRank          *int64
+	MyStats         *UsageStats
+	PeriodDays      int
+}
+
+type leaderboardRankReader interface {
+	GetUserSpendingRank(ctx context.Context, startTime, endTime time.Time, userID int64) (int64, error)
+}
+
 // UsageService 使用统计服务
 type UsageService struct {
 	usageRepo            UsageLogRepository
@@ -203,6 +214,33 @@ func (s *UsageService) GetStatsByUser(ctx context.Context, userID int64, startTi
 		TotalActualCost:          stats.TotalActualCost,
 		AverageDurationMs:        stats.AverageDurationMs,
 	}, nil
+}
+
+// GetLeaderboard returns a bounded ranking and the caller's own rank. It only
+// reads existing usage logs and never mutates user or billing data.
+func (s *UsageService) GetLeaderboard(ctx context.Context, userID int64, startTime, endTime time.Time, limit int) (*LeaderboardData, error) {
+	if limit <= 0 || limit > 25 {
+		limit = 25
+	}
+	ranking, err := s.usageRepo.GetUserSpendingRanking(ctx, startTime, endTime, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get leaderboard: %w", err)
+	}
+	var myRank *int64
+	if reader, ok := s.usageRepo.(leaderboardRankReader); ok {
+		rank, rankErr := reader.GetUserSpendingRank(ctx, startTime, endTime, userID)
+		if rankErr != nil {
+			return nil, fmt.Errorf("get leaderboard rank: %w", rankErr)
+		}
+		if rank > 0 {
+			myRank = &rank
+		}
+	}
+	myStats, err := s.GetStatsByUser(ctx, userID, startTime, endTime)
+	if err != nil {
+		return nil, fmt.Errorf("get leaderboard user stats: %w", err)
+	}
+	return &LeaderboardData{Ranking: ranking.Ranking, MyRank: myRank, MyStats: myStats, PeriodDays: int(endTime.Sub(startTime) / (24 * time.Hour))}, nil
 }
 
 // GetStatsByAPIKey 获取API Key的使用统计

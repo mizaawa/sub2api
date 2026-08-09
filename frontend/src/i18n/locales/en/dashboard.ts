@@ -59,6 +59,22 @@ export default {
     addBalanceWithCode: 'Add balance with a code'
   },
 
+  leaderboard: {
+    title: 'Leaderboard',
+    description: 'Top 25 users by usage in the last 30 days',
+    period: 'Last 30 days',
+    myRank: 'My rank',
+    unranked: 'Unranked',
+    noData: 'No ranking data yet',
+    rank: 'Rank',
+    user: 'User',
+    cost: 'Usage cost',
+    requests: 'Requests',
+    tokens: 'Tokens',
+    masked: 'Privacy-protected display names',
+    loadFailed: 'Failed to load leaderboard',
+  },
+
   // Groups (shared)
   groups: {
     subscription: 'Sub'

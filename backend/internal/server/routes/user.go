@@ -82,6 +82,9 @@ func RegisterUserRoutes(
 			keys.DELETE("/:id", h.APIKey.Delete)
 		}
 
+		// 用户排行榜（功能关闭时 handler 在访问统计前直接返回 404）
+		authenticated.GET("/leaderboard", panelRateLimiter.Heavy(), h.Usage.GetLeaderboard)
+
 		// 用户可用分组（非管理员接口）
 		groups := authenticated.Group("/groups")
 		{

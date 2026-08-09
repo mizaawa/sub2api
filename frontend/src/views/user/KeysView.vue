@@ -1049,6 +1049,15 @@
 
     <!-- Group Selector Dropdown (Teleported to body to avoid overflow clipping) -->
     <Teleport to="body">
+      <Transition name="fade">
+        <button
+          v-if="groupSelectorKeyId !== null && dropdownPosition"
+          type="button"
+          class="group-selector-backdrop"
+          :aria-label="t('common.close')"
+          @click="closeGroupSelector"
+        ></button>
+      </Transition>
       <div
         v-if="groupSelectorKeyId !== null && dropdownPosition"
         ref="dropdownRef"

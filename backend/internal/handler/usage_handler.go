@@ -17,6 +17,53 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type leaderboardEntryResponse struct {
+	Rank        int64   `json:"rank"`
+	DisplayName string  `json:"display_name"`
+	ActualCost  float64 `json:"actual_cost"`
+	Requests    int64   `json:"requests"`
+	Tokens      int64   `json:"tokens"`
+}
+
+type leaderboardResponse struct {
+	PeriodDays   int                         `json:"period_days"`
+	Entries      []leaderboardEntryResponse  `json:"entries"`
+	MyRank       *int64                      `json:"my_rank"`
+	MyActualCost float64                     `json:"my_actual_cost"`
+	MyRequests   int64                       `json:"my_requests"`
+	MyTokens     int64                       `json:"my_tokens"`
+}
+
+func maskLeaderboardIdentity(username, email string) string {
+	value := strings.TrimSpace(username)
+	if value == "" {
+		value = strings.TrimSpace(email)
+	}
+	if value == "" {
+		return "***"
+	}
+	if at := strings.LastIndex(value, "@"); at > 0 {
+		local, domain := value[:at], value[at:]
+		runes := []rune(local)
+		keep := 1
+		if len(runes) > 6 {
+			keep = 2
+		}
+		if len(runes) <= keep {
+			return string(runes[:1]) + "***" + domain
+		}
+		return string(runes[:keep]) + "***" + domain
+	}
+	runes := []rune(value)
+	if len(runes) == 1 {
+		return string(runes) + "***"
+	}
+	if len(runes) == 2 {
+		return string(runes[:1]) + "***"
+	}
+	return string(runes[:1]) + "***" + string(runes[len(runes)-1])
+}
+
 type userUsageFilters struct {
 	Filters   usagestats.UsageLogFilters
 	StartTime time.Time
@@ -410,6 +457,38 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 	stats.EndpointPaths = nil
 
 	response.Success(c, stats)
+}
+
+// GetLeaderboard serves the opt-in, privacy-preserving user leaderboard.
+func (h *UsageHandler) GetLeaderboard(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.settingService == nil || !h.settingService.GetLeaderboardRuntime(c.Request.Context()).Enabled {
+		response.NotFound(c, "Leaderboard is disabled")
+		return
+	}
+	end := time.Now().UTC()
+	start := end.Add(-30 * 24 * time.Hour)
+	data, err := h.usageService.GetLeaderboard(c.Request.Context(), subject.UserID, start, end, 25)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	entries := make([]leaderboardEntryResponse, 0, len(data.Ranking))
+	for i, item := range data.Ranking {
+		entries = append(entries, leaderboardEntryResponse{
+			Rank: int64(i + 1), DisplayName: maskLeaderboardIdentity(item.Username, item.Email),
+			ActualCost: item.ActualCost, Requests: item.Requests, Tokens: item.Tokens,
+		})
+	}
+	myStats := data.MyStats
+	response.Success(c, leaderboardResponse{
+		PeriodDays: data.PeriodDays, Entries: entries, MyRank: data.MyRank,
+		MyActualCost: myStats.TotalActualCost, MyRequests: myStats.TotalRequests, MyTokens: myStats.TotalTokens,
+	})
 }
 
 const (

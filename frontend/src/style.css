@@ -537,6 +537,18 @@
     box-shadow: 0 1.5rem 3rem rgb(3 44 42 / 0.24), 0 0.35rem 1rem rgb(23 127 121 / 0.14);
   }
 
+  .select-centered-backdrop,
+  .group-selector-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100000010;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: rgb(3 44 42 / 0.58);
+    backdrop-filter: blur(7px) saturate(1.08);
+  }
+
   .modal-footer {
     border-top: 1px solid var(--md-sys-color-outline);
     background: var(--md-sys-color-surface-container);

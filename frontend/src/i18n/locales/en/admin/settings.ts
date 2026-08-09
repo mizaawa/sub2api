@@ -30,6 +30,12 @@ export default {
           enabled: 'Enable Available Channels',
           enabledHint: 'When off, the sidebar entry is hidden and the endpoint returns an empty list.',
         },
+        leaderboard: {
+          title: 'Leaderboard',
+          description: 'Show a privacy-protected usage leaderboard to signed-in users. Disabled by default.',
+          enabled: 'Enable Leaderboard',
+          enabledHint: 'When off, the sidebar item and endpoint are disabled and no ranking query is run.',
+        },
         modelPlaza: {
           title: 'Model Plaza',
           description: 'A public page showcasing available models and pricing by group. Disabled by default.',

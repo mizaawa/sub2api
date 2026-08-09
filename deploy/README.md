@@ -223,9 +223,26 @@ docker compose restart sub2api
 docker compose pull
 docker compose up -d
 
+# Recommended lossless update: back up the database before changing the image
+mkdir -p backups
+docker compose exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' \
+  > "backups/sub2api-$(date +%Y%m%d-%H%M%S).sql"
+docker compose pull sub2api
+docker compose up -d sub2api
+
+# Roll back to a specific release without changing the existing volumes
+SUB2API_IMAGE=ghcr.io/mizaawa/sub2api:v0.1.181 docker compose up -d sub2api
+
 # Remove all data (caution!)
 docker compose down -v
 ```
+
+### Lossless upgrade and rollback policy
+
+- PostgreSQL and Redis data live in persistent volumes; updating only the `sub2api` service keeps them intact.
+- Always create the `pg_dump` backup above before an upgrade. Keep the `.env` file together with the deployment directory so credentials and volume names do not change.
+- Roll back with an explicit image tag. This fork's leaderboard setting is an additive key (default `false`) and has no schema migration, so older releases safely ignore it.
+- For releases that introduce a destructive or incompatible migration, restore the matching database backup before rolling back the image. Never use `docker compose down -v` during an update or rollback.
 
 ### Environment Variables
 

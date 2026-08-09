@@ -402,6 +402,10 @@ const (
 	// sidebar entry is hidden. Defaults to false (opt-in feature).
 	SettingKeyAvailableChannelsEnabled = "available_channels_enabled"
 
+	// SettingKeyLeaderboardEnabled controls the user-facing ranking page.
+	// It is additive and defaults to false for backward-compatible upgrades.
+	SettingKeyLeaderboardEnabled = "leaderboard_enabled"
+
 	// SettingKeyModelPlazaEnabled is a DB-backed soft switch for the Model Plaza page
 	// (public group/model pricing showcase). When false: the plaza endpoint returns 404
 	// and the header entry is hidden. Defaults to false (opt-in feature).

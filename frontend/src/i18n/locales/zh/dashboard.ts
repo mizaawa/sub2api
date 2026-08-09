@@ -59,6 +59,22 @@ export default {
     addBalanceWithCode: '使用兑换码充值'
   },
 
+  leaderboard: {
+    title: '排行榜',
+    description: '近 30 天使用量排名，最多显示 25 位用户',
+    period: '近 30 天',
+    myRank: '我的排名',
+    unranked: '暂未上榜',
+    noData: '暂无排名数据',
+    rank: '排名',
+    user: '用户',
+    cost: '使用费用',
+    requests: '请求数',
+    tokens: 'Token',
+    masked: '用户名已脱敏显示',
+    loadFailed: '排行榜加载失败',
+  },
+
   // Groups (shared)
   groups: {
     subscription: '订阅'

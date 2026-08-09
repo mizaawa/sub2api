@@ -150,6 +150,7 @@ export default {
 
   // Navigation
   nav: {
+    leaderboard: '排行榜',
     adminPanel: '管理面板',
     dashboard: '仪表盘',
     announcements: '公告',

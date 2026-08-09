@@ -47,6 +47,15 @@
 
     <!-- Teleport dropdown to body to escape stacking context -->
     <Teleport to="body">
+      <Transition name="fade">
+        <button
+          v-if="isOpen && centered"
+          type="button"
+          class="select-centered-backdrop"
+          :aria-label="t('common.close')"
+          @click="isOpen = false"
+        ></button>
+      </Transition>
       <Transition name="select-dropdown">
         <div
           v-if="isOpen"

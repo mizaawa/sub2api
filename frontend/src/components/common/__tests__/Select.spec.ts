@@ -125,5 +125,6 @@ describe('Select dropdown viewport constraints', () => {
     expect(dropdown?.style.top).toBe('50%')
     expect(dropdown?.style.transform).toBe('translate(-50%, -50%)')
     expect(dropdown?.style.width).toBe('304px')
+    expect(document.body.querySelector('.select-centered-backdrop')).not.toBeNull()
   })
 })

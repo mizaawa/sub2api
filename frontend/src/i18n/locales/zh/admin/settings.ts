@@ -30,6 +30,12 @@ export default {
           enabled: '启用可用渠道',
           enabledHint: '关闭后用户端侧边栏入口隐藏，接口返回空数组。',
         },
+        leaderboard: {
+          title: '排行榜',
+          description: '向已登录用户展示经过隐私脱敏的使用量排行榜，默认关闭。',
+          enabled: '启用排行榜',
+          enabledHint: '关闭后隐藏侧边栏并禁用接口，不执行排行榜查询。',
+        },
         modelPlaza: {
           title: '模型广场',
           description: '以分组为单位向访客展示可用模型与价格的公开页面。默认关闭。',

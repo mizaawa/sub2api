@@ -342,6 +342,19 @@ const ChartIcon = {
     )
 }
 
+const LeaderboardIcon = {
+  render: () =>
+    h(
+      'svg',
+      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.7' },
+      [
+        h('rect', { x: '3.5', y: '10', width: '4.2', height: '10', rx: '1.3', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
+        h('rect', { x: '9.9', y: '4', width: '4.2', height: '16', rx: '1.3', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
+        h('rect', { x: '16.3', y: '7', width: '4.2', height: '13', rx: '1.3', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }),
+      ],
+    ),
+}
+
 const GiftIcon = {
   render: () =>
     h(
@@ -668,6 +681,7 @@ const ChevronDownIcon = {
 const flagChannelMonitor = makeSidebarFlag(FeatureFlags.channelMonitor)
 const flagPayment = makeSidebarFlag(FeatureFlags.payment)
 const flagAvailableChannels = makeSidebarFlag(FeatureFlags.availableChannels)
+const flagLeaderboard = makeSidebarFlag(FeatureFlags.leaderboard)
 const flagAffiliate = makeSidebarFlag(FeatureFlags.affiliate)
 const flagRiskControl = makeSidebarFlag(FeatureFlags.riskControl)
 const flagOpsMonitoring = () => adminSettingsStore.opsMonitoringEnabled
@@ -694,6 +708,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/purchase', label: t('nav.buySubscription'), icon: RechargeSubscriptionIcon, hideInSimpleMode: true, featureFlag: flagPayment },
     { path: '/orders', label: t('nav.myOrders'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagPayment },
     { path: '/redeem', label: t('nav.redeem'), icon: GiftIcon, hideInSimpleMode: true },
+    { path: '/leaderboard', label: t('nav.leaderboard'), icon: LeaderboardIcon, hideInSimpleMode: true, featureFlag: flagLeaderboard },
     { path: '/affiliate', label: t('nav.affiliate'), icon: UsersIcon, hideInSimpleMode: true, featureFlag: flagAffiliate },
     { path: '/profile', label: t('nav.profile'), icon: UserIcon },
     ...customMenuItemsForUser.value.map((item): NavItem => ({
