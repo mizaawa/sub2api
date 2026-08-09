@@ -26,12 +26,12 @@ type leaderboardEntryResponse struct {
 }
 
 type leaderboardResponse struct {
-	PeriodDays   int                         `json:"period_days"`
-	Entries      []leaderboardEntryResponse  `json:"entries"`
-	MyRank       *int64                      `json:"my_rank"`
-	MyActualCost float64                     `json:"my_actual_cost"`
-	MyRequests   int64                       `json:"my_requests"`
-	MyTokens     int64                       `json:"my_tokens"`
+	PeriodDays   int                        `json:"period_days"`
+	Entries      []leaderboardEntryResponse `json:"entries"`
+	MyRank       *int64                     `json:"my_rank"`
+	MyActualCost float64                    `json:"my_actual_cost"`
+	MyRequests   int64                      `json:"my_requests"`
+	MyTokens     int64                      `json:"my_tokens"`
 }
 
 func maskLeaderboardIdentity(username, email string) string {

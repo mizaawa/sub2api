@@ -55,10 +55,10 @@ type UsageStats struct {
 }
 
 type LeaderboardData struct {
-	Ranking         []usagestats.UserSpendingRankingItem
-	MyRank          *int64
-	MyStats         *UsageStats
-	PeriodDays      int
+	Ranking    []usagestats.UserSpendingRankingItem
+	MyRank     *int64
+	MyStats    *UsageStats
+	PeriodDays int
 }
 
 type leaderboardRankReader interface {
