@@ -150,6 +150,7 @@ export default {
 
   // Navigation
   nav: {
+    adminPanel: 'Admin Panel',
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',

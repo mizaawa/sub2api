@@ -15,7 +15,7 @@
     </template>
 
     <template v-else-if="!data || data.length === 0">
-      <div class="data-empty-panel rounded-xl border p-12 text-center">
+      <div class="data-empty-panel p-12 text-center">
         <slot name="empty">
           <div class="flex flex-col items-center">
             <Icon
@@ -49,10 +49,14 @@
         v-for="(row, index) in sortedData"
         :key="resolveRowKey(row, index)"
         class="data-mobile-card rounded-xl border p-4"
-        :class="{
-          'cursor-pointer': clickableRows,
-          'border-primary-300 bg-primary-50/40 dark:border-primary-700 dark:bg-primary-900/10': selectable && isRowSelected(row, index)
-        }"
+        :style="resolveRowStyle(row, index)"
+        :class="[
+          resolveRowClass(row, index),
+          {
+            'cursor-pointer': clickableRows,
+            'border-primary-300 bg-primary-50/40 dark:border-primary-700 dark:bg-primary-900/10': selectable && isRowSelected(row, index)
+          }
+        ]"
         @click="clickableRows && emit('rowClick', row)"
       >
         <div class="space-y-3">
@@ -214,10 +218,14 @@
             :data-index="item.index"
             :ref="item.measure ? measureElement : undefined"
             class="hover:bg-gray-50 dark:hover:bg-dark-800"
-            :class="{
-              'cursor-pointer': clickableRows,
-              'bg-primary-50/40 dark:bg-primary-900/10': selectable && isRowSelected(item.row, item.index)
-            }"
+            :class="[
+              resolveRowClass(item.row, item.index),
+              {
+                'cursor-pointer': clickableRows,
+                'bg-primary-50/40 dark:bg-primary-900/10': selectable && isRowSelected(item.row, item.index)
+              }
+            ]"
+            :style="resolveRowStyle(item.row, item.index)"
             @click="clickableRows && emit('rowClick', item.row)"
           >
             <td v-if="selectable" class="w-11 min-w-11 px-3 py-4 text-center">
@@ -471,6 +479,9 @@ interface Props {
   selectedKeys?: Array<string | number>
   /** Accessible label for a row selection checkbox. */
   selectionLabel?: string | ((row: any) => string)
+  /** Optional provider/theme classes and inline custom properties for rows/cards. */
+  rowClass?: string | string[] | ((row: any, index: number) => string | string[] | undefined)
+  rowStyle?: Record<string, string> | ((row: any, index: number) => Record<string, string> | undefined)
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -483,6 +494,14 @@ const props = withDefaults(defineProps<Props>(), {
   selectable: false,
   selectedKeys: () => []
 })
+
+const resolveRowClass = (row: any, index: number): string | string[] | undefined => {
+  return typeof props.rowClass === 'function' ? props.rowClass(row, index) : props.rowClass
+}
+
+const resolveRowStyle = (row: any, index: number): Record<string, string> | undefined => {
+  return typeof props.rowStyle === 'function' ? props.rowStyle(row, index) : props.rowStyle
+}
 
 const sortKey = ref<string>('')
 const sortOrder = ref<'asc' | 'desc'>('asc')
@@ -970,6 +989,8 @@ defineExpose({
   color: var(--md-sys-color-on-surface);
 }
 
+.data-empty-panel { border: 0; background: transparent; }
+
 /* 表头容器，确保在滚动时覆盖表体内容 */
 .table-wrapper .table-header {
   position: sticky;
@@ -990,7 +1011,7 @@ defineExpose({
 }
 
 .data-empty-row {
-  background: var(--md-sys-color-surface-container);
+  background: var(--md-sys-color-surface);
 }
 
 /* 所有表头单元格固定在顶部 */

@@ -53,3 +53,19 @@ describe('AppSidebar header styles', () => {
     expect(sidebarBrandBlockMatch?.[0]).not.toContain('overflow: hidden;')
   })
 })
+
+describe('AppSidebar grouped navigation', () => {
+  it('keeps administrator navigation collapsed behind a persistent admin-only panel', () => {
+    expect(componentSource).toContain("const adminPanelStorageKey = 'sub2api-admin-panel-expanded'")
+    expect(componentSource).toContain('v-if="isAdmin"')
+    expect(componentSource).toContain("t('nav.adminPanel')")
+    expect(componentSource).toContain('v-show="adminPanelExpanded && !sidebarCollapsed"')
+    expect(componentSource).toContain('localStorage.setItem(adminPanelStorageKey')
+  })
+
+  it('wraps personal navigation and layers the mobile backdrop above the header', () => {
+    expect(componentSource).toContain('personal-panel-section')
+    expect(componentSource).toContain('mobile-sidebar-backdrop fixed inset-0 z-40')
+    expect(styleSource).toContain('@apply fixed inset-y-0 left-0 z-50;')
+  })
+})

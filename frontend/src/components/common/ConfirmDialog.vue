@@ -1,29 +1,27 @@
 <template>
   <BaseDialog :show="show" :title="title" width="narrow" @close="handleCancel">
     <div class="space-y-4">
-      <p class="text-sm text-gray-600 dark:text-gray-400">{{ message }}</p>
+      <p class="confirm-dialog-message">{{ message }}</p>
       <slot></slot>
     </div>
 
     <template #footer>
-      <div class="flex justify-end space-x-3">
+      <div class="flex justify-end gap-3">
         <button
           @click="handleCancel"
           type="button"
-          class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-200 dark:hover:bg-dark-600 dark:focus:ring-offset-dark-800"
+          class="btn btn-secondary"
+          :disabled="loading"
         >
           {{ cancelText }}
         </button>
         <button
           @click="handleConfirm"
           type="button"
-          :class="[
-            'rounded-md px-4 py-2 text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-dark-800',
-            danger
-              ? 'bg-red-600 hover:bg-red-700 focus:ring-red-500'
-              : 'bg-primary-600 hover:bg-primary-700 focus:ring-primary-500'
-          ]"
+          :class="['btn', danger ? 'btn-danger' : 'btn-primary']"
+          :disabled="loading"
         >
+          <span v-if="loading" class="confirm-dialog-spinner" aria-hidden="true"></span>
           {{ confirmText }}
         </button>
       </div>
@@ -45,6 +43,7 @@ interface Props {
   confirmText?: string
   cancelText?: string
   danger?: boolean
+  loading?: boolean
 }
 
 interface Emits {
@@ -53,7 +52,8 @@ interface Emits {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  danger: false
+  danger: false,
+  loading: false
 })
 
 const confirmText = computed(() => props.confirmText || t('common.confirm'))
@@ -62,10 +62,25 @@ const cancelText = computed(() => props.cancelText || t('common.cancel'))
 const emit = defineEmits<Emits>()
 
 const handleConfirm = () => {
+  if (props.loading) return
   emit('confirm')
 }
 
 const handleCancel = () => {
+  if (props.loading) return
   emit('cancel')
 }
 </script>
+
+<style scoped>
+.confirm-dialog-message { color: var(--md-sys-color-on-surface-variant); }
+.confirm-dialog-spinner {
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: confirm-dialog-spin 0.7s linear infinite;
+}
+@keyframes confirm-dialog-spin { to { transform: rotate(360deg); } }
+</style>

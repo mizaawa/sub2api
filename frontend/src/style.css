@@ -28,7 +28,7 @@
     --md-sys-color-on-surface-variant: #abc2bf;
     --md-sys-color-primary: #62d8d0;
     --md-sys-color-on-primary: #073b38;
-    --md-sys-color-secondary: #f06aa9;
+    --md-sys-color-secondary: #9be7df;
   }
 
   /* Balance states are shared by the header and profile overview. */
@@ -64,12 +64,18 @@
 
   html {
     @apply scroll-smooth antialiased;
+    background: var(--md-sys-color-background);
   }
 
   body {
     @apply min-h-screen;
     background: var(--md-sys-color-background);
     color: var(--md-sys-color-on-surface);
+  }
+
+  #app {
+    min-height: 100vh;
+    background: var(--md-sys-color-background);
   }
 
   button,
@@ -220,7 +226,7 @@
   .input {
     @apply w-full rounded-2xl px-4 py-3 text-sm;
     background: var(--md-sys-color-surface-container);
-    @apply border border-transparent;
+    border: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 78%, transparent);
     @apply text-gray-900 dark:text-gray-100;
     @apply placeholder:text-gray-400 dark:placeholder:text-dark-400;
     @apply transition-all duration-200;
@@ -267,6 +273,18 @@
   .glass {
     background: var(--md-sys-color-surface);
     @apply backdrop-blur-none;
+  }
+
+  .auth-input {
+    background: var(--md-sys-color-surface);
+    border-color: color-mix(in srgb, var(--md-sys-color-primary) 32%, var(--md-sys-color-outline));
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.28);
+  }
+
+  :root.dark .auth-input {
+    background: var(--md-sys-color-surface-container-high);
+    border-color: color-mix(in srgb, var(--md-sys-color-primary) 54%, var(--md-sys-color-outline));
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05);
   }
 
   .glass-card {
@@ -468,7 +486,8 @@
   /* ============ 模态框 ============ */
   .modal-overlay {
     @apply fixed inset-0 z-50;
-    @apply bg-black/40 backdrop-blur-none;
+    background: rgb(3 28 27 / 0.58);
+    backdrop-filter: blur(2px);
     @apply flex items-center justify-center p-2 sm:p-4;
   }
 
@@ -476,20 +495,26 @@
     @apply w-full;
     @apply max-h-[95vh] sm:max-h-[90vh];
     background: var(--md-sys-color-surface);
-    @apply rounded-4xl border border-transparent shadow-card-hover;
+    border: 1px solid var(--md-sys-color-outline);
+    @apply rounded-4xl shadow-card-hover;
     @apply flex flex-col;
   }
 
   .modal-header {
-    @apply border-b border-gray-200 px-4 py-3 dark:border-dark-700;
+    border-bottom: 1px solid var(--md-sys-color-outline);
+    @apply px-4 py-3;
     @apply sm:px-6 sm:py-4;
     @apply flex items-center justify-between;
     @apply flex-shrink-0;
   }
 
   .modal-title {
-    @apply text-lg font-semibold text-gray-900 dark:text-white;
+    color: var(--md-sys-color-on-surface);
+    @apply text-lg font-semibold;
   }
+
+  .modal-close { color: var(--md-sys-color-on-surface-variant); }
+  .modal-close:hover { background: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface); }
 
   .modal-body {
     @apply px-4 py-3;
@@ -498,7 +523,9 @@
   }
 
   .modal-footer {
-    @apply border-t border-gray-200 px-4 py-3 dark:border-dark-700;
+    border-top: 1px solid var(--md-sys-color-outline);
+    background: var(--md-sys-color-surface-container);
+    @apply px-4 py-3;
     @apply sm:px-6 sm:py-4;
     @apply flex items-center justify-end gap-3;
     @apply flex-shrink-0;
@@ -615,7 +642,7 @@
 
   /* ============ 侧边栏 ============ */
   .sidebar {
-    @apply fixed inset-y-0 left-0 z-40;
+    @apply fixed inset-y-0 left-0 z-50;
     @apply w-64 border-r border-transparent;
     background: color-mix(in srgb, var(--md-sys-color-surface-container) 88%, var(--md-sys-color-primary));
     @apply flex flex-col;
@@ -641,7 +668,8 @@
     @apply overflow-hidden;
     @apply text-sm font-medium;
     @apply text-gray-600 dark:text-dark-300;
-    @apply transition-colors duration-200;
+    position: relative;
+    @apply transition-all duration-200;
     background: transparent;
     color: var(--md-sys-color-on-surface-variant);
     @apply hover:text-gray-900 dark:hover:text-white;
@@ -656,11 +684,29 @@
   .sidebar-link-active {
     background: color-mix(in srgb, var(--md-sys-color-primary) 24%, var(--md-sys-color-surface));
     color: color-mix(in srgb, var(--md-sys-color-primary) 76%, var(--md-sys-color-on-surface));
-    box-shadow: inset 3px 0 0 var(--md-sys-color-primary);
   }
 
   .sidebar-link-active:hover {
     background: color-mix(in srgb, var(--md-sys-color-primary) 31%, var(--md-sys-color-surface));
+  }
+
+  .sidebar-link::after {
+    position: absolute;
+    inset: 0.28rem 0.35rem;
+    border-radius: inherit;
+    background: color-mix(in srgb, white 72%, var(--md-sys-color-primary));
+    content: '';
+    opacity: 0;
+    transform: scale(0.92);
+    transition: opacity 140ms ease, transform 140ms ease;
+    pointer-events: none;
+  }
+
+  .sidebar-link > * { position: relative; z-index: 1; }
+  .sidebar-link:active { opacity: 0.84; transform: scale(0.985); }
+  .sidebar-link:active::after { opacity: 0.2; transform: scale(1); }
+  @media (prefers-reduced-motion: reduce) {
+    .sidebar-link, .sidebar-link::after { transition: none; }
   }
 
   .sidebar-section {

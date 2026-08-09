@@ -15,7 +15,13 @@
       </template>
 
       <template #table>
-        <DataTable :columns="columns" :data="monitors" :loading="loading">
+        <DataTable
+          :columns="columns"
+          :data="monitors"
+          :loading="loading"
+          :row-class="monitorRowClass"
+          :row-style="monitorRowStyle"
+        >
           <template #cell-name="{ row, value }">
             <div class="flex items-center gap-1.5">
               <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
@@ -189,6 +195,18 @@ const deleteConfirmMessage = computed(() => {
   return t('admin.channelMonitor.deleteConfirm', { name })
 })
 
+function monitorRowClass(row: ChannelMonitor): string[] {
+  return ['channel-monitor-glow', `channel-monitor-glow-${row.provider || 'neutral'}`]
+}
+
+function monitorRowStyle(row: ChannelMonitor): Record<string, string> {
+  const seed = Math.abs(Number(row.id) || 1)
+  return {
+    '--monitor-glow-delay': `${-((seed * 137) % 3100)}ms`,
+    '--monitor-glow-duration': `${3600 + ((seed * 193) % 1900)}ms`,
+  }
+}
+
 async function reload() {
   if (abortController) abortController.abort()
   const ctrl = new AbortController()
@@ -324,3 +342,35 @@ onUnmounted(() => {
   abortController?.abort()
 })
 </script>
+
+<style scoped>
+:deep(.channel-monitor-glow) {
+  --monitor-glow-color: 57 197 187;
+  animation: channel-monitor-pulse var(--monitor-glow-duration) ease-in-out infinite;
+  animation-delay: var(--monitor-glow-delay);
+}
+:deep(.channel-monitor-glow-openai) { --monitor-glow-color: 16 185 129; }
+:deep(.channel-monitor-glow-anthropic) { --monitor-glow-color: 249 115 22; }
+:deep(.channel-monitor-glow-gemini) { --monitor-glow-color: 14 165 233; }
+:deep(.channel-monitor-glow-grok) { --monitor-glow-color: 148 163 184; }
+
+@keyframes channel-monitor-pulse {
+  0%, 100% { box-shadow: 0 0 0 rgb(var(--monitor-glow-color) / 0); }
+  42% { box-shadow: 0 0 1.1rem rgb(var(--monitor-glow-color) / 0.08); }
+  67% { box-shadow: 0 0 0.45rem rgb(var(--monitor-glow-color) / 0.035); }
+}
+
+:global(.dark) :deep(.channel-monitor-glow) {
+  animation-name: channel-monitor-pulse-dark;
+}
+
+@keyframes channel-monitor-pulse-dark {
+  0%, 100% { box-shadow: 0 0 0 rgb(var(--monitor-glow-color) / 0); }
+  42% { box-shadow: 0 0 1.25rem rgb(var(--monitor-glow-color) / 0.16); }
+  67% { box-shadow: 0 0 0.55rem rgb(var(--monitor-glow-color) / 0.07); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :deep(.channel-monitor-glow) { animation: none; }
+}
+</style>

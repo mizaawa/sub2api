@@ -357,4 +357,28 @@ describe('DataTable', () => {
 
     expect(wrapper.emitted('update:selectedKeys')?.at(-1)?.[0]).toEqual([99, 1, 2])
   })
+
+  it('applies row classes and custom properties to desktop rows and mobile cards', async () => {
+    const props = {
+      columns: [{ key: 'name', label: 'Name' }],
+      data: [{ id: 7, name: 'OpenAI' }],
+      rowKey: 'id',
+      rowClass: (row: { id: number }) => `provider-row-${row.id}`,
+      rowStyle: (row: { id: number }) => ({ '--row-delay': `${row.id}ms` })
+    }
+
+    const desktop = mount(DataTable, { props })
+    await desktop.vm.$nextTick()
+    const desktopRow = desktop.get('tbody tr[data-row-id="7"]')
+    expect(desktopRow.classes()).toContain('provider-row-7')
+    expect(desktopRow.attributes('style')).toContain('--row-delay: 7ms')
+    desktop.unmount()
+
+    stubMobileMatchMedia()
+    const mobile = mount(DataTable, { props })
+    await mobile.vm.$nextTick()
+    const mobileCard = mobile.get('.data-mobile-card')
+    expect(mobileCard.classes()).toContain('provider-row-7')
+    expect(mobileCard.attributes('style')).toContain('--row-delay: 7ms')
+  })
 })

@@ -1,5 +1,20 @@
 <template>
-  <header class="app-header sticky top-3 z-30 mx-3 mt-3 md:mx-4">
+  <Teleport to="body">
+    <Transition name="fade">
+      <button
+        v-if="dropdownOpen"
+        type="button"
+        class="user-menu-backdrop fixed inset-0 z-[55]"
+        :aria-label="t('common.close')"
+        @click="closeDropdown"
+      ></button>
+    </Transition>
+  </Teleport>
+
+  <header
+    class="app-header sticky top-3 mx-3 mt-3 md:mx-4"
+    :class="dropdownOpen ? 'z-[60]' : 'z-30'"
+  >
     <div class="app-header-inner flex min-h-14 items-center justify-between gap-2 px-2 sm:px-4 md:px-5">
       <!-- Left: Mobile Menu Toggle + Page Title -->
       <div class="flex shrink-0 items-center gap-2 sm:gap-4">
@@ -85,7 +100,7 @@
             {{ balanceFrozenLabel }}
           </span>
           <div
-            class="pointer-events-none absolute right-0 top-full mt-2 hidden w-56 rounded-lg border border-gray-200 bg-white p-3 text-xs shadow-lg group-hover:block dark:border-dark-700 dark:bg-dark-800"
+            class="header-balance-popover pointer-events-none absolute right-0 top-full mt-2 hidden w-56 rounded-xl border p-3 text-xs shadow-lg group-hover:block"
           >
             <div class="flex items-center justify-between">
               <span class="text-gray-500 dark:text-dark-400">{{ balanceAvailableText }}</span>
@@ -407,6 +422,18 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--md-sys-color-surface) 88%, transparent);
   box-shadow: 0 0.625rem 1.75rem rgb(13 73 69 / 0.09);
   backdrop-filter: blur(18px) saturate(1.08);
+}
+
+.user-menu-backdrop {
+  border: 0;
+  background: rgb(3 28 27 / 0.62);
+  backdrop-filter: blur(2px);
+}
+
+.header-balance-popover {
+  border-color: var(--md-sys-color-outline);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
 }
 
 .app-header-inner {

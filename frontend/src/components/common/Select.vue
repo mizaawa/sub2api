@@ -551,7 +551,7 @@ onUnmounted(() => {
 }
 
 .select-dropdown-portal .select-option-selected {
-  background: color-mix(in srgb, var(--md-sys-color-primary) 18%, var(--md-sys-color-surface));
+  background: var(--md-sys-color-surface);
   color: var(--md-sys-color-on-surface);
 }
 

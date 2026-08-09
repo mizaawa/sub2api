@@ -117,8 +117,18 @@ export async function update(id: number, updates: UpdateApiKeyRequest): Promise<
  * @returns Success confirmation
  */
 export async function deleteKey(id: number): Promise<{ message: string }> {
-  const { data } = await apiClient.delete<{ message: string }>(`/keys/${id}`)
-  return data
+  return apiClient
+    .delete<{ message: string }>(`/keys/${id}`)
+    .then(({ data }) => data)
+    .catch((error: any) => {
+      // DELETE is idempotent for the UI: another tab or a duplicate click may
+      // have removed the key before this request reaches the server.
+      const status = Number(error?.status ?? error?.response?.status ?? 0)
+      if (status === 404 || error?.code === 'API_KEY_NOT_FOUND') {
+        return { message: 'API key already deleted' }
+      }
+      return Promise.reject(error)
+    })
 }
 
 /**

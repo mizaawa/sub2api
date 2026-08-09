@@ -960,6 +960,7 @@
       :confirm-text="t('common.delete')"
       :cancel-text="t('common.cancel')"
       :danger="true"
+      :loading="deleting"
       @confirm="handleDelete"
       @cancel="showDeleteDialog = false"
     />
@@ -1273,6 +1274,7 @@ const apiKeys = ref<ApiKey[]>([])
 const groups = ref<Group[]>([])
 const loading = ref(false)
 const submitting = ref(false)
+const deleting = ref(false)
 const now = ref(new Date())
 let resetTimer: ReturnType<typeof setInterval> | null = null
 const usageStats = ref<Record<string, BatchApiKeyUsageStats>>({})
@@ -1769,8 +1771,9 @@ const handleSubmit = async () => {
  * 若后端未返回消息则显示默认的国际化文本
  */
 const handleDelete = async () => {
-  if (!selectedKey.value) return
+  if (!selectedKey.value || deleting.value) return
 
+  deleting.value = true
   try {
     await keysAPI.delete(selectedKey.value.id)
     appStore.showSuccess(t('keys.keyDeletedSuccess'))
@@ -1780,6 +1783,8 @@ const handleDelete = async () => {
     // 优先使用后端返回的错误消息，提供更具体的错误信息给用户
     const errorMsg = error?.message || t('keys.failedToDelete')
     appStore.showError(errorMsg)
+  } finally {
+    deleting.value = false
   }
 }
 

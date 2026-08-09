@@ -150,6 +150,7 @@ export default {
 
   // Navigation
   nav: {
+    adminPanel: '管理面板',
     dashboard: '仪表盘',
     announcements: '公告',
     apiKeys: 'API 密钥',

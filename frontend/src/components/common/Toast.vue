@@ -17,10 +17,8 @@
           v-for="toast in toasts"
           :key="toast.id"
           :class="[
-            'pointer-events-auto min-w-[320px] max-w-md overflow-hidden rounded-lg shadow-lg',
-            'bg-white dark:bg-dark-800',
-            'border-l-4',
-            getBorderColor(toast.type)
+            'toast-card pointer-events-auto w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-2xl',
+            getToastTone(toast.type)
           ]"
         >
           <div class="p-4">
@@ -37,15 +35,15 @@
 
               <!-- Content -->
               <div class="min-w-0 flex-1">
-                <p v-if="toast.title" class="text-sm font-semibold text-gray-900 dark:text-white">
+                <p v-if="toast.title" class="toast-title">
                   {{ toast.title }}
                 </p>
                 <p
                   :class="[
                     'text-sm leading-relaxed',
                     toast.title
-                      ? 'mt-1 text-gray-600 dark:text-gray-300'
-                      : 'text-gray-900 dark:text-white'
+                      ? 'mt-1 toast-message-muted'
+                      : 'toast-message'
                   ]"
                 >
                   {{ toast.message }}
@@ -55,7 +53,7 @@
               <!-- Close button -->
               <button
                 @click="removeToast(toast.id)"
-                class="-m-1 flex-shrink-0 rounded p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-gray-500 dark:hover:bg-dark-700 dark:hover:text-gray-300"
+                class="toast-close -m-1 flex-shrink-0 rounded-lg p-1 transition-colors"
                 aria-label="Close notification"
               >
                 <Icon name="x" size="sm" />
@@ -64,7 +62,7 @@
           </div>
 
           <!-- Progress bar -->
-          <div v-if="toast.duration" class="h-1 bg-gray-100 dark:bg-dark-700">
+          <div v-if="toast.duration" class="toast-progress-track h-1">
             <div
               :class="['h-full toast-progress', getProgressBarColor(toast.type)]"
               :style="{ animationDuration: `${toast.duration}ms` }"
@@ -109,15 +107,7 @@ const getIconColor = (type: string): string => {
   return colors[type] || colors.info
 }
 
-const getBorderColor = (type: string): string => {
-  const colors: Record<string, string> = {
-    success: 'border-green-500',
-    error: 'border-red-500',
-    warning: 'border-yellow-500',
-    info: 'border-blue-500'
-  }
-  return colors[type] || colors.info
-}
+const getToastTone = (type: string): string => `toast-tone-${type || 'info'}`
 
 const getProgressBarColor = (type: string): string => {
   const colors: Record<string, string> = {
@@ -135,6 +125,23 @@ const removeToast = (id: string) => {
 </script>
 
 <style scoped>
+.toast-card {
+  border: 1px solid var(--md-sys-color-outline);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: 0 1rem 2rem rgb(6 54 51 / 0.16);
+}
+.toast-title, .toast-message { color: var(--md-sys-color-on-surface); }
+.toast-message-muted { color: var(--md-sys-color-on-surface-variant); }
+.toast-close { color: var(--md-sys-color-on-surface-variant); }
+.toast-close:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent); color: var(--md-sys-color-on-surface); }
+.toast-progress-track { background: color-mix(in srgb, var(--md-sys-color-outline) 35%, transparent); }
+.toast-tone-success { border-left: 4px solid #39c5bb; }
+.toast-tone-error { border-left: 4px solid #ef6f7b; }
+.toast-tone-warning { border-left: 4px solid #e9c46a; }
+.toast-tone-info { border-left: 4px solid var(--md-sys-color-primary); }
+.toast-progress.bg-green-500 { background: #39c5bb; }
+.toast-progress.bg-blue-500 { background: var(--md-sys-color-primary); }
 .toast-progress {
   width: 100%;
   animation-name: toast-progress-shrink;

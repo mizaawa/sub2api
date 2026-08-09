@@ -33,8 +33,33 @@
     <nav ref="sidebarNavRef" class="sidebar-nav scrollbar-hide">
       <!-- Admin View: Admin menu first, then personal menu -->
       <template v-if="isAdmin">
+        <button
+          type="button"
+          class="sidebar-link admin-panel-toggle mb-2 w-full"
+          :class="{
+            'sidebar-link-active': route.path.startsWith('/admin/'),
+            'sidebar-link-collapsed': sidebarCollapsed
+          }"
+          :title="sidebarCollapsed ? t('nav.adminPanel') : undefined"
+          :aria-expanded="adminPanelExpanded"
+          @click="toggleAdminPanel"
+        >
+          <component :is="DashboardIcon" class="h-5 w-5 flex-shrink-0" />
+          <span
+            class="sidebar-label sidebar-label-flex"
+            :class="{ 'sidebar-label-collapsed': sidebarCollapsed }"
+            :aria-hidden="sidebarCollapsed ? 'true' : 'false'"
+          >
+            <span class="min-w-0 truncate">{{ t('nav.adminPanel') }}</span>
+            <ChevronDownIcon
+              class="h-4 w-4 flex-shrink-0 transition-transform duration-200"
+              :class="adminPanelExpanded ? 'rotate-180' : ''"
+            />
+          </span>
+        </button>
+
         <!-- Admin Section -->
-        <div class="sidebar-section">
+        <div v-show="adminPanelExpanded && !sidebarCollapsed" class="sidebar-section admin-panel-section">
           <template v-for="item in adminNavItems" :key="item.path">
             <!-- Collapsible group (has children) -->
             <template v-if="item.children?.length">
@@ -62,7 +87,7 @@
                 </span>
               </button>
               <!-- Children -->
-              <div v-if="!sidebarCollapsed && isGroupExpanded(item)" class="mb-1 ml-4 border-l border-gray-200 pl-2 dark:border-dark-600">
+              <div v-if="!sidebarCollapsed && isGroupExpanded(item)" class="sidebar-submenu mb-1 ml-4 border-l pl-2">
                 <router-link
                   v-for="child in item.children"
                   :key="child.path"
@@ -102,7 +127,7 @@
         </div>
 
         <!-- Personal Section for Admin (hidden in simple mode) -->
-        <div v-if="!authStore.isSimpleMode" class="sidebar-section">
+        <div v-if="!authStore.isSimpleMode" class="sidebar-section personal-panel-section">
           <div class="sidebar-section-title" :class="{ 'sidebar-section-title-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">
             <span class="sidebar-section-title-text" :class="{ 'sidebar-section-title-text-collapsed': sidebarCollapsed }">
               {{ t('nav.myAccount') }}
@@ -181,7 +206,7 @@
   <transition name="fade">
     <div
       v-if="mobileOpen"
-      class="fixed inset-0 z-30 bg-black/50 lg:hidden"
+      class="mobile-sidebar-backdrop fixed inset-0 z-40 lg:hidden"
       @click="closeMobile"
     ></div>
   </transition>
@@ -249,6 +274,8 @@ const mobileOpen = computed(() => appStore.mobileOpen)
 const isAdmin = computed(() => authStore.isAdmin)
 const sidebarNavRef = ref<HTMLElement | null>(null)
 const isDark = ref(document.documentElement.classList.contains('dark'))
+const adminPanelStorageKey = 'sub2api-admin-panel-expanded'
+const adminPanelExpanded = ref(localStorage.getItem(adminPanelStorageKey) === 'true')
 
 const homePath = computed(() => (isAdmin.value ? '/admin/dashboard' : '/dashboard'))
 
@@ -839,6 +866,11 @@ function toggleSidebar() {
   appStore.toggleSidebar()
 }
 
+function toggleAdminPanel() {
+  adminPanelExpanded.value = !adminPanelExpanded.value
+  localStorage.setItem(adminPanelStorageKey, String(adminPanelExpanded.value))
+}
+
 function toggleTheme() {
   isDark.value = !isDark.value
   document.documentElement.classList.toggle('dark', isDark.value)
@@ -966,6 +998,25 @@ onBeforeUnmount(() => {
   border-radius: 1.25rem;
   background: color-mix(in srgb, var(--md-sys-color-surface) 78%, var(--md-sys-color-primary));
   box-shadow: 0 0.5rem 1.25rem rgb(13 73 69 / 0.09);
+}
+
+.admin-panel-toggle {
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 30%, var(--md-sys-color-outline));
+  background: color-mix(in srgb, var(--md-sys-color-surface-container) 82%, var(--md-sys-color-primary));
+}
+
+.admin-panel-section,
+.personal-panel-section {
+  padding: 0.55rem;
+  border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 24%, var(--md-sys-color-outline));
+  border-radius: 1.25rem;
+  background: color-mix(in srgb, var(--md-sys-color-surface) 58%, var(--md-sys-color-surface-container-high));
+}
+
+.sidebar-submenu { border-color: var(--md-sys-color-outline); }
+.mobile-sidebar-backdrop {
+  background: rgb(3 28 27 / 0.58);
+  backdrop-filter: blur(2px);
 }
 
 .sidebar-logo {

@@ -16,6 +16,7 @@ const {
   copyToClipboard,
   isCurrentStep,
   nextStep,
+  deleteKey,
 } = vi.hoisted(() => ({
   listKeys: vi.fn(),
   getPublicSettings: vi.fn(),
@@ -27,6 +28,7 @@ const {
   copyToClipboard: vi.fn(),
   isCurrentStep: vi.fn(),
   nextStep: vi.fn(),
+  deleteKey: vi.fn(),
 }))
 
 const messages: Record<string, string> = {
@@ -60,7 +62,7 @@ vi.mock('@/api', () => ({
     list: listKeys,
     create: vi.fn(),
     update: vi.fn(),
-    delete: vi.fn(),
+    delete: deleteKey,
     toggleStatus: vi.fn(),
   },
   authAPI: {
@@ -177,8 +179,9 @@ const DataTableStub = {
           v-if="columns.some((col) => col.key === 'last_used_ip')"
           data-test="last-used-ip"
         >
-          <slot name="cell-last_used_ip" :value="row.last_used_ip" :row="row" />
+        <slot name="cell-last_used_ip" :value="row.last_used_ip" :row="row" />
         </div>
+        <slot name="cell-actions" :row="row" />
       </div>
       <slot name="empty" />
     </div>
@@ -215,6 +218,17 @@ const IconStub = {
   template: '<span data-test="icon">{{ name }}</span>',
 }
 
+const ConfirmDialogStub = {
+  name: 'ConfirmDialog',
+  props: ['show', 'loading'],
+  emits: ['confirm', 'cancel'],
+  template: `
+    <div v-if="show" data-test="delete-dialog">
+      <button data-test="confirm-delete" :disabled="loading" @click="$emit('confirm')">confirm</button>
+    </div>
+  `,
+}
+
 const mountView = async () => {
   const wrapper = mount(KeysView, {
     global: {
@@ -224,7 +238,7 @@ const mountView = async () => {
         DataTable: DataTableStub,
         Pagination: PaginationStub,
         BaseDialog: true,
-        ConfirmDialog: true,
+        ConfirmDialog: ConfirmDialogStub,
         EmptyState: true,
         Select: SelectStub,
         SearchInput: SearchInputStub,
@@ -270,6 +284,7 @@ describe('user KeysView column settings', () => {
     copyToClipboard.mockReset()
     isCurrentStep.mockReset()
     nextStep.mockReset()
+    deleteKey.mockReset()
 
     listKeys.mockResolvedValue({
       items: [createApiKey()],
@@ -283,6 +298,29 @@ describe('user KeysView column settings', () => {
     getAvailableGroups.mockResolvedValue([])
     getUserGroupRates.mockResolvedValue({})
     isCurrentStep.mockReturnValue(false)
+    deleteKey.mockResolvedValue({ message: 'deleted' })
+  })
+
+  it('locks the delete confirmation while the request is in flight', async () => {
+    let resolveDelete!: (value: { message: string }) => void
+    deleteKey.mockReturnValue(new Promise((resolve) => { resolveDelete = resolve }))
+    const wrapper = await mountView()
+
+    const deleteButton = wrapper.findAll('button').find((button) => button.text().includes('common.delete'))
+    expect(deleteButton).toBeTruthy()
+    await deleteButton!.trigger('click')
+    const confirm = wrapper.get('[data-test="confirm-delete"]')
+    await confirm.trigger('click')
+    await confirm.trigger('click')
+    await nextTick()
+
+    expect(deleteKey).toHaveBeenCalledTimes(1)
+    expect((confirm.element as HTMLButtonElement).disabled).toBe(true)
+
+    resolveDelete({ message: 'deleted' })
+    await flushPromises()
+    expect(wrapper.find('[data-test="delete-dialog"]').exists()).toBe(false)
+    expect(showSuccess).toHaveBeenCalled()
   })
 
   it('uses the default API key columns with low-frequency columns hidden', async () => {
