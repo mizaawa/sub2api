@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <div class="leaderboard-page mx-auto w-full max-w-4xl space-y-5">
+    <div class="leaderboard-page mx-auto w-full max-w-6xl space-y-5">
       <section class="leaderboard-hero overflow-hidden rounded-3xl border">
         <div class="hero-content flex flex-wrap items-end justify-between gap-5 px-5 py-6 sm:px-7 sm:py-7">
           <div class="min-w-0">
@@ -46,7 +46,7 @@
 
         <div v-if="error" class="px-5 py-10 text-center text-sm text-rose-600 dark:text-rose-300">{{ error }}</div>
         <div v-else-if="loading" class="muted px-5 py-10 text-center text-sm">{{ t('common.loading') }}</div>
-        <div v-else-if="!entries.length" class="muted px-5 py-12 text-center text-sm">{{ t('leaderboard.noData') }}</div>
+        <div v-else-if="!entries.length" class="muted px-5 py-8 text-center text-sm">{{ t('leaderboard.noData') }}</div>
         <div v-else class="overflow-x-auto">
           <table class="leaderboard-table w-full table-fixed text-left text-sm">
             <colgroup>
@@ -190,6 +190,8 @@ onMounted(load)
 
 @media (max-width: 639px) {
   .leaderboard-page { max-width: 100%; }
+  .hero-content { gap: 1rem; }
+  .rank-summary { display: flex; width: 100%; align-items: center; justify-content: space-between; text-align: left; }
   .rank-column { width: 3.75rem; }
   .user-column { width: 40%; }
   .metric-column { width: 28%; }
