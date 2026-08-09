@@ -21,7 +21,7 @@
             <h2 class="text-base font-semibold">{{ t('leaderboard.title') }}</h2>
             <p class="muted mt-1 text-xs">{{ t('leaderboard.periodTimezone') }}</p>
           </div>
-          <div class="flex w-full items-center gap-2 sm:w-auto">
+          <div class="leaderboard-controls grid w-full items-center gap-2 sm:flex sm:w-auto">
             <button
               type="button"
               class="participation-toggle shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors"
@@ -32,7 +32,7 @@
             >
               {{ participating ? t('leaderboard.participating') : t('leaderboard.notParticipating') }}
             </button>
-            <div class="period-switcher flex min-w-0 flex-1 rounded-xl border p-1 sm:flex-none" role="tablist">
+            <div class="period-switcher grid min-w-0 grid-cols-3 rounded-xl border p-1 sm:flex sm:flex-none" role="tablist">
               <button
                 v-for="option in periodOptions"
                 :key="option.value"
@@ -40,14 +40,14 @@
                 role="tab"
                 :aria-selected="selectedPeriod === option.value"
                 :disabled="loading"
-                class="period-option min-w-0 flex-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors sm:flex-none sm:px-3"
+                class="period-option min-w-0 flex-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors sm:flex-none sm:px-3"
                 :class="selectedPeriod === option.value ? 'period-option-active' : 'period-option-idle'"
                 @click="selectPeriod(option.value)"
               >
                 {{ option.label }}
               </button>
             </div>
-            <button class="btn btn-secondary btn-sm shrink-0" type="button" :disabled="loading" :aria-label="t('common.refresh')" @click="load">
+            <button class="leaderboard-refresh btn btn-secondary btn-sm shrink-0" type="button" :disabled="loading" :aria-label="t('common.refresh')" @click="load">
               <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
               <span class="hidden sm:inline">{{ t('common.refresh') }}</span>
             </button>
@@ -201,7 +201,9 @@ onMounted(load)
 .period-option-idle { color: var(--md-sys-color-on-surface-variant); }
 .period-option-idle:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent); color: var(--md-sys-color-on-surface); }
 .participation-toggle {
+  min-height: 2.25rem;
   max-width: 13rem;
+  white-space: nowrap;
   box-shadow: 0 4px 12px rgb(72 48 18 / 12%);
 }
 .participation-toggle:focus-visible {
@@ -232,7 +234,11 @@ onMounted(load)
   .leaderboard-page { max-width: 100%; }
   .hero-content { gap: 1rem; }
   .rank-summary { display: flex; width: 100%; align-items: center; justify-content: space-between; text-align: left; }
-  .participation-toggle { max-width: none; flex: 1 1 auto; }
+  .leaderboard-controls { grid-template-columns: minmax(0, 1fr) auto; }
+  .participation-toggle { grid-column: 1; grid-row: 1; width: fit-content; max-width: 100%; justify-self: start; }
+  .leaderboard-refresh { grid-column: 2; grid-row: 1; justify-self: end; }
+  .period-switcher { grid-column: 1 / -1; grid-row: 2; width: 100%; }
+  .period-option { min-height: 2.25rem; }
   .rank-column { width: 3.75rem; }
   .user-column { width: 40%; }
   .metric-column { width: 28%; }
