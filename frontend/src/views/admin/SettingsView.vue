@@ -6939,7 +6939,34 @@
 	        <!-- Tab: Features (功能开关) -->
         <div v-show="activeTab === 'features'" class="space-y-6">
 
-        <div class="card">
+        <div class="card" data-testid="cheat-features-card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.features.cheat.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.features.cheat.description') }}
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <div class="flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.cheat.downstreamModelConsistencyBypass') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.cheat.downstreamModelConsistencyBypassHint') }}
+                </p>
+              </div>
+              <Toggle
+                v-model="form.downstream_model_consistency_bypass_enabled"
+                data-testid="downstream-model-consistency-bypass-toggle"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div class="card" data-testid="channel-monitor-card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
               {{ t('admin.settings.features.channelMonitor.title') }}
@@ -9711,6 +9738,7 @@ const form = reactive<SettingsForm>({
   // Available Channels feature switch
   available_channels_enabled: false,
   leaderboard_enabled: false,
+  downstream_model_consistency_bypass_enabled: false,
   // Model Plaza feature switches + description
   model_plaza_enabled: false,
   model_plaza_require_auth: false,
@@ -11364,6 +11392,8 @@ async function saveSettings() {
       // Available Channels feature switch
       available_channels_enabled: form.available_channels_enabled,
       leaderboard_enabled: form.leaderboard_enabled,
+      downstream_model_consistency_bypass_enabled:
+        form.downstream_model_consistency_bypass_enabled,
       // Model Plaza feature switches + description
       model_plaza_enabled: form.model_plaza_enabled,
       model_plaza_require_auth: form.model_plaza_require_auth,

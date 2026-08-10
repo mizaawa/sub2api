@@ -1,11 +1,18 @@
 package service
 
 import (
+	"bytes"
+	"context"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
+
+func downstreamModelConsistencyBypassEnabled(ctx context.Context, settingService *SettingService) bool {
+	return settingService != nil && settingService.IsDownstreamModelConsistencyBypassEnabled(ctx)
+}
 
 const (
 	upstreamResponseModelObserverContextKey = "upstream_response_model_observer"
@@ -50,6 +57,52 @@ func normalizeObservedUpstreamResponseModel(model string) string {
 		model = string(runes[:upstreamResponseModelMaxLength])
 	}
 	return model
+}
+
+// rewriteDeclaredResponseModel changes only model declaration fields that are
+// already present in a successful response. Observation happens before this
+// compatibility rewrite, so internal audit data retains the raw declaration.
+func rewriteDeclaredResponseModel(payload []byte, publicModel string, paths ...string) []byte {
+	publicModel = strings.TrimSpace(publicModel)
+	if len(payload) == 0 || publicModel == "" {
+		return payload
+	}
+
+	updated := payload
+	for _, path := range paths {
+		value := gjson.GetBytes(updated, path)
+		if !value.Exists() || value.Type != gjson.String {
+			continue
+		}
+		next, err := sjson.SetBytes(updated, path, publicModel)
+		if err != nil {
+			continue
+		}
+		updated = next
+	}
+	return updated
+}
+
+func rewriteOpenAIResponseModel(payload []byte, publicModel string) []byte {
+	return rewriteDeclaredResponseModel(payload, publicModel, "model", "response.model")
+}
+
+func rewriteAnthropicResponseModel(payload []byte, publicModel string) []byte {
+	return rewriteDeclaredResponseModel(payload, publicModel, "model", "message.model")
+}
+
+func rewriteGeminiResponseModel(payload []byte, publicModel string) []byte {
+	return rewriteDeclaredResponseModel(
+		payload,
+		publicModel,
+		"modelVersion",
+		"response.modelVersion",
+		"response.response.modelVersion",
+	)
+}
+
+func responseModelWasRewritten(before, after []byte) bool {
+	return !bytes.Equal(before, after)
 }
 
 func (o *upstreamResponseModelObserver) ObserveOpenAI(payload []byte, eventType string) {

@@ -320,15 +320,19 @@ func isOpenAIWSTokenEvent(eventType string) bool {
 	return false
 }
 
-func replaceOpenAIWSMessageModel(message []byte, fromModel, toModel string) []byte {
+func replaceOpenAIWSMessageModel(message []byte, fromModel, toModel string, force ...bool) []byte {
 	if len(message) == 0 {
 		return message
 	}
-	if strings.TrimSpace(fromModel) == "" || strings.TrimSpace(toModel) == "" || fromModel == toModel {
+	forced := len(force) > 0 && force[0]
+	if strings.TrimSpace(toModel) == "" || (!forced && (strings.TrimSpace(fromModel) == "" || fromModel == toModel)) {
 		return message
 	}
-	if !bytes.Contains(message, []byte(`"model"`)) || !bytes.Contains(message, []byte(fromModel)) {
+	if !bytes.Contains(message, []byte(`"model"`)) || (!forced && !bytes.Contains(message, []byte(fromModel))) {
 		return message
+	}
+	if forced {
+		return rewriteOpenAIResponseModel(message, toModel)
 	}
 	modelValues := gjson.GetManyBytes(message, "model", "response.model")
 	replaceModel := modelValues[0].Exists() && modelValues[0].Str == fromModel

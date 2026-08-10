@@ -1192,6 +1192,30 @@ func TestStreamUpstreamResponse_NormalComplete(t *testing.T) {
 	require.Contains(t, body, "message_delta")
 }
 
+func TestStreamUpstreamResponse_RewritesOnlyAfterRawAuditObservation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := newAntigravityTestService(&config.Config{
+		Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize},
+	})
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	beginUpstreamResponseModelObservation(c)
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader("data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-upstream-versioned\"}}\n\n")),
+		Header:     http.Header{},
+	}
+
+	result := svc.streamUpstreamResponse(c, resp, time.Now(), "claude-public")
+
+	require.NotNil(t, result)
+	require.Equal(t, "claude-upstream-versioned", observedUpstreamResponseModel(c))
+	require.Contains(t, rec.Body.String(), `"model":"claude-public"`)
+}
+
 // TestHandleGeminiStreamingResponse_NormalComplete
 // 验证：正常 Gemini 流式转发，数据正确透传、usage 正确收集
 func TestHandleGeminiStreamingResponse_NormalComplete(t *testing.T) {

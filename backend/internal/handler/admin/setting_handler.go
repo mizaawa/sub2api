@@ -379,8 +379,9 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		GrokCrossClientModelMapEnabled: settings.GrokCrossClientModelMapEnabled,
 		GrokDefaultBaseURLMode:         settings.GrokDefaultBaseURLMode,
 
-		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
-		LeaderboardEnabled:       settings.LeaderboardEnabled,
+		AvailableChannelsEnabled:                settings.AvailableChannelsEnabled,
+		LeaderboardEnabled:                      settings.LeaderboardEnabled,
+		DownstreamModelConsistencyBypassEnabled: settings.DownstreamModelConsistencyBypassEnabled,
 
 		ModelPlazaEnabled:     settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth: settings.ModelPlazaRequireAuth,

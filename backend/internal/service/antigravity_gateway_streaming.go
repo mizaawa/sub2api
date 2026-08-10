@@ -114,7 +114,7 @@ func handleStreamReadError(err error, clientDisconnected bool, prefix string) (d
 	return false, false
 }
 
-func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time) (*antigravityStreamResult, error) {
+func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, publicModels ...string) (*antigravityStreamResult, error) {
 	if upstreamResponseModelObserverFromContext(c) == nil {
 		beginUpstreamResponseModelObservation(c)
 	}
@@ -144,6 +144,10 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 	scanner.Buffer(scanBuf[:0], maxLineSize)
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
+	publicModel := ""
+	if len(publicModels) > 0 {
+		publicModel = publicModels[0]
+	}
 
 	type scanEvent struct {
 		line string
@@ -257,6 +261,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				if parseErr == nil && inner != nil {
 					payload = string(inner)
 				}
+				payload = string(rewriteGeminiResponseModel([]byte(payload), publicModel))
 
 				// 解析 usage
 				if u := extractGeminiUsage(inner); u != nil {
@@ -321,7 +326,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 
 // handleGeminiStreamToNonStreaming 读取上游流式响应，合并为非流式响应返回给客户端
 // Gemini 流式响应是增量的，需要累积所有 chunk 的内容
-func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Context, resp *http.Response, startTime time.Time) (*antigravityStreamResult, error) {
+func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Context, resp *http.Response, startTime time.Time, publicModels ...string) (*antigravityStreamResult, error) {
 	if upstreamResponseModelObserverFromContext(c) == nil {
 		beginUpstreamResponseModelObservation(c)
 	}
@@ -335,6 +340,10 @@ func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Cont
 
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
+	publicModel := ""
+	if len(publicModels) > 0 {
+		publicModel = publicModels[0]
+	}
 	var last map[string]any
 	var lastWithParts map[string]any
 	var collectedImageParts []map[string]any // 收集所有包含图片的 parts
@@ -507,6 +516,7 @@ returnResponse:
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal response: %w", err)
 	}
+	respBody = rewriteGeminiResponseModel(respBody, publicModel)
 	c.Data(http.StatusOK, "application/json", respBody)
 
 	return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, nil

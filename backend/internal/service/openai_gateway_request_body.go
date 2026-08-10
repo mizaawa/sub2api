@@ -424,8 +424,10 @@ func appendOpenAIResponsesRequestPathSuffix(baseURL, suffix string) string {
 	return trimmedBase + trimmedSuffix
 }
 
-func (s *OpenAIGatewayService) replaceModelInResponseBody(body []byte, fromModel, toModel string) []byte {
-	// 使用 gjson/sjson 精确替换 model 字段，避免全量 JSON 反序列化
+func (s *OpenAIGatewayService) replaceModelInResponseBody(body []byte, fromModel, toModel string, force ...bool) []byte {
+	if len(force) > 0 && force[0] {
+		return rewriteOpenAIResponseModel(body, toModel)
+	}
 	if m := gjson.GetBytes(body, "model"); m.Exists() && m.Str == fromModel {
 		newBody, err := sjson.SetBytes(body, "model", toModel)
 		if err != nil {

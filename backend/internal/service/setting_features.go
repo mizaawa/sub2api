@@ -259,6 +259,20 @@ func (s *SettingService) IsStepUpEnabled(ctx context.Context) bool {
 	return value == "true"
 }
 
+// IsDownstreamModelConsistencyBypassEnabled reports whether successful gateway
+// responses should declare the model requested by the downstream client. It
+// fails closed so a missing setting or repository error preserves raw responses.
+func (s *SettingService) IsDownstreamModelConsistencyBypassEnabled(ctx context.Context) bool {
+	if s == nil || s.settingRepo == nil {
+		return false
+	}
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyDownstreamModelConsistencyBypassEnabled)
+	if err != nil {
+		return false
+	}
+	return value == "true"
+}
+
 // defaultAuditLogRetentionDays 审计日志默认保留天数。
 const defaultAuditLogRetentionDays = 180
 

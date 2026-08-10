@@ -688,6 +688,7 @@ func partialStreamUsageResult(c *gin.Context, resp *http.Response, streamResult 
 }
 
 func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel string, mimicClaudeCode bool) (*streamingResult, error) {
+	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(ctx, s.settingService)
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
@@ -830,7 +831,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		flusher.Flush()
 	}
 
-	needModelReplace := originalModel != mappedModel
+	needModelReplace := originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "")
 	clientDisconnected := false // 客户端断开标志，断开后继续读取上游以获取完整usage
 	sawTerminalEvent := false
 	useNoopDeltaKeepalive := c != nil && c.Request != nil && shouldUseClaudeCodeNoopDeltaKeepalive(c.GetHeader("User-Agent"))
@@ -960,8 +961,12 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		}
 
 		if needModelReplace {
+			if model, ok := event["model"].(string); ok && (bypassModelConsistency || model == mappedModel) {
+				event["model"] = originalModel
+				eventChanged = true
+			}
 			if msg, ok := event["message"].(map[string]any); ok {
-				if model, ok := msg["model"].(string); ok && model == mappedModel {
+				if model, ok := msg["model"].(string); ok && (bypassModelConsistency || model == mappedModel) {
 					msg["model"] = originalModel
 					eventChanged = true
 				}
@@ -1434,8 +1439,9 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 	}
 
 	// 如果有模型映射，替换响应中的model字段
-	if originalModel != mappedModel {
-		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
+	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(ctx, s.settingService)
+	if originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "") {
+		body = s.replaceModelInResponseBody(body, mappedModel, originalModel, bypassModelConsistency)
 	}
 
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -1457,7 +1463,10 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 
 // replaceModelInResponseBody 替换响应体中的model字段
 // 使用 gjson/sjson 精确替换，避免全量 JSON 反序列化
-func (s *GatewayService) replaceModelInResponseBody(body []byte, fromModel, toModel string) []byte {
+func (s *GatewayService) replaceModelInResponseBody(body []byte, fromModel, toModel string, force ...bool) []byte {
+	if len(force) > 0 && force[0] {
+		return rewriteAnthropicResponseModel(body, toModel)
+	}
 	if m := gjson.GetBytes(body, "model"); m.Exists() && m.Str == fromModel {
 		newBody, err := sjson.SetBytes(body, "model", toModel)
 		if err != nil {

@@ -915,6 +915,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 
 	completedTurns := atomic.Int32{}
 	turnLifecycle := newOpenAIWSPassthroughTurnLifecycle(true)
+	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(ctx, s.settingService)
 	clientFrameConn := &openAIWSClientFrameConn{
 		conn:                 clientConn,
 		controlCtx:           ctx,
@@ -926,7 +927,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				return payload
 			}
 			requestModel, upstreamModel := usageMeta.turnModels("")
-			return replaceOpenAIWSMessageModel(payload, upstreamModel, requestModel)
+			return replaceOpenAIWSMessageModel(payload, upstreamModel, requestModel, bypassModelConsistency)
 		},
 	}
 	policyClientConn := &openAIWSPolicyEnforcingFrameConn{

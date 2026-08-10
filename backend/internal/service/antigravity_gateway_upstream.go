@@ -41,6 +41,10 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 		return nil, fmt.Errorf("missing model")
 	}
 	originalModel := claudeReq.Model
+	publicModel := ""
+	if downstreamModelConsistencyBypassEnabled(ctx, s.settingService) {
+		publicModel = originalModel
+	}
 
 	// 构建上游请求 URL
 	upstreamURL := baseURL + "/v1/messages"
@@ -118,7 +122,7 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 		c.Header("X-Accel-Buffering", "no")
 		c.Status(http.StatusOK)
 
-		streamRes := s.streamUpstreamResponse(c, resp, startTime)
+		streamRes := s.streamUpstreamResponse(c, resp, startTime, publicModel)
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
 		clientDisconnect = streamRes.clientDisconnect
@@ -132,6 +136,9 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 		// 提取 usage
 		upstreamResponseModelObserverFromContext(c).ObserveAnthropic(respBody)
 		usage = s.extractClaudeUsage(respBody)
+		if publicModel != "" {
+			respBody = rewriteAnthropicResponseModel(respBody, publicModel)
+		}
 
 		c.Header("Content-Type", resp.Header.Get("Content-Type"))
 		c.Status(http.StatusOK)
@@ -160,9 +167,13 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 }
 
 // streamUpstreamResponse 透传上游 SSE 流并提取 Claude usage
-func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp *http.Response, startTime time.Time) *antigravityStreamResult {
+func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp *http.Response, startTime time.Time, publicModels ...string) *antigravityStreamResult {
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
+	publicModel := ""
+	if len(publicModels) > 0 {
+		publicModel = publicModels[0]
+	}
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
@@ -252,7 +263,14 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 
 			line := ev.line
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
-				upstreamResponseModelObserverFromContext(c).ObserveAnthropic([]byte(strings.TrimSpace(data)))
+				trimmedData := strings.TrimSpace(data)
+				upstreamResponseModelObserverFromContext(c).ObserveAnthropic([]byte(trimmedData))
+				if publicModel != "" {
+					rewritten := rewriteAnthropicResponseModel([]byte(trimmedData), publicModel)
+					if responseModelWasRewritten([]byte(trimmedData), rewritten) {
+						line = "data: " + string(rewritten)
+					}
+				}
 			}
 
 			// 记录首 token 时间

@@ -45,6 +45,7 @@ func (s *OpenAIGatewayService) handleStreamingResponse(ctx context.Context, resp
 }
 
 func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, startTime time.Time, originalModel, mappedModel, reasoningEffort string) (*openaiStreamingResult, error) {
+	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(ctx, s.settingService)
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
@@ -300,7 +301,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		lastDownstreamWriteAt = time.Now()
 	}
 
-	needModelReplace := originalModel != mappedModel
+	needModelReplace := originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "")
 	streamOutputAccumulator := apicompat.NewBufferedResponseAccumulator()
 	streamImageOutputs := make([]json.RawMessage, 0, 1)
 	streamSeenImages := make(map[string]struct{})
@@ -535,8 +536,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 			// Replace model in response if needed.
 			// Fast path: most events do not contain model field values.
-			if needModelReplace && mappedModel != "" && strings.Contains(line, mappedModel) {
-				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
+			if needModelReplace {
+				line = s.replaceModelInSSELine(line, mappedModel, originalModel, bypassModelConsistency)
 			}
 			startsClientOutput := forceFlushFailedEvent || openAIStreamDataStartsClientOutput(data, eventType)
 			if guardFirstOutput {
@@ -861,7 +862,7 @@ func openAICompatPayloadWithEventType(payload, eventType string) string {
 	return patched
 }
 
-func (s *OpenAIGatewayService) replaceModelInSSELine(line, fromModel, toModel string) string {
+func (s *OpenAIGatewayService) replaceModelInSSELine(line, fromModel, toModel string, force ...bool) string {
 	data, ok := extractOpenAISSEDataLine(line)
 	if !ok {
 		return line
@@ -870,7 +871,21 @@ func (s *OpenAIGatewayService) replaceModelInSSELine(line, fromModel, toModel st
 		return line
 	}
 
-	// 使用 gjson 精确检查 model 字段，避免全量 JSON 反序列化
+	forced := len(force) > 0 && force[0]
+	// Most stream events do not declare a model. Keep those events on the
+	// allocation-free fast path, including legacy exact-match replacement.
+	if !strings.Contains(data, `"model"`) || (!forced && (fromModel == "" || !strings.Contains(data, fromModel))) {
+		return line
+	}
+
+	if forced {
+		rewritten := rewriteOpenAIResponseModel([]byte(data), toModel)
+		if !responseModelWasRewritten([]byte(data), rewritten) {
+			return line
+		}
+		return "data: " + string(rewritten)
+	}
+
 	if m := gjson.Get(data, "model"); m.Exists() && m.Str == fromModel {
 		newData, err := sjson.Set(data, "model", toModel)
 		if err != nil {
@@ -878,8 +893,6 @@ func (s *OpenAIGatewayService) replaceModelInSSELine(line, fromModel, toModel st
 		}
 		return "data: " + newData
 	}
-
-	// 检查嵌套的 response.model 字段
 	if m := gjson.Get(data, "response.model"); m.Exists() && m.Str == fromModel {
 		newData, err := sjson.Set(data, "response.model", toModel)
 		if err != nil {
@@ -887,7 +900,6 @@ func (s *OpenAIGatewayService) replaceModelInSSELine(line, fromModel, toModel st
 		}
 		return "data: " + newData
 	}
-
 	return line
 }
 
@@ -1192,8 +1204,9 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	usage := &usageValue
 
 	// Replace model in response if needed
-	if originalModel != mappedModel {
-		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
+	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(ctx, s.settingService)
+	if originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "") {
+		body = s.replaceModelInResponseBody(body, mappedModel, originalModel, bypassModelConsistency)
 	}
 	body, err = restoreGrokResponsesClientToolPayload(c, body)
 	if err != nil {
@@ -1248,6 +1261,7 @@ func bodyHasSSEFraming(body []byte) bool {
 }
 
 func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Context, body []byte, originalModel, mappedModel string) (*openaiNonStreamingResult, error) {
+	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService)
 	bodyText := string(body)
 	finalResponse, ok := extractCodexFinalResponse(bodyText)
 
@@ -1268,8 +1282,8 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 		}
 		finalResponse = supplementCompactionItemFromSSE(c, finalResponse, bodyText)
 		body = finalResponse
-		if originalModel != mappedModel {
-			body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
+		if originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "") {
+			body = s.replaceModelInResponseBody(body, mappedModel, originalModel, bypassModelConsistency)
 		}
 		// Correct tool calls in final response
 		body = s.correctToolCallsInResponseBody(body)
@@ -1292,8 +1306,8 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 			return nil, s.writeOpenAINonStreamingProtocolError(resp, c, msg)
 		}
 		usage = s.parseSSEUsageFromBody(bodyText)
-		if originalModel != mappedModel {
-			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, originalModel)
+		if originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "") {
+			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, originalModel, bypassModelConsistency)
 		}
 		body = []byte(bodyText)
 	}
@@ -1779,13 +1793,13 @@ func (s *OpenAIGatewayService) parseSSEUsageFromBody(body string) *OpenAIUsage {
 	return usage
 }
 
-func (s *OpenAIGatewayService) replaceModelInSSEBody(body, fromModel, toModel string) string {
+func (s *OpenAIGatewayService) replaceModelInSSEBody(body, fromModel, toModel string, force ...bool) string {
 	lines := strings.Split(body, "\n")
 	for i, line := range lines {
 		if _, ok := extractOpenAISSEDataLine(line); !ok {
 			continue
 		}
-		lines[i] = s.replaceModelInSSELine(line, fromModel, toModel)
+		lines[i] = s.replaceModelInSSELine(line, fromModel, toModel, force...)
 	}
 	return strings.Join(lines, "\n")
 }

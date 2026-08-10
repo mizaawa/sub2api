@@ -447,6 +447,11 @@ const (
 	// It is additive and defaults to false for backward-compatible upgrades.
 	SettingKeyLeaderboardEnabled = "leaderboard_enabled"
 
+	// SettingKeyDownstreamModelConsistencyBypassEnabled controls whether successful
+	// gateway responses declare the model requested by the downstream client.
+	// Internal upstream-response auditing always observes the raw response first.
+	SettingKeyDownstreamModelConsistencyBypassEnabled = "downstream_model_consistency_bypass_enabled"
+
 	// SettingKeyModelPlazaEnabled is a DB-backed soft switch for the Model Plaza page
 	// (public group/model pricing showcase). When false: the plaza endpoint returns 404
 	// and the header entry is hidden. Defaults to false (opt-in feature).

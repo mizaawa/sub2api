@@ -261,6 +261,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
 	}
+	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService)
 	requestID := resp.Header.Get("x-request-id")
 	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
 	scanner := s.newUpstreamSSEScanner(resp.Body)
@@ -318,6 +319,12 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 				if firstTokenMs == nil && !usageOnlyChunk {
 					elapsed := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &elapsed
+				}
+				if bypassModelConsistency {
+					rewritten := rewriteOpenAIResponseModel([]byte(payload), originalModel)
+					if responseModelWasRewritten([]byte(payload), rewritten) {
+						line = "data: " + string(rewritten)
+					}
 				}
 			}
 		}
@@ -445,6 +452,9 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	var usage OpenAIUsage
 	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
 		usage = parsedUsage
+	}
+	if downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
+		respBody = rewriteOpenAIResponseModel(respBody, originalModel)
 	}
 
 	if s.responseHeaderFilter != nil {

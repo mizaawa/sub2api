@@ -339,8 +339,9 @@ type UpdateSettingsRequest struct {
 	GrokDefaultBaseURLMode         *string `json:"grok_default_base_url_mode"`
 
 	// Available Channels feature switch (user-facing)
-	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
-	LeaderboardEnabled       *bool `json:"leaderboard_enabled"`
+	AvailableChannelsEnabled                *bool `json:"available_channels_enabled"`
+	LeaderboardEnabled                      *bool `json:"leaderboard_enabled"`
+	DownstreamModelConsistencyBypassEnabled *bool `json:"downstream_model_consistency_bypass_enabled"`
 
 	// Model Plaza feature switches + description
 	ModelPlazaEnabled     *bool   `json:"model_plaza_enabled"`
@@ -1920,6 +1921,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.LeaderboardEnabled
 		}(),
+		DownstreamModelConsistencyBypassEnabled: func() bool {
+			if req.DownstreamModelConsistencyBypassEnabled != nil {
+				return *req.DownstreamModelConsistencyBypassEnabled
+			}
+			return previousSettings.DownstreamModelConsistencyBypassEnabled
+		}(),
 		ModelPlazaEnabled: func() bool {
 			if req.ModelPlazaEnabled != nil {
 				return *req.ModelPlazaEnabled
@@ -2354,8 +2361,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		GrokCrossClientModelMapEnabled: updatedSettings.GrokCrossClientModelMapEnabled,
 		GrokDefaultBaseURLMode:         updatedSettings.GrokDefaultBaseURLMode,
 
-		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
-		LeaderboardEnabled:       updatedSettings.LeaderboardEnabled,
+		AvailableChannelsEnabled:                updatedSettings.AvailableChannelsEnabled,
+		LeaderboardEnabled:                      updatedSettings.LeaderboardEnabled,
+		DownstreamModelConsistencyBypassEnabled: updatedSettings.DownstreamModelConsistencyBypassEnabled,
 
 		ModelPlazaEnabled:     updatedSettings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth: updatedSettings.ModelPlazaRequireAuth,

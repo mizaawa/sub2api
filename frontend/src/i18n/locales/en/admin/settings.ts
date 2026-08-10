@@ -14,6 +14,12 @@ export default {
         payment: 'Payment',
       },
       features: {
+        cheat: {
+          title: 'Cheat Features',
+          description: 'Controls downstream response compatibility. Disabled by default and does not alter this site\'s upstream model audit records.',
+          downstreamModelConsistencyBypass: 'Bypass downstream model consistency checks',
+          downstreamModelConsistencyBypassHint: 'When enabled, downstream responses declare the model requested by the client. When disabled, the original response behavior is preserved.',
+        },
         channelMonitor: {
           title: 'Channel Monitor',
           description: 'Choose either V1 active probes or V2 passive usage monitoring. When disabled, both background jobs stop and the user entry is hidden.',
