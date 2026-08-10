@@ -16,7 +16,7 @@ export default {
       features: {
         cheat: {
           title: '作弊功能',
-          description: '用于控制下游响应兼容行为。默认关闭，不影响本站对上游响应模型的审计记录。',
+          description: '一些小米砸的小巧思',
           downstreamModelConsistencyBypass: '绕过下游模型一致性审查',
           downstreamModelConsistencyBypassHint: '开启后，返回给下游的模型声明将统一为下游请求的模型；关闭后保留原始响应行为。',
         },

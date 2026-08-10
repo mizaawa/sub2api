@@ -1198,7 +1198,8 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	defer putSSEScannerBuf64K(scanBuf)
 	documentScanner := newOpenAISSEJSONDocumentScanner(scanner)
 
-	needModelReplace := originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "")
+	// 仅在开关开启时才伪装模型名，关闭时暴露真实上游响应
+	needModelReplace := bypassModelConsistency && strings.TrimSpace(originalModel) != ""
 	resultWithUsage := func() *openaiStreamingResultPassthrough {
 		return &openaiStreamingResultPassthrough{
 			usage:            usage,
@@ -1219,7 +1220,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			rawEventType := strings.TrimSpace(gjson.GetBytes(dataBytes, "type").String())
 			observer.ObserveOpenAI(dataBytes, rawEventType)
 			if needModelReplace {
-				line = s.replaceModelInSSELine(line, mappedModel, originalModel, bypassModelConsistency)
+				line = s.replaceModelInSSELine(line, mappedModel, originalModel, true)
 				if replacedData, replaced := extractOpenAISSEDataLine(line); replaced {
 					dataBytes = []byte(replacedData)
 					trimmedData = strings.TrimSpace(replacedData)
@@ -1422,6 +1423,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 		return s.handlePassthroughSSEToJSON(resp, c, body, originalModel, mappedModel)
 	}
 
+	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(ctx, s.settingService)
 	usage := &OpenAIUsage{}
 	usageParsed := false
 	if len(body) > 0 {
@@ -1442,8 +1444,8 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 		contentType = "application/json"
 	}
 	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(ctx, s.settingService)
-	if originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "") {
-		body = s.replaceModelInResponseBody(body, mappedModel, originalModel, bypassModelConsistency)
+	if bypassModelConsistency && strings.TrimSpace(originalModel) != "" {
+		body = s.replaceModelInResponseBody(body, mappedModel, originalModel, true)
 	}
 	body, err = restoreOpenAIResponsesNamespacePayload(c, body)
 	if err != nil {
@@ -1486,8 +1488,8 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		}
 		finalResponse = supplementCompactionItemFromSSE(c, finalResponse, bodyText)
 		body = finalResponse
-		if originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "") {
-			body = s.replaceModelInResponseBody(body, mappedModel, originalModel, bypassModelConsistency)
+		if bypassModelConsistency && strings.TrimSpace(originalModel) != "" {
+			body = s.replaceModelInResponseBody(body, mappedModel, originalModel, true)
 		}
 		// Correct tool calls in final response
 		body = s.correctToolCallsInResponseBody(body)
@@ -1506,8 +1508,8 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 			return nil, s.writeOpenAINonStreamingProtocolError(resp, c, msg)
 		}
 		usage = s.parseSSEUsageFromBody(bodyText)
-		if originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "") {
-			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, originalModel, bypassModelConsistency)
+		if bypassModelConsistency && strings.TrimSpace(originalModel) != "" {
+			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, originalModel, true)
 		}
 		body = []byte(bodyText)
 	}

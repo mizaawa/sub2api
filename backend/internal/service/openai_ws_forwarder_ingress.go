@@ -846,7 +846,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				mappedModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
 			}
 		}
-		needModelReplace := originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "")
+		needModelReplace := bypassModelConsistency && strings.TrimSpace(originalModel) != ""
 		for {
 			upstreamMessage, readErr := lease.ReadMessageWithContextTimeout(ctx, s.openAIWSReadTimeout())
 			if readErr != nil {
@@ -976,7 +976,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 
 			if !clientDisconnected {
 				if needModelReplace && openAIWSEventMayContainModel(eventType) {
-					upstreamMessage = replaceOpenAIWSMessageModel(upstreamMessage, mappedModel, originalModel, bypassModelConsistency)
+					upstreamMessage = replaceOpenAIWSMessageModel(upstreamMessage, mappedModel, originalModel, true)
 				}
 				if openAIWSEventMayContainToolCalls(eventType) && openAIWSMessageLikelyContainsToolCalls(upstreamMessage) {
 					if corrected, changed := s.toolCorrector.CorrectToolCallsInSSEBytes(upstreamMessage); changed {

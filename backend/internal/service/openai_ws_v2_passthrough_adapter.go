@@ -926,8 +926,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if !openAIWSEventMayContainModel(eventType) {
 				return payload
 			}
+			if !bypassModelConsistency {
+				return payload
+			}
 			requestModel, upstreamModel := usageMeta.turnModels("")
-			return replaceOpenAIWSMessageModel(payload, upstreamModel, requestModel, bypassModelConsistency)
+			return replaceOpenAIWSMessageModel(payload, upstreamModel, requestModel, true)
 		},
 	}
 	policyClientConn := &openAIWSPolicyEnforcingFrameConn{

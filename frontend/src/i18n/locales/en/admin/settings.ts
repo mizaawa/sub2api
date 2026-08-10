@@ -16,7 +16,7 @@ export default {
       features: {
         cheat: {
           title: 'Cheat Features',
-          description: 'Controls downstream response compatibility. Disabled by default and does not alter this site\'s upstream model audit records.',
+          description: 'Some clever little tricks from xiaomi-sha',
           downstreamModelConsistencyBypass: 'Bypass downstream model consistency checks',
           downstreamModelConsistencyBypassHint: 'When enabled, downstream responses declare the model requested by the client. When disabled, the original response behavior is preserved.',
         },
