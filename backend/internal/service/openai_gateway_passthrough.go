@@ -1443,7 +1443,6 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if contentType == "" {
 		contentType = "application/json"
 	}
-	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(ctx, s.settingService)
 	if bypassModelConsistency && strings.TrimSpace(originalModel) != "" {
 		body = s.replaceModelInResponseBody(body, mappedModel, originalModel, true)
 	}
