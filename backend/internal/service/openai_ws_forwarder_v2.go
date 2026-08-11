@@ -353,7 +353,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	var finalResponse []byte
 	wroteDownstream := false
 	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(ctx, s.settingService)
-	needModelReplace := bypassModelConsistency && strings.TrimSpace(originalModel) != ""
+	needModelReplace := originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "")
 	bufferedStreamEvents := make([][]byte, 0, 4)
 	eventCount := 0
 	tokenEventCount := 0
@@ -560,7 +560,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 
 		if !clientDisconnected {
 			if needModelReplace && openAIWSEventMayContainModel(eventType) {
-				message = replaceOpenAIWSMessageModel(message, mappedModel, originalModel, true)
+				message = replaceOpenAIWSMessageModel(message, mappedModel, originalModel, bypassModelConsistency)
 			}
 			if openAIWSEventMayContainToolCalls(eventType) && openAIWSMessageLikelyContainsToolCalls(message) {
 				if corrected, changed := s.toolCorrector.CorrectToolCallsInSSEBytes(message); changed {
@@ -713,7 +713,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 
 		if needModelReplace {
-			finalResponse = s.replaceModelInResponseBody(finalResponse, mappedModel, originalModel, true)
+			finalResponse = s.replaceModelInResponseBody(finalResponse, mappedModel, originalModel, bypassModelConsistency)
 		}
 		finalResponse = s.correctToolCallsInResponseBody(finalResponse)
 		populateOpenAIUsageFromResponseJSON(finalResponse, usage)

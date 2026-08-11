@@ -3545,6 +3545,47 @@ func TestHandleNonStreamingResponse_ObservesUpstreamModelBeforeClientRewrite(t *
 	require.False(t, observedUpstreamResponseModelConflict(c))
 }
 
+func TestHandleNonStreamingResponse_ModelConsistencyBypass(t *testing.T) {
+	tests := []struct {
+		name        string
+		setting     string
+		clientModel string
+	}{
+		{name: "disabled preserves unexpected upstream model", setting: "false", clientModel: "gpt-upstream-versioned"},
+		{name: "enabled rewrites unexpected upstream model", setting: "true", clientModel: "gpt-public"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+
+			svc := &OpenAIGatewayService{
+				cfg: &config.Config{},
+				settingService: &SettingService{settingRepo: &downstreamModelSettingRepoStub{
+					value: tt.setting,
+				}},
+			}
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(
+					`{"id":"resp_model_bypass","object":"response","model":"gpt-upstream-versioned","status":"completed","output":[],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}`,
+				)),
+			}
+
+			result, err := svc.handleNonStreamingResponse(context.Background(), resp, c, &Account{ID: 1, Type: AccountTypeAPIKey}, "gpt-public", "gpt-public")
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, tt.clientModel, gjson.Get(rec.Body.String(), "model").String())
+			require.Equal(t, "gpt-upstream-versioned", observedUpstreamResponseModel(c))
+			require.False(t, observedUpstreamResponseModelConflict(c))
+		})
+	}
+}
+
 func TestHandleSSEToJSON_ReconstructsImageGenerationOutputItemDone(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

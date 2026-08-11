@@ -831,8 +831,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		flusher.Flush()
 	}
 
-	// 仅在开关开启时才伪装模型名，关闭时暴露真实上游响应
-	needModelReplace := bypassModelConsistency && strings.TrimSpace(originalModel) != ""
+	needModelReplace := originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "")
 	clientDisconnected := false // 客户端断开标志，断开后继续读取上游以获取完整usage
 	sawTerminalEvent := false
 	useNoopDeltaKeepalive := c != nil && c.Request != nil && shouldUseClaudeCodeNoopDeltaKeepalive(c.GetHeader("User-Agent"))
@@ -963,12 +962,12 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 
 		if needModelReplace {
 			// 开关开启时，强制把所有模型声明改回下游请求的模型
-			if model, ok := event["model"].(string); ok && strings.TrimSpace(model) != "" {
+			if model, ok := event["model"].(string); ok && (bypassModelConsistency || model == mappedModel) {
 				event["model"] = originalModel
 				eventChanged = true
 			}
 			if msg, ok := event["message"].(map[string]any); ok {
-				if model, ok := msg["model"].(string); ok && strings.TrimSpace(model) != "" {
+				if model, ok := msg["model"].(string); ok && (bypassModelConsistency || model == mappedModel) {
 					msg["model"] = originalModel
 					eventChanged = true
 				}
@@ -1440,10 +1439,10 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 		}
 	}
 
-	// 仅在开关开启时才伪装模型名，关闭时暴露真实上游响应
+	// 如果有模型映射，替换响应中的model字段
 	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(ctx, s.settingService)
-	if bypassModelConsistency && strings.TrimSpace(originalModel) != "" {
-		body = s.replaceModelInResponseBody(body, mappedModel, originalModel, true)
+	if originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "") {
+		body = s.replaceModelInResponseBody(body, mappedModel, originalModel, bypassModelConsistency)
 	}
 
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
