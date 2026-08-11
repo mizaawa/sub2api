@@ -291,7 +291,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			mappedModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
 		}
 	}
-	needModelReplace := originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "")
+	needModelReplace := bypassModelConsistency && strings.TrimSpace(originalModel) != ""
 
 	resultWithUsage := func() *OpenAIForwardResult {
 		imageCount := imageCounter.Count()

@@ -353,7 +353,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	var finalResponse []byte
 	wroteDownstream := false
 	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(ctx, s.settingService)
-	needModelReplace := originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "")
+	needModelReplace := bypassModelConsistency && strings.TrimSpace(originalModel) != ""
 	bufferedStreamEvents := make([][]byte, 0, 4)
 	eventCount := 0
 	tokenEventCount := 0

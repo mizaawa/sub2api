@@ -1198,7 +1198,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	defer putSSEScannerBuf64K(scanBuf)
 	documentScanner := newOpenAISSEJSONDocumentScanner(scanner)
 
-	needModelReplace := originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "")
+	needModelReplace := bypassModelConsistency && strings.TrimSpace(originalModel) != ""
 	resultWithUsage := func() *openaiStreamingResultPassthrough {
 		return &openaiStreamingResultPassthrough{
 			usage:            usage,
@@ -1442,7 +1442,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if contentType == "" {
 		contentType = "application/json"
 	}
-	if originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "") {
+	if bypassModelConsistency && strings.TrimSpace(originalModel) != "" {
 		body = s.replaceModelInResponseBody(body, mappedModel, originalModel, bypassModelConsistency)
 	}
 	body, err = restoreOpenAIResponsesNamespacePayload(c, body)
@@ -1486,7 +1486,7 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		}
 		finalResponse = supplementCompactionItemFromSSE(c, finalResponse, bodyText)
 		body = finalResponse
-		if originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "") {
+		if bypassModelConsistency && strings.TrimSpace(originalModel) != "" {
 			body = s.replaceModelInResponseBody(body, mappedModel, originalModel, bypassModelConsistency)
 		}
 		// Correct tool calls in final response
@@ -1506,7 +1506,7 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 			return nil, s.writeOpenAINonStreamingProtocolError(resp, c, msg)
 		}
 		usage = s.parseSSEUsageFromBody(bodyText)
-		if originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "") {
+		if bypassModelConsistency && strings.TrimSpace(originalModel) != "" {
 			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, originalModel, bypassModelConsistency)
 		}
 		body = []byte(bodyText)

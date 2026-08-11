@@ -301,7 +301,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		lastDownstreamWriteAt = time.Now()
 	}
 
-	needModelReplace := originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "")
+	needModelReplace := bypassModelConsistency && strings.TrimSpace(originalModel) != ""
 	streamOutputAccumulator := apicompat.NewBufferedResponseAccumulator()
 	streamImageOutputs := make([]json.RawMessage, 0, 1)
 	streamSeenImages := make(map[string]struct{})
@@ -1205,7 +1205,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 
 	// Replace model in response if needed
 	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(ctx, s.settingService)
-	if originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "") {
+	if bypassModelConsistency && strings.TrimSpace(originalModel) != "" {
 		body = s.replaceModelInResponseBody(body, mappedModel, originalModel, bypassModelConsistency)
 	}
 	body, err = restoreGrokResponsesClientToolPayload(c, body)
@@ -1282,7 +1282,7 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 		}
 		finalResponse = supplementCompactionItemFromSSE(c, finalResponse, bodyText)
 		body = finalResponse
-		if originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "") {
+		if bypassModelConsistency && strings.TrimSpace(originalModel) != "" {
 			body = s.replaceModelInResponseBody(body, mappedModel, originalModel, bypassModelConsistency)
 		}
 		// Correct tool calls in final response
@@ -1306,7 +1306,7 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 			return nil, s.writeOpenAINonStreamingProtocolError(resp, c, msg)
 		}
 		usage = s.parseSSEUsageFromBody(bodyText)
-		if originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "") {
+		if bypassModelConsistency && strings.TrimSpace(originalModel) != "" {
 			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, originalModel, bypassModelConsistency)
 		}
 		body = []byte(bodyText)

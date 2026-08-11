@@ -831,7 +831,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		flusher.Flush()
 	}
 
-	needModelReplace := originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "")
+	needModelReplace := bypassModelConsistency && strings.TrimSpace(originalModel) != ""
 	clientDisconnected := false // 客户端断开标志，断开后继续读取上游以获取完整usage
 	sawTerminalEvent := false
 	useNoopDeltaKeepalive := c != nil && c.Request != nil && shouldUseClaudeCodeNoopDeltaKeepalive(c.GetHeader("User-Agent"))
@@ -1441,7 +1441,7 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 
 	// 如果有模型映射，替换响应中的model字段
 	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(ctx, s.settingService)
-	if originalModel != mappedModel || (bypassModelConsistency && strings.TrimSpace(originalModel) != "") {
+	if bypassModelConsistency && strings.TrimSpace(originalModel) != "" {
 		body = s.replaceModelInResponseBody(body, mappedModel, originalModel, bypassModelConsistency)
 	}
 
