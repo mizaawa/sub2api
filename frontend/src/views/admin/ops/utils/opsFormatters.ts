@@ -78,7 +78,7 @@ export function formatByteRate(bytes: number, windowMinutes: number): string {
  * 格式化 Ops 接口返回的内存容量。
  *
  * 后端的 `*_mb` 字段以 1024² 字节为单位换算得到；这里沿用该口径，
- * 避免把大容量数值交给通用数字缩写格式化后出现"3.2万 MB"这类不直观的显示。
+ * 避免把大容量数值交给通用数字缩写格式化后出现”3.2万 MB”这类不直观的显示。
  */
 export function formatMemorySizeMB(value: number | null | undefined): string {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return '-'
