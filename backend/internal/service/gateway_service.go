@@ -1457,16 +1457,29 @@ func (s *GatewayService) GetMessagesDispatchSupportedModels(ctx context.Context,
 	}
 
 	// Extract model keys from MessagesDispatchModelConfig
-	if group.MessagesDispatchModelConfig == nil || len(group.MessagesDispatchModelConfig) == 0 {
-		return nil
+	models := make([]string, 0, 4)
+
+	// Add predefined model mappings
+	if group.MessagesDispatchModelConfig.OpusMappedModel != "" {
+		models = append(models, strings.TrimSpace(group.MessagesDispatchModelConfig.OpusMappedModel))
+	}
+	if group.MessagesDispatchModelConfig.SonnetMappedModel != "" {
+		models = append(models, strings.TrimSpace(group.MessagesDispatchModelConfig.SonnetMappedModel))
+	}
+	if group.MessagesDispatchModelConfig.HaikuMappedModel != "" {
+		models = append(models, strings.TrimSpace(group.MessagesDispatchModelConfig.HaikuMappedModel))
 	}
 
-	models := make([]string, 0, len(group.MessagesDispatchModelConfig))
-	for modelKey := range group.MessagesDispatchModelConfig {
+	// Add exact model mappings
+	for modelKey := range group.MessagesDispatchModelConfig.ExactModelMappings {
 		modelKey = strings.TrimSpace(modelKey)
 		if modelKey != "" {
 			models = append(models, modelKey)
 		}
+	}
+
+	if len(models) == 0 {
+		return nil
 	}
 
 	return models
