@@ -474,7 +474,7 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	// 仅在开关开启时才把模型名伪装回下游请求的模型，
 	// 关闭时暴露上游响应自己声明的模型（可能带上游私有后缀）。
 	responseModel := strings.TrimSpace(finalResponse.Model)
-	if responseModel == "" || downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
+	if responseModel == "" || downstreamModelConsistencyBypassEnabled(ginRequestContext(c), s.settingService) {
 		responseModel = originalModel
 	}
 	chatResp := apicompat.ResponsesToChatCompletions(finalResponse, responseModel)
@@ -529,7 +529,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 
 	// bypass=false: expose real upstream model (upstreamModel) to downstream
 	// bypass=true:  show original requested model (originalModel) to downstream
-	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService)
+	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(ginRequestContext(c), s.settingService)
 	stateModel := ""
 	if bypassModelConsistency {
 		stateModel = originalModel

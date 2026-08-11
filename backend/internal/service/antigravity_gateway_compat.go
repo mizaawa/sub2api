@@ -363,17 +363,17 @@ func (s *AntigravityGatewayService) consumeAntigravityCompatSuccess(
 				resp,
 				call.request.startTime,
 				call.request.originalModel,
-				call.request.mappedModel,
+				call.billingModel,
 				call.request.includeUsage,
 			)
 		}
-		return s.handleResponsesStreamingFromAntigravity(c, resp, call.request.startTime, call.request.originalModel, call.request.mappedModel)
+		return s.handleResponsesStreamingFromAntigravity(c, resp, call.request.startTime, call.request.originalModel, call.billingModel)
 	}
 
 	if call.request.protocol == antigravityCompatChatCompletions {
-		return s.handleChatCompletionsNonStreamingFromAntigravity(c, resp, call.request.startTime, call.request.originalModel, call.request.mappedModel)
+		return s.handleChatCompletionsNonStreamingFromAntigravity(c, resp, call.request.startTime, call.request.originalModel, call.billingModel)
 	}
-	return s.handleResponsesNonStreamingFromAntigravity(c, resp, call.request.startTime, call.request.originalModel, call.request.mappedModel)
+	return s.handleResponsesNonStreamingFromAntigravity(c, resp, call.request.startTime, call.request.originalModel, call.billingModel)
 }
 
 func (s *AntigravityGatewayService) handleAntigravityCompatHTTPError(
@@ -498,7 +498,7 @@ func (s *AntigravityGatewayService) handleChatCompletionsNonStreamingFromAntigra
 	// 上游没有可回填的模型声明。因此开关关闭时直接用 mappedModel 作为
 	// 下游可见模型，开启时才伪装回下游请求的模型。
 	responseModel := originalModel
-	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) && strings.TrimSpace(mappedModel) != "" {
+	if !downstreamModelConsistencyBypassEnabled(ginRequestContext(c), s.settingService) && strings.TrimSpace(mappedModel) != "" {
 		responseModel = mappedModel
 	}
 	claudeResponse, result, err := s.collectClaudeStreamResponse(c, resp, startTime, responseModel)
@@ -523,7 +523,7 @@ func (s *AntigravityGatewayService) handleResponsesNonStreamingFromAntigravity(
 ) (*antigravityStreamResult, error) {
 	// 同上：Antigravity 的 model 字段本地合成，无上游声明可回填。
 	responseModel := originalModel
-	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) && strings.TrimSpace(mappedModel) != "" {
+	if !downstreamModelConsistencyBypassEnabled(ginRequestContext(c), s.settingService) && strings.TrimSpace(mappedModel) != "" {
 		responseModel = mappedModel
 	}
 	claudeResponse, result, err := s.collectClaudeStreamResponse(c, resp, startTime, responseModel)

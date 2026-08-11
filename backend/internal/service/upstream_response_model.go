@@ -14,6 +14,17 @@ func downstreamModelConsistencyBypassEnabled(ctx context.Context, settingService
 	return settingService != nil && settingService.IsDownstreamModelConsistencyBypassEnabled(ctx)
 }
 
+// ginRequestContext returns the request-scoped context bound to c, falling back
+// to context.Background() when no request is attached. Response handlers are
+// also exercised by unit tests that construct a bare gin.Context, where
+// c.Request is nil; dereferencing it directly would panic.
+func ginRequestContext(c *gin.Context) context.Context {
+	if c == nil || c.Request == nil {
+		return context.Background()
+	}
+	return c.Request.Context()
+}
+
 const (
 	upstreamResponseModelObserverContextKey = "upstream_response_model_observer"
 	upstreamResponseModelMaxLength          = 200

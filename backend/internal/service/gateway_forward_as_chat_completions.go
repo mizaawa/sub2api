@@ -321,7 +321,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	// 与 GPT 链路对齐：开关开启时才把模型名伪装回下游请求的模型，
 	// 关闭时暴露上游响应自己声明的模型（可能带上游后缀，非 mappedModel）。
 	responseModel := strings.TrimSpace(responsesResp.Model)
-	if responseModel == "" || downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
+	if responseModel == "" || downstreamModelConsistencyBypassEnabled(ginRequestContext(c), s.settingService) {
 		responseModel = originalModel
 	}
 	ccResp := apicompat.ResponsesToChatCompletions(responsesResp, responseModel)
@@ -383,7 +383,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	// 与 GPT 链路对齐：仅在开关开启时预置模型名以伪装成下游请求的模型；
 	// 关闭时留空，让状态机从上游 message_start 声明的模型自然回填，
 	// 使下游能看到上游真实声明（可能带上游私有后缀，不等于 mappedModel）。
-	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService)
+	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(ginRequestContext(c), s.settingService)
 	stateModel := ""
 	if bypassModelConsistency {
 		stateModel = originalModel

@@ -451,7 +451,7 @@ func (s *AntigravityGatewayService) handleChatCompletionsStreamingFromAntigravit
 	// bypass=false: expose real upstream model (mappedModel) to downstream
 	// bypass=true:  show original requested model (originalModel) to downstream
 	responseModel := originalModel
-	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
+	if !downstreamModelConsistencyBypassEnabled(ginRequestContext(c), s.settingService) {
 		responseModel = mappedModel
 	}
 	return s.handleAntigravityCompatStream(
@@ -474,7 +474,7 @@ func (s *AntigravityGatewayService) handleResponsesStreamingFromAntigravity(
 	// bypass=false: expose real upstream model (mappedModel) to downstream
 	// bypass=true:  show original requested model (originalModel) to downstream
 	responseModel := originalModel
-	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
+	if !downstreamModelConsistencyBypassEnabled(ginRequestContext(c), s.settingService) {
 		responseModel = mappedModel
 	}
 	return s.handleAntigravityCompatStream(
