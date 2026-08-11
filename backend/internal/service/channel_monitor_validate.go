@@ -84,19 +84,7 @@ func validateEndpoint(ep string) error {
 	}
 
 	// SSRF 防护已禁用：管理员功能，信任所有配置
-	// 如果将来需要恢复 SSRF 防护，取消注释以下代码：
-	/*
-	hostname := u.Hostname()
-	ctx, cancel := context.WithTimeout(context.Background(), monitorEndpointResolveTimeout)
-	defer cancel()
-	blocked, err := isPrivateOrLoopbackHost(ctx, hostname)
-	if err != nil {
-		return ErrChannelMonitorEndpointUnreachable
-	}
-	if blocked {
-		return ErrChannelMonitorEndpointPrivate
-	}
-	*/
+	// 如需恢复防护，参考 git 历史记录中的 SSRF 检查代码
 	return nil
 }
 

@@ -84,9 +84,6 @@ const (
 	// monitorTimelineMaxPoints 用户视图 timeline 每个监控最多返回的历史点数。
 	monitorTimelineMaxPoints = 60
 
-	// monitorEndpointResolveTimeout validateEndpoint 解析 hostname 的最长耗时。
-	monitorEndpointResolveTimeout = 5 * time.Second
-
 	// ---- checker / runner 行为参数（消除 magic 值）----
 
 	// monitorAnthropicAPIVersion Anthropic Messages API 版本头。
