@@ -317,8 +317,14 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	}
 
 	// Chain: Anthropic → Responses → Chat Completions
+	// bypass=false: expose real upstream model (mappedModel) to downstream
+	// bypass=true:  show original requested model (originalModel) to downstream
+	responseModel := originalModel
+	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
+		responseModel = mappedModel
+	}
 	responsesResp := apicompat.AnthropicToResponsesResponse(finalResp)
-	ccResp := apicompat.ResponsesToChatCompletions(responsesResp, originalModel)
+	ccResp := apicompat.ResponsesToChatCompletions(responsesResp, responseModel)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -341,7 +347,7 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	return &ForwardResult{
 		RequestID:       requestID,
 		Usage:           usage,
-		Model:           originalModel,
+		Model:           responseModel,
 		UpstreamModel:   mappedModel,
 		ReasoningEffort: reasoningEffort,
 		Stream:          false,
@@ -372,10 +378,16 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	c.Writer.WriteHeader(http.StatusOK)
 
 	// Use Anthropic→Responses state machine, then convert Responses→CC
+	// bypass=false: expose real upstream model (mappedModel) to downstream
+	// bypass=true:  show original requested model (originalModel) to downstream
+	responseModel := originalModel
+	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
+		responseModel = mappedModel
+	}
 	anthState := apicompat.NewAnthropicEventToResponsesState()
-	anthState.Model = originalModel
+	anthState.Model = responseModel
 	ccState := apicompat.NewResponsesEventToChatState()
-	ccState.Model = originalModel
+	ccState.Model = responseModel
 	ccState.IncludeUsage = includeUsage
 
 	var usage ClaudeUsage
@@ -393,7 +405,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 		return &ForwardResult{
 			RequestID:       requestID,
 			Usage:           usage,
-			Model:           originalModel,
+			Model:           responseModel,
 			UpstreamModel:   mappedModel,
 			ReasoningEffort: reasoningEffort,
 			Stream:          true,

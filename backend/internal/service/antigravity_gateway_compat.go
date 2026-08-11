@@ -34,6 +34,7 @@ type antigravityCompatRequest struct {
 	originalBody    []byte
 	claudeBody      []byte
 	originalModel   string
+	mappedModel     string
 	clientStream    bool
 	includeUsage    bool
 	startTime       time.Time
@@ -84,11 +85,19 @@ func (s *AntigravityGatewayService) ForwardAsChatCompletions(
 		return nil, fmt.Errorf("marshal anthropic request: %w", err)
 	}
 
+	mappedModel := s.getMappedModel(account, request.Model)
+	if mappedModel == "" {
+		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
+		message := fmt.Sprintf("model %s not in whitelist", request.Model)
+		return nil, s.writeAntigravityCompatError(c, http.StatusForbidden, "permission_error", message)
+	}
+
 	return s.forwardAntigravityCompat(ctx, c, account, antigravityCompatRequest{
 		protocol:        antigravityCompatChatCompletions,
 		originalBody:    body,
 		claudeBody:      claudeBody,
 		originalModel:   request.Model,
+		mappedModel:     mappedModel,
 		clientStream:    request.Stream,
 		includeUsage:    request.StreamOptions != nil && request.StreamOptions.IncludeUsage,
 		startTime:       time.Now(),
@@ -126,11 +135,19 @@ func (s *AntigravityGatewayService) ForwardAsResponses(
 		return nil, fmt.Errorf("marshal anthropic request: %w", err)
 	}
 
+	mappedModel := s.getMappedModel(account, request.Model)
+	if mappedModel == "" {
+		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
+		message := fmt.Sprintf("model %s not in whitelist", request.Model)
+		return nil, s.writeAntigravityCompatError(c, http.StatusForbidden, "permission_error", message)
+	}
+
 	return s.forwardAntigravityCompat(ctx, c, account, antigravityCompatRequest{
 		protocol:        antigravityCompatResponses,
 		originalBody:    body,
 		claudeBody:      claudeBody,
 		originalModel:   request.Model,
+		mappedModel:     mappedModel,
 		clientStream:    request.Stream,
 		startTime:       time.Now(),
 		reasoningEffort: ExtractResponsesReasoningEffortFromBody(body),
@@ -210,12 +227,7 @@ func (s *AntigravityGatewayService) prepareAntigravityCompatCall(
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", "Invalid request body")
 	}
 
-	mappedModel := s.getMappedModel(account, request.originalModel)
-	if mappedModel == "" {
-		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
-		message := fmt.Sprintf("model %s not in whitelist", request.originalModel)
-		return nil, s.writeAntigravityCompatError(c, http.StatusForbidden, "permission_error", message)
-	}
+	mappedModel := request.mappedModel
 	thinkingEnabled := claudeRequest.Thinking != nil &&
 		(claudeRequest.Thinking.Type == "enabled" || claudeRequest.Thinking.Type == "adaptive")
 	mappedModel = applyThinkingModelSuffix(mappedModel, thinkingEnabled)
@@ -351,16 +363,17 @@ func (s *AntigravityGatewayService) consumeAntigravityCompatSuccess(
 				resp,
 				call.request.startTime,
 				call.request.originalModel,
+				call.request.mappedModel,
 				call.request.includeUsage,
 			)
 		}
-		return s.handleResponsesStreamingFromAntigravity(c, resp, call.request.startTime, call.request.originalModel)
+		return s.handleResponsesStreamingFromAntigravity(c, resp, call.request.startTime, call.request.originalModel, call.request.mappedModel)
 	}
 
 	if call.request.protocol == antigravityCompatChatCompletions {
-		return s.handleChatCompletionsNonStreamingFromAntigravity(c, resp, call.request.startTime, call.request.originalModel)
+		return s.handleChatCompletionsNonStreamingFromAntigravity(c, resp, call.request.startTime, call.request.originalModel, call.request.mappedModel)
 	}
-	return s.handleResponsesNonStreamingFromAntigravity(c, resp, call.request.startTime, call.request.originalModel)
+	return s.handleResponsesNonStreamingFromAntigravity(c, resp, call.request.startTime, call.request.originalModel, call.request.mappedModel)
 }
 
 func (s *AntigravityGatewayService) handleAntigravityCompatHTTPError(
@@ -479,8 +492,15 @@ func (s *AntigravityGatewayService) handleChatCompletionsNonStreamingFromAntigra
 	resp *http.Response,
 	startTime time.Time,
 	originalModel string,
+	mappedModel string,
 ) (*antigravityStreamResult, error) {
-	claudeResponse, result, err := s.collectClaudeStreamResponse(c, resp, startTime, originalModel)
+	// bypass=false: expose real upstream model (mappedModel) to downstream
+	// bypass=true:  show original requested model (originalModel) to downstream
+	responseModel := originalModel
+	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
+		responseModel = mappedModel
+	}
+	claudeResponse, result, err := s.collectClaudeStreamResponse(c, resp, startTime, responseModel)
 	if err != nil {
 		return nil, s.mapAntigravityCompatCollectionError(c, err)
 	}
@@ -489,7 +509,7 @@ func (s *AntigravityGatewayService) handleChatCompletionsNonStreamingFromAntigra
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
 	}
 	responsesResponse := apicompat.AnthropicToResponsesResponse(&anthropicResponse)
-	c.JSON(http.StatusOK, apicompat.ResponsesToChatCompletions(responsesResponse, originalModel))
+	c.JSON(http.StatusOK, apicompat.ResponsesToChatCompletions(responsesResponse, responseModel))
 	return result, nil
 }
 
@@ -498,8 +518,15 @@ func (s *AntigravityGatewayService) handleResponsesNonStreamingFromAntigravity(
 	resp *http.Response,
 	startTime time.Time,
 	originalModel string,
+	mappedModel string,
 ) (*antigravityStreamResult, error) {
-	claudeResponse, result, err := s.collectClaudeStreamResponse(c, resp, startTime, originalModel)
+	// bypass=false: expose real upstream model (mappedModel) to downstream
+	// bypass=true:  show original requested model (originalModel) to downstream
+	responseModel := originalModel
+	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
+		responseModel = mappedModel
+	}
+	claudeResponse, result, err := s.collectClaudeStreamResponse(c, resp, startTime, responseModel)
 	if err != nil {
 		return nil, s.mapAntigravityCompatCollectionError(c, err)
 	}
@@ -507,7 +534,9 @@ func (s *AntigravityGatewayService) handleResponsesNonStreamingFromAntigravity(
 	if json.Unmarshal(claudeResponse, &anthropicResponse) != nil {
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
 	}
-	c.JSON(http.StatusOK, apicompat.AnthropicToResponsesResponse(&anthropicResponse))
+	responsesResponse := apicompat.AnthropicToResponsesResponse(&anthropicResponse)
+	responsesResponse.Model = responseModel
+	c.JSON(http.StatusOK, responsesResponse)
 	return result, nil
 }
 

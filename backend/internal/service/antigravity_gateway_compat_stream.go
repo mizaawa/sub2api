@@ -445,14 +445,21 @@ func (s *AntigravityGatewayService) handleChatCompletionsStreamingFromAntigravit
 	resp *http.Response,
 	startTime time.Time,
 	originalModel string,
+	mappedModel string,
 	includeUsage bool,
 ) (*antigravityStreamResult, error) {
+	// bypass=false: expose real upstream model (mappedModel) to downstream
+	// bypass=true:  show original requested model (originalModel) to downstream
+	responseModel := originalModel
+	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
+		responseModel = mappedModel
+	}
 	return s.handleAntigravityCompatStream(
 		c,
 		resp,
 		startTime,
-		originalModel,
-		newAntigravityChatStreamAdapter(originalModel, includeUsage),
+		responseModel,
+		newAntigravityChatStreamAdapter(responseModel, includeUsage),
 		"antigravity chat completions stream",
 	)
 }
@@ -462,13 +469,20 @@ func (s *AntigravityGatewayService) handleResponsesStreamingFromAntigravity(
 	resp *http.Response,
 	startTime time.Time,
 	originalModel string,
+	mappedModel string,
 ) (*antigravityStreamResult, error) {
+	// bypass=false: expose real upstream model (mappedModel) to downstream
+	// bypass=true:  show original requested model (originalModel) to downstream
+	responseModel := originalModel
+	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
+		responseModel = mappedModel
+	}
 	return s.handleAntigravityCompatStream(
 		c,
 		resp,
 		startTime,
-		originalModel,
-		newAntigravityResponsesStreamAdapter(originalModel),
+		responseModel,
+		newAntigravityResponsesStreamAdapter(responseModel),
 		"antigravity responses stream",
 	)
 }
