@@ -1460,9 +1460,10 @@ func (s *GatewayService) GetMessagesDispatchSupportedModels(ctx context.Context,
 	config := group.MessagesDispatchModelConfig
 	models := make([]string, 0, 8)
 
-	// For Anthropic platform: return Claude model identifiers (source models)
+	// For native platforms (Anthropic/Grok/Gemini): return their native model identifiers
 	// For OpenAI platform: return mapped target models
-	if group.Platform == PlatformAnthropic {
+	switch group.Platform {
+	case PlatformAnthropic:
 		// Return Claude model identifiers that can be dispatched
 		if config.OpusMappedModel != "" {
 			models = append(models, "claude-opus-4")
@@ -1480,7 +1481,46 @@ func (s *GatewayService) GetMessagesDispatchSupportedModels(ctx context.Context,
 				models = append(models, sourceModel)
 			}
 		}
-	} else if group.Platform == PlatformOpenAI {
+
+	case PlatformGrok:
+		// Return Grok model identifiers that can be dispatched
+		if config.OpusMappedModel != "" {
+			models = append(models, "grok-3", "grok-2-latest")
+		}
+		if config.SonnetMappedModel != "" {
+			models = append(models, "grok-2-vision-latest")
+		}
+		if config.HaikuMappedModel != "" {
+			models = append(models, "grok-vision-beta")
+		}
+		// For exact mappings, use the keys (Grok model names)
+		for sourceModel := range config.ExactModelMappings {
+			sourceModel = strings.TrimSpace(sourceModel)
+			if sourceModel != "" {
+				models = append(models, sourceModel)
+			}
+		}
+
+	case PlatformGemini:
+		// Return Gemini model identifiers that can be dispatched
+		if config.OpusMappedModel != "" {
+			models = append(models, "gemini-2.5-pro-latest", "gemini-2.0-flash-thinking-exp")
+		}
+		if config.SonnetMappedModel != "" {
+			models = append(models, "gemini-2.0-flash-exp", "gemini-1.5-pro-latest")
+		}
+		if config.HaikuMappedModel != "" {
+			models = append(models, "gemini-1.5-flash-latest", "gemini-1.5-flash-8b-latest")
+		}
+		// For exact mappings, use the keys (Gemini model names)
+		for sourceModel := range config.ExactModelMappings {
+			sourceModel = strings.TrimSpace(sourceModel)
+			if sourceModel != "" {
+				models = append(models, sourceModel)
+			}
+		}
+
+	case PlatformOpenAI:
 		// Return target models that MessagesDispatch will use
 		if config.OpusMappedModel != "" {
 			models = append(models, strings.TrimSpace(config.OpusMappedModel))
