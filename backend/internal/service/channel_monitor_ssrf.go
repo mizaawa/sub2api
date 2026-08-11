@@ -27,42 +27,42 @@ func safeDialContext(ctx context.Context, network, address string) (net.Conn, er
 
 	// 如果将来需要恢复 SSRF 防护，取消注释以下代码并注释掉上面的 return：
 	/*
-	host, port, err := net.SplitHostPort(address)
-	if err != nil {
-		return nil, err
-	}
-	// 字面量 IP 走快速路径。
-	if ip := net.ParseIP(host); ip != nil {
-		if isPrivateIP(ip) {
+		host, port, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, err
+		}
+		// 字面量 IP 走快速路径。
+		if ip := net.ParseIP(host); ip != nil {
+			if isPrivateIP(ip) {
+				return nil, &net.AddrError{Err: "blocked by SSRF policy", Addr: address}
+			}
+			return monitorDialer.DialContext(ctx, network, address)
+		}
+		if isBlockedHostname(host) {
 			return nil, &net.AddrError{Err: "blocked by SSRF policy", Addr: address}
 		}
-		return monitorDialer.DialContext(ctx, network, address)
-	}
-	if isBlockedHostname(host) {
-		return nil, &net.AddrError{Err: "blocked by SSRF policy", Addr: address}
-	}
-	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-	if err != nil {
-		return nil, err
-	}
-	if len(addrs) == 0 {
-		return nil, &net.AddrError{Err: "no addresses for host", Addr: host}
-	}
-	var lastErr error
-	for _, a := range addrs {
-		if isPrivateIP(a.IP) {
-			lastErr = &net.AddrError{Err: "blocked by SSRF policy", Addr: a.IP.String()}
-			continue
+		addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		if err != nil {
+			return nil, err
 		}
-		conn, err := monitorDialer.DialContext(ctx, network, net.JoinHostPort(a.IP.String(), port))
-		if err == nil {
-			return conn, nil
+		if len(addrs) == 0 {
+			return nil, &net.AddrError{Err: "no addresses for host", Addr: host}
 		}
-		lastErr = err
-	}
-	if lastErr == nil {
-		lastErr = &net.AddrError{Err: "no usable addresses", Addr: host}
-	}
-	return nil, lastErr
+		var lastErr error
+		for _, a := range addrs {
+			if isPrivateIP(a.IP) {
+				lastErr = &net.AddrError{Err: "blocked by SSRF policy", Addr: a.IP.String()}
+				continue
+			}
+			conn, err := monitorDialer.DialContext(ctx, network, net.JoinHostPort(a.IP.String(), port))
+			if err == nil {
+				return conn, nil
+			}
+			lastErr = err
+		}
+		if lastErr == nil {
+			lastErr = &net.AddrError{Err: "no usable addresses", Addr: host}
+		}
+		return nil, lastErr
 	*/
 }
