@@ -1466,10 +1466,10 @@ func (s *GatewayService) GetMessagesDispatchSupportedModels(ctx context.Context,
 	case PlatformAnthropic:
 		// Return Claude model identifiers that can be dispatched
 		if config.OpusMappedModel != "" {
-			models = append(models, "claude-opus-4")
+			models = append(models, "claude-opus-4", "claude-opus-5", "claude-fable-5")
 		}
 		if config.SonnetMappedModel != "" {
-			models = append(models, "claude-sonnet-4", "claude-3-5-sonnet-20241022", "claude-3-5-sonnet-20240620")
+			models = append(models, "claude-sonnet-4", "claude-sonnet-4.5", "claude-3-5-sonnet-20241022", "claude-3-5-sonnet-20240620")
 		}
 		if config.HaikuMappedModel != "" {
 			models = append(models, "claude-haiku-4", "claude-3-5-haiku-20241022")

@@ -1102,11 +1102,10 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	// Get available models from account configurations for the selected group platform.
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
 
-	// Merge models from MessagesDispatch configuration only if bypass is DISABLED
-	// When bypass is enabled, we hide the model mappings from downstream
-	// When bypass is disabled, we expose the mappings so downstream can detect them
-	bypassEnabled := h.settingService.IsDownstreamModelConsistencyBypassEnabled(c.Request.Context())
-	if !bypassEnabled && groupID != nil && (platform == service.PlatformAnthropic || platform == service.PlatformOpenAI || platform == service.PlatformGrok || platform == service.PlatformGemini) {
+	// Merge models from MessagesDispatch configuration
+	// This allows downstream to detect which models can be dispatched
+	// Note: bypass setting only affects response rewriting, not model list visibility
+	if groupID != nil && (platform == service.PlatformAnthropic || platform == service.PlatformOpenAI || platform == service.PlatformGrok || platform == service.PlatformGemini) {
 		dispatchModels := h.gatewayService.GetMessagesDispatchSupportedModels(c.Request.Context(), groupID)
 		if len(dispatchModels) > 0 {
 			// Use a map to deduplicate models
