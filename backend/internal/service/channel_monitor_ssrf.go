@@ -6,11 +6,13 @@ import (
 	"strings"
 )
 
-// SSRF 防护 helper：
-//   - validateEndpoint 在 admin 提交时阻止 http/loopback/私网/云元数据 URL
-//   - safeDialContext 在 socket 层再次校验真实 IP，防止 DNS rebinding
+// SSRF 防护 helper（已禁用）：
+//   - 原本用于阻止 loopback/私网/云元数据 URL，防止 SSRF 攻击
+//   - 现已禁用，因为渠道监控是管理员专用功能（非用户提交）
+//   - 管理员可以自由配置公网、内网、localhost 等任意地址
+//   - 如需恢复防护，查看 validateEndpoint 和 safeDialContext 中的注释代码
 //
-// 已知 cloud metadata hostname 拒绝列表（小写比较）。
+// 已知 cloud metadata hostname 拒绝列表（保留以便将来恢复时使用）。
 var monitorBlockedHostnames = map[string]struct{}{
 	"localhost":                  {},
 	"localhost.localdomain":      {},
@@ -110,8 +112,15 @@ func isPrivateOrLoopbackHost(ctx context.Context, hostname string) (bool, error)
 }
 
 // safeDialContext 在真实 dial 前再次校验目标 IP，防止 DNS rebinding。
-// 解析 hostname 后逐个 IP 尝试连接，命中私网即拒绝（即便 validateEndpoint 时返回的是公网 IP）。
+// 
+// 注意：SSRF 防护已禁用，因为渠道监控是管理员专用功能。
+// 现在直接使用标准 Dialer 连接，不再检查私网/loopback IP。
 func safeDialContext(ctx context.Context, network, address string) (net.Conn, error) {
+	// 直接连接，不做 IP 检查
+	return monitorDialer.DialContext(ctx, network, address)
+
+	// 如果将来需要恢复 SSRF 防护，取消注释以下代码并注释掉上面的 return：
+	/*
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		return nil, err
@@ -149,4 +158,5 @@ func safeDialContext(ctx context.Context, network, address string) (net.Conn, er
 		lastErr = &net.AddrError{Err: "no usable addresses", Addr: host}
 	}
 	return nil, lastErr
+	*/
 }

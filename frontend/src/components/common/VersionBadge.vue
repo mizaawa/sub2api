@@ -31,19 +31,19 @@
         <div
           v-if="dropdownOpen"
           ref="dropdownRef"
-          class="version-popover absolute left-0 z-50 mt-2 overflow-hidden whitespace-normal border shadow-lg transition-all duration-200"
+          class="version-popover absolute left-0 z-50 mt-2 overflow-hidden whitespace-normal rounded-xl border border-[var(--border)] bg-[var(--surface-1)] shadow-2xl transition-all duration-200"
           :class="rollbackPanelOpen && isReleaseBuild ? 'w-80' : 'w-64'"
         >
           <!-- Header with refresh button -->
           <div
-            class="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-dark-700"
+            class="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-2)] px-4 py-3"
           >
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-300">{{
+            <span class="text-sm font-medium text-[var(--text-primary)]">{{
               t('version.currentVersion')
             }}</span>
             <button
               @click="refreshVersion(true)"
-              class="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700 dark:hover:text-dark-200"
+              class="rounded-lg p-1.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--surface-3)] hover:text-[var(--text-primary)]"
               :disabled="loading"
               :title="t('version.refresh')"
             >
@@ -59,7 +59,7 @@
           <div class="p-4">
             <!-- Loading state -->
             <div v-if="loading" class="flex items-center justify-center py-6">
-              <svg class="h-6 w-6 animate-spin text-primary-500" fill="none" viewBox="0 0 24 24">
+              <svg class="h-6 w-6 animate-spin text-[var(--accent)]" fill="none" viewBox="0 0 24 24">
                 <circle
                   class="opacity-25"
                   cx="12"
@@ -83,17 +83,17 @@
                 <div class="inline-flex items-center gap-2">
                   <span
                     v-if="currentVersion"
-                    class="text-2xl font-bold text-gray-900 dark:text-white"
+                    class="text-2xl font-bold text-[var(--text-primary)]"
                     >v{{ currentVersion }}</span
                   >
-                  <span v-else class="text-2xl font-bold text-gray-400 dark:text-dark-500">--</span>
+                  <span v-else class="text-2xl font-bold text-[var(--text-tertiary)]">--</span>
                   <!-- Show check mark when up to date -->
                   <span
                     v-if="!hasUpdate"
-                    class="flex h-5 w-5 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30"
+                    class="flex h-5 w-5 items-center justify-center rounded-full bg-green-500/20"
                   >
                     <svg
-                      class="h-3 w-3 text-green-600 dark:text-green-400"
+                      class="h-3 w-3 text-green-500"
                       fill="currentColor"
                       viewBox="0 0 20 20"
                     >
@@ -105,7 +105,7 @@
                     </svg>
                   </span>
                 </div>
-                <p class="mt-1 text-xs text-gray-500 dark:text-dark-400">
+                <p class="mt-1 text-xs text-[var(--text-secondary)]">
                   {{
                     hasUpdate
                       ? t('version.latestVersion') + ': v' + latestVersion
@@ -117,23 +117,23 @@
               <!-- Priority 1: Update error (must check before hasUpdate) -->
               <div v-if="updateError" class="space-y-2">
                 <div
-                  class="flex items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800/50 dark:bg-red-900/20"
+                  class="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3"
                 >
                   <div
-                    class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/50"
+                    class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-red-500/20"
                   >
                     <Icon
                       name="x"
                       size="sm"
                       :stroke-width="2"
-                      class="text-red-600 dark:text-red-400"
+                      class="text-red-500"
                     />
                   </div>
                   <div class="min-w-0 flex-1">
-                    <p class="text-sm font-medium text-red-700 dark:text-red-300">
+                    <p class="text-sm font-medium text-red-500">
                       {{ t('version.updateFailed') }}
                     </p>
-                    <p class="truncate text-xs text-red-600/70 dark:text-red-400/70">
+                    <p class="truncate text-xs text-red-500/70">
                       {{ updateError }}
                     </p>
                   </div>
@@ -143,7 +143,7 @@
                 <button
                   @click="handleUpdate"
                   :disabled="updating"
-                  class="flex w-full items-center justify-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  class="flex w-full items-center justify-center gap-2 rounded-xl bg-red-500 px-4 py-2 text-sm font-medium text-white shadow-lg transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {{ t('version.retry') }}
                 </button>
@@ -152,13 +152,13 @@
               <!-- Priority 2: Update success - need restart -->
               <div v-else-if="updateSuccess && needRestart" class="space-y-2">
                 <div
-                  class="flex items-center gap-3 rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800/50 dark:bg-green-900/20"
+                  class="flex items-center gap-3 rounded-xl border border-green-500/30 bg-green-500/10 p-3"
                 >
                   <div
-                    class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/50"
+                    class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-green-500/20"
                   >
                     <svg
-                      class="h-4 w-4 text-green-600 dark:text-green-400"
+                      class="h-4 w-4 text-green-500"
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
@@ -168,14 +168,14 @@
                     </svg>
                   </div>
                   <div class="min-w-0 flex-1">
-                    <p class="text-sm font-medium text-green-700 dark:text-green-300">
+                    <p class="text-sm font-medium text-green-500">
                       {{
                         successKind === 'rollback'
                           ? t('version.rollbackComplete')
                           : t('version.updateComplete')
                       }}
                     </p>
-                    <p class="text-xs text-green-600/70 dark:text-green-400/70">
+                    <p class="text-xs text-green-500/70">
                       {{ t('version.restartRequired') }}
                     </p>
                   </div>
@@ -185,7 +185,7 @@
                 <button
                   @click="handleRestart"
                   :disabled="restarting"
-                  class="flex w-full items-center justify-center gap-2 rounded-lg bg-green-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  class="flex w-full items-center justify-center gap-2 rounded-xl bg-green-500 px-4 py-2 text-sm font-medium text-white shadow-lg transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <svg
                     v-if="restarting"
@@ -238,28 +238,28 @@
                   :href="releaseInfo.html_url"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="group flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 transition-colors hover:bg-amber-100 dark:border-amber-800/50 dark:bg-amber-900/20 dark:hover:bg-amber-900/30"
+                  class="group flex items-center gap-3 rounded-xl border border-[var(--accent)]/30 bg-[var(--accent)]/10 p-3 transition-all hover:bg-[var(--accent)]/20"
                 >
                   <div
-                    class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/50"
+                    class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[var(--accent)]/20"
                   >
                     <Icon
                       name="download"
                       size="sm"
                       :stroke-width="2"
-                      class="text-amber-600 dark:text-amber-400"
+                      class="text-[var(--accent)]"
                     />
                   </div>
                   <div class="min-w-0 flex-1">
-                    <p class="text-sm font-medium text-amber-700 dark:text-amber-300">
+                    <p class="text-sm font-medium text-[var(--accent)]">
                       {{ t('version.updateAvailable') }}
                     </p>
-                    <p class="text-xs text-amber-600/70 dark:text-amber-400/70">
+                    <p class="text-xs text-[var(--accent)]/70">
                       v{{ latestVersion }}
                     </p>
                   </div>
                   <svg
-                    class="h-4 w-4 text-amber-500 transition-transform group-hover:translate-x-0.5 dark:text-amber-400"
+                    class="h-4 w-4 text-[var(--accent)] transition-transform group-hover:translate-x-0.5"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -270,10 +270,10 @@
                 </a>
                 <!-- Source build hint -->
                 <div
-                  class="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-2 dark:border-blue-800/50 dark:bg-blue-900/20"
+                  class="flex items-center gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 p-2"
                 >
                   <svg
-                    class="h-3.5 w-3.5 flex-shrink-0 text-blue-500 dark:text-blue-400"
+                    class="h-3.5 w-3.5 flex-shrink-0 text-blue-500"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -285,7 +285,7 @@
                       d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
                     />
                   </svg>
-                  <p class="text-xs text-blue-600 dark:text-blue-400">
+                  <p class="text-xs text-blue-500">
                     {{ t('version.sourceModeHint') }}
                   </p>
                 </div>
@@ -295,23 +295,23 @@
               <div v-else-if="hasUpdate && isReleaseBuild" class="space-y-2">
                 <!-- Update info card -->
                 <div
-                  class="flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800/50 dark:bg-amber-900/20"
+                  class="flex items-center gap-3 rounded-xl border border-[var(--accent)]/30 bg-[var(--accent)]/10 p-3"
                 >
                 <div
-                  class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/50"
+                  class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[var(--accent)]/20"
                 >
                   <Icon
                     name="download"
                     size="sm"
                     :stroke-width="2"
-                    class="text-amber-600 dark:text-amber-400"
+                    class="text-[var(--accent)]"
                   />
                 </div>
                   <div class="min-w-0 flex-1">
-                    <p class="text-sm font-medium text-amber-700 dark:text-amber-300">
+                    <p class="text-sm font-medium text-[var(--accent)]">
                       {{ t('version.updateAvailable') }}
                     </p>
-                    <p class="text-xs text-amber-600/70 dark:text-amber-400/70">
+                    <p class="text-xs text-[var(--accent)]/70">
                       v{{ latestVersion }}
                     </p>
                   </div>
@@ -321,7 +321,7 @@
                 <button
                   @click="handleUpdate"
                   :disabled="updating"
-                  class="flex w-full items-center justify-center gap-2 rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  class="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white shadow-lg transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <svg v-if="updating" class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle
