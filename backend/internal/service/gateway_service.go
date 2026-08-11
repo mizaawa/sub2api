@@ -1439,6 +1439,39 @@ func (s *GatewayService) GetSchedulablePlatforms(ctx context.Context, groupID *i
 	return platforms
 }
 
+// GetMessagesDispatchSupportedModels returns Claude models that are supported via MessagesDispatch configuration
+// for the given group. Returns an empty slice if MessagesDispatch is not enabled or not configured.
+func (s *GatewayService) GetMessagesDispatchSupportedModels(ctx context.Context, groupID *int64) []string {
+	if s == nil || s.groupRepo == nil || groupID == nil {
+		return nil
+	}
+
+	group, err := s.groupRepo.GetByID(ctx, *groupID)
+	if err != nil || group == nil {
+		return nil
+	}
+
+	// Check if MessagesDispatch is enabled
+	if !group.AllowMessagesDispatch {
+		return nil
+	}
+
+	// Extract model keys from MessagesDispatchModelConfig
+	if group.MessagesDispatchModelConfig == nil || len(group.MessagesDispatchModelConfig) == 0 {
+		return nil
+	}
+
+	models := make([]string, 0, len(group.MessagesDispatchModelConfig))
+	for modelKey := range group.MessagesDispatchModelConfig {
+		modelKey = strings.TrimSpace(modelKey)
+		if modelKey != "" {
+			models = append(models, modelKey)
+		}
+	}
+
+	return models
+}
+
 func (s *GatewayService) InvalidateAvailableModelsCache(groupID *int64, platform string) {
 	if s == nil || s.modelsListCache == nil {
 		return

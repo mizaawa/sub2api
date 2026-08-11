@@ -1101,6 +1101,30 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	// Get available models from account configurations for the selected group platform.
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+
+	// Merge models from MessagesDispatch configuration if enabled
+	// This allows downstream to detect Claude models mapped via MessagesDispatch
+	if groupID != nil && (platform == service.PlatformAnthropic || platform == service.PlatformOpenAI) {
+		dispatchModels := h.gatewayService.GetMessagesDispatchSupportedModels(c.Request.Context(), groupID)
+		if len(dispatchModels) > 0 {
+			// Use a map to deduplicate models
+			modelSet := make(map[string]struct{})
+			for _, m := range availableModels {
+				modelSet[m] = struct{}{}
+			}
+			for _, m := range dispatchModels {
+				modelSet[m] = struct{}{}
+			}
+
+			// Convert back to slice
+			mergedModels := make([]string, 0, len(modelSet))
+			for m := range modelSet {
+				mergedModels = append(mergedModels, m)
+			}
+			availableModels = mergedModels
+		}
+	}
+
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 		fallbackModels := defaultModelIDsForPlatform(platform)
 		availableModels = filterModelsByCustomList(customModelsListSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models)
