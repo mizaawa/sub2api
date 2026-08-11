@@ -1457,24 +1457,46 @@ func (s *GatewayService) GetMessagesDispatchSupportedModels(ctx context.Context,
 	}
 
 	// Extract model keys from MessagesDispatchModelConfig
-	models := make([]string, 0, 4)
+	config := group.MessagesDispatchModelConfig
+	models := make([]string, 0, 8)
 
-	// Add predefined model mappings
-	if group.MessagesDispatchModelConfig.OpusMappedModel != "" {
-		models = append(models, strings.TrimSpace(group.MessagesDispatchModelConfig.OpusMappedModel))
-	}
-	if group.MessagesDispatchModelConfig.SonnetMappedModel != "" {
-		models = append(models, strings.TrimSpace(group.MessagesDispatchModelConfig.SonnetMappedModel))
-	}
-	if group.MessagesDispatchModelConfig.HaikuMappedModel != "" {
-		models = append(models, strings.TrimSpace(group.MessagesDispatchModelConfig.HaikuMappedModel))
-	}
-
-	// Add exact model mappings
-	for modelKey := range group.MessagesDispatchModelConfig.ExactModelMappings {
-		modelKey = strings.TrimSpace(modelKey)
-		if modelKey != "" {
-			models = append(models, modelKey)
+	// For Anthropic platform: return Claude model identifiers (source models)
+	// For OpenAI platform: return mapped target models
+	if group.Platform == PlatformAnthropic {
+		// Return Claude model identifiers that can be dispatched
+		if config.OpusMappedModel != "" {
+			models = append(models, "claude-opus-4")
+		}
+		if config.SonnetMappedModel != "" {
+			models = append(models, "claude-sonnet-4", "claude-3-5-sonnet-20241022", "claude-3-5-sonnet-20240620")
+		}
+		if config.HaikuMappedModel != "" {
+			models = append(models, "claude-haiku-4", "claude-3-5-haiku-20241022")
+		}
+		// For exact mappings, use the keys (Claude model names)
+		for sourceModel := range config.ExactModelMappings {
+			sourceModel = strings.TrimSpace(sourceModel)
+			if sourceModel != "" {
+				models = append(models, sourceModel)
+			}
+		}
+	} else if group.Platform == PlatformOpenAI {
+		// Return target models that MessagesDispatch will use
+		if config.OpusMappedModel != "" {
+			models = append(models, strings.TrimSpace(config.OpusMappedModel))
+		}
+		if config.SonnetMappedModel != "" {
+			models = append(models, strings.TrimSpace(config.SonnetMappedModel))
+		}
+		if config.HaikuMappedModel != "" {
+			models = append(models, strings.TrimSpace(config.HaikuMappedModel))
+		}
+		// For exact mappings, use the values (target model names)
+		for _, targetModel := range config.ExactModelMappings {
+			targetModel = strings.TrimSpace(targetModel)
+			if targetModel != "" {
+				models = append(models, targetModel)
+			}
 		}
 	}
 
