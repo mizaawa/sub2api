@@ -471,11 +471,11 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	// accumulated delta events so the client receives the full content.
 	acc.SupplementResponseOutput(finalResponse)
 
-	// bypass=false: expose real upstream model (upstreamModel) to downstream
-	// bypass=true:  show original requested model (originalModel) to downstream
-	responseModel := originalModel
-	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
-		responseModel = upstreamModel
+	// 仅在开关开启时才把模型名伪装回下游请求的模型，
+	// 关闭时暴露上游响应自己声明的模型（可能带上游私有后缀）。
+	responseModel := strings.TrimSpace(finalResponse.Model)
+	if responseModel == "" || downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
+		responseModel = originalModel
 	}
 	chatResp := apicompat.ResponsesToChatCompletions(finalResponse, responseModel)
 
@@ -489,10 +489,11 @@ func (s *OpenAIGatewayService) handleChatBufferedStreamingResponse(
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	c.JSON(http.StatusOK, chatResp)
 
+	// 计费/审计维度始终以下游请求模型为准，不受伪装开关影响。
 	result := &OpenAIForwardResult{
 		RequestID:                     requestID,
 		Usage:                         usage,
-		Model:                         responseModel,
+		Model:                         originalModel,
 		BillingModel:                  billingModel,
 		UpstreamModel:                 upstreamModel,
 		UpstreamResponseModel:         observedUpstreamResponseModel(c),
@@ -528,13 +529,14 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 
 	// bypass=false: expose real upstream model (upstreamModel) to downstream
 	// bypass=true:  show original requested model (originalModel) to downstream
-	responseModel := originalModel
-	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
-		responseModel = upstreamModel
+	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService)
+	stateModel := ""
+	if bypassModelConsistency {
+		stateModel = originalModel
 	}
 
 	state := apicompat.NewResponsesEventToChatState()
-	state.Model = responseModel
+	state.Model = stateModel
 	// 网关作为计费链路的一环，不能把下游 usage 输出绑定到客户端是否显式请求。
 	// raw Chat Completions 直转路径已经强制透出 usage，这里保持同样行为，避免级联代理计费为 0。
 	state.IncludeUsage = true
@@ -577,7 +579,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 		out := &OpenAIForwardResult{
 			RequestID:                     requestID,
 			Usage:                         usage,
-			Model:                         responseModel,
+			Model:                         originalModel,
 			BillingModel:                  billingModel,
 			UpstreamModel:                 upstreamModel,
 			UpstreamResponseModel:         observedUpstreamResponseModel(c),

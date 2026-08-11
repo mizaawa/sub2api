@@ -494,10 +494,11 @@ func (s *AntigravityGatewayService) handleChatCompletionsNonStreamingFromAntigra
 	originalModel string,
 	mappedModel string,
 ) (*antigravityStreamResult, error) {
-	// bypass=false: expose real upstream model (mappedModel) to downstream
-	// bypass=true:  show original requested model (originalModel) to downstream
+	// Antigravity 上游是 Gemini，Claude 形态响应里的 model 字段由本地合成，
+	// 上游没有可回填的模型声明。因此开关关闭时直接用 mappedModel 作为
+	// 下游可见模型，开启时才伪装回下游请求的模型。
 	responseModel := originalModel
-	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
+	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) && strings.TrimSpace(mappedModel) != "" {
 		responseModel = mappedModel
 	}
 	claudeResponse, result, err := s.collectClaudeStreamResponse(c, resp, startTime, responseModel)
@@ -520,10 +521,9 @@ func (s *AntigravityGatewayService) handleResponsesNonStreamingFromAntigravity(
 	originalModel string,
 	mappedModel string,
 ) (*antigravityStreamResult, error) {
-	// bypass=false: expose real upstream model (mappedModel) to downstream
-	// bypass=true:  show original requested model (originalModel) to downstream
+	// 同上：Antigravity 的 model 字段本地合成，无上游声明可回填。
 	responseModel := originalModel
-	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
+	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) && strings.TrimSpace(mappedModel) != "" {
 		responseModel = mappedModel
 	}
 	claudeResponse, result, err := s.collectClaudeStreamResponse(c, resp, startTime, responseModel)

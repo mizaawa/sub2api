@@ -317,13 +317,13 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 	}
 
 	// Chain: Anthropic → Responses → Chat Completions
-	// bypass=false: expose real upstream model (mappedModel) to downstream
-	// bypass=true:  show original requested model (originalModel) to downstream
-	responseModel := originalModel
-	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
-		responseModel = mappedModel
-	}
 	responsesResp := apicompat.AnthropicToResponsesResponse(finalResp)
+	// 与 GPT 链路对齐：开关开启时才把模型名伪装回下游请求的模型，
+	// 关闭时暴露上游响应自己声明的模型（可能带上游后缀，非 mappedModel）。
+	responseModel := strings.TrimSpace(responsesResp.Model)
+	if responseModel == "" || downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
+		responseModel = originalModel
+	}
 	ccResp := apicompat.ResponsesToChatCompletions(responsesResp, responseModel)
 
 	if s.responseHeaderFilter != nil {
@@ -344,10 +344,11 @@ func (s *GatewayService) handleCCBufferedFromAnthropic(
 		c.JSON(http.StatusOK, ccResp)
 	}
 
+	// 计费/审计维度始终以下游请求模型为准，不受伪装开关影响。
 	return &ForwardResult{
 		RequestID:       requestID,
 		Usage:           usage,
-		Model:           responseModel,
+		Model:           originalModel,
 		UpstreamModel:   mappedModel,
 		ReasoningEffort: reasoningEffort,
 		Stream:          false,
@@ -378,16 +379,19 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	c.Writer.WriteHeader(http.StatusOK)
 
 	// Use Anthropic→Responses state machine, then convert Responses→CC
-	// bypass=false: expose real upstream model (mappedModel) to downstream
-	// bypass=true:  show original requested model (originalModel) to downstream
-	responseModel := originalModel
-	if !downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService) {
-		responseModel = mappedModel
+	//
+	// 与 GPT 链路对齐：仅在开关开启时预置模型名以伪装成下游请求的模型；
+	// 关闭时留空，让状态机从上游 message_start 声明的模型自然回填，
+	// 使下游能看到上游真实声明（可能带上游私有后缀，不等于 mappedModel）。
+	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService)
+	stateModel := ""
+	if bypassModelConsistency {
+		stateModel = originalModel
 	}
 	anthState := apicompat.NewAnthropicEventToResponsesState()
-	anthState.Model = responseModel
+	anthState.Model = stateModel
 	ccState := apicompat.NewResponsesEventToChatState()
-	ccState.Model = responseModel
+	ccState.Model = stateModel
 	ccState.IncludeUsage = includeUsage
 
 	var usage ClaudeUsage
@@ -402,10 +406,11 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
 
 	resultWithUsage := func() *ForwardResult {
+		// 计费/审计维度始终以下游请求模型为准，不受伪装开关影响。
 		return &ForwardResult{
 			RequestID:       requestID,
 			Usage:           usage,
-			Model:           responseModel,
+			Model:           originalModel,
 			UpstreamModel:   mappedModel,
 			ReasoningEffort: reasoningEffort,
 			Stream:          true,
