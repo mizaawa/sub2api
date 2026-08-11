@@ -1105,7 +1105,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	// Merge models from MessagesDispatch configuration only if bypass is DISABLED
 	// When bypass is enabled, we hide the model mappings from downstream
 	// When bypass is disabled, we expose the mappings so downstream can detect them
-	bypassEnabled := h.gatewayService.IsDownstreamModelConsistencyBypassEnabled(c.Request.Context())
+	bypassEnabled := h.settingService.IsDownstreamModelConsistencyBypassEnabled(c.Request.Context())
 	if !bypassEnabled && groupID != nil && (platform == service.PlatformAnthropic || platform == service.PlatformOpenAI || platform == service.PlatformGrok || platform == service.PlatformGemini) {
 		dispatchModels := h.gatewayService.GetMessagesDispatchSupportedModels(c.Request.Context(), groupID)
 		if len(dispatchModels) > 0 {
@@ -1115,7 +1115,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 				modelSet[m] = struct{}{}
 			}
 			for _, m := range dispatchModels {
-				modelSet[m] = struct{}
+				modelSet[m] = struct{}{}
 			}
 
 			// Convert back to slice
