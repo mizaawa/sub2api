@@ -600,7 +600,17 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	// accumulated delta events so the client receives the full content.
 	acc.SupplementResponseOutput(finalResponse)
 
-	anthropicResp := apicompat.ResponsesToAnthropic(finalResponse, originalModel)
+	// Determine which model to show in the response based on bypass setting
+	responseModel := originalModel
+	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService)
+	if !bypassModelConsistency {
+		// When bypass is disabled, expose the real upstream model
+		if observedModel := observedUpstreamResponseModel(c); strings.TrimSpace(observedModel) != "" {
+			responseModel = observedModel
+		}
+	}
+
+	anthropicResp := apicompat.ResponsesToAnthropic(finalResponse, responseModel)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -612,7 +622,7 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 		RequestID:                     requestID,
 		ResponseID:                    finalResponse.ID,
 		Usage:                         usage,
-		Model:                         originalModel,
+		Model:                         responseModel,
 		BillingModel:                  billingModel,
 		UpstreamModel:                 upstreamModel,
 		UpstreamResponseModel:         observedUpstreamResponseModel(c),
@@ -839,7 +849,17 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
 
 	state := apicompat.NewResponsesEventToAnthropicState()
-	state.Model = originalModel
+	// Determine which model to show in the response based on bypass setting
+	responseModel := originalModel
+	bypassModelConsistency := downstreamModelConsistencyBypassEnabled(c.Request.Context(), s.settingService)
+	if !bypassModelConsistency {
+		// When bypass is disabled, expose the real upstream model
+		// For streaming, we'll update this as we observe the upstream response
+		if observedModel := observedUpstreamResponseModel(c); strings.TrimSpace(observedModel) != "" {
+			responseModel = observedModel
+		}
+	}
+	state.Model = responseModel
 	var usage OpenAIUsage
 	responseID := ""
 	var firstTokenMs *int
@@ -874,11 +894,18 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 
 	// resultWithUsage builds the final result snapshot.
 	resultWithUsage := func() *OpenAIForwardResult {
+		// Determine final model to report based on bypass setting
+		finalModel := originalModel
+		if !bypassModelConsistency {
+			if observedModel := observedUpstreamResponseModel(c); strings.TrimSpace(observedModel) != "" {
+				finalModel = observedModel
+			}
+		}
 		out := &OpenAIForwardResult{
 			RequestID:                     requestID,
 			ResponseID:                    responseID,
 			Usage:                         usage,
-			Model:                         originalModel,
+			Model:                         finalModel,
 			BillingModel:                  billingModel,
 			UpstreamModel:                 upstreamModel,
 			UpstreamResponseModel:         observedUpstreamResponseModel(c),
@@ -914,6 +941,13 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			return false
 		}
 		observer.ObserveOpenAI([]byte(payload), event.Type)
+
+		// Update state.Model if bypass is disabled and we observed the upstream model
+		if !bypassModelConsistency {
+			if observedModel := observedUpstreamResponseModel(c); strings.TrimSpace(observedModel) != "" {
+				state.Model = observedModel
+			}
+		}
 
 		eventType := strings.TrimSpace(event.Type)
 		isBareErrorEvent := eventType == "error"
