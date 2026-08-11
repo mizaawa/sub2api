@@ -1102,9 +1102,11 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	// Get available models from account configurations for the selected group platform.
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
 
-	// Merge models from MessagesDispatch configuration if enabled
-	// This allows downstream to detect Claude models mapped via MessagesDispatch
-	if groupID != nil && (platform == service.PlatformAnthropic || platform == service.PlatformOpenAI) {
+	// Merge models from MessagesDispatch configuration only if bypass is DISABLED
+	// When bypass is enabled, we hide the model mappings from downstream
+	// When bypass is disabled, we expose the mappings so downstream can detect them
+	bypassEnabled := h.gatewayService.IsDownstreamModelConsistencyBypassEnabled(c.Request.Context())
+	if !bypassEnabled && groupID != nil && (platform == service.PlatformAnthropic || platform == service.PlatformOpenAI || platform == service.PlatformGrok || platform == service.PlatformGemini) {
 		dispatchModels := h.gatewayService.GetMessagesDispatchSupportedModels(c.Request.Context(), groupID)
 		if len(dispatchModels) > 0 {
 			// Use a map to deduplicate models
@@ -1113,7 +1115,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 				modelSet[m] = struct{}{}
 			}
 			for _, m := range dispatchModels {
-				modelSet[m] = struct{}{}
+				modelSet[m] = struct{}
 			}
 
 			// Convert back to slice
