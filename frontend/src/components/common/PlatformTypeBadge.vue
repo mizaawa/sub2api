@@ -137,8 +137,16 @@ const planLabel = computed(() => {
       return props.platform === 'grok' ? 'Grok Free' : 'Free'
     case 'supergrok':
       return 'SuperGrok'
+    case 'supergroklite':
+      return 'SuperGrok Lite'
+    case 'supergrokplus':
+      return 'SuperGrok Plus'
     case 'supergrokheavy':
       return 'SuperGrok Heavy'
+    case 'heavy':
+      return 'Heavy'
+    case 'xbasic':
+      return 'X Basic'
     case 'abnormal':
       return t('admin.accounts.subscriptionAbnormal')
     default:
@@ -148,7 +156,9 @@ const planLabel = computed(() => {
 
 const isGrokFreePlan = computed(() =>
   props.platform === 'grok' &&
-  (normalizedPlanType.value === 'free' || normalizedPlanType.value === 'basic')
+  (normalizedPlanType.value === 'free' ||
+    normalizedPlanType.value === 'basic' ||
+    normalizedPlanType.value === 'xbasic')
 )
 
 const planIconName = computed<'bolt' | null>(() => {
@@ -204,7 +214,7 @@ const planBadgeClass = computed(() => {
 // Subscription expiration label (non-free only)
 const expiresLabel = computed(() => {
   if (!props.subscriptionExpiresAt || !props.planType) return ''
-  if (normalizedPlanType.value === 'free' || normalizedPlanType.value === 'basic') return ''
+  if (normalizedPlanType.value === 'free' || normalizedPlanType.value === 'basic' || normalizedPlanType.value === 'xbasic') return ''
   try {
     const d = new Date(props.subscriptionExpiresAt)
     if (isNaN(d.getTime())) return ''

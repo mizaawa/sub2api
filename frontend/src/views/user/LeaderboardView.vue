@@ -21,35 +21,37 @@
             <h2 class="text-base font-semibold">{{ t('leaderboard.title') }}</h2>
             <p class="muted mt-1 text-xs">{{ t('leaderboard.periodTimezone') }}</p>
           </div>
-          <div class="flex w-full items-center gap-2 sm:w-auto">
+          <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            <div class="flex items-center gap-2">
+              <div class="period-switcher flex min-w-0 flex-1 rounded-xl border p-1 sm:flex-none" role="tablist">
+                <button
+                  v-for="option in periodOptions"
+                  :key="option.value"
+                  type="button"
+                  role="tab"
+                  :aria-selected="selectedPeriod === option.value"
+                  :disabled="loading"
+                  class="period-option min-w-0 flex-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors sm:flex-none sm:px-3"
+                  :class="selectedPeriod === option.value ? 'period-option-active' : 'period-option-idle'"
+                  @click="selectPeriod(option.value)"
+                >
+                  {{ option.label }}
+                </button>
+              </div>
+              <button class="btn btn-secondary btn-sm shrink-0" type="button" :disabled="loading" :aria-label="t('common.refresh')" @click="load">
+                <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
+                <span class="hidden sm:inline">{{ t('common.refresh') }}</span>
+              </button>
+            </div>
             <button
               type="button"
-              class="participation-toggle shrink-0 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors"
+              class="participation-toggle w-full rounded-xl border px-3 py-2 text-xs font-semibold transition-colors sm:w-auto"
               :class="participating ? 'participation-enabled' : 'participation-disabled'"
               :disabled="loading || participationLoading"
               :aria-pressed="participating"
               @click="toggleParticipation"
             >
               {{ participating ? t('leaderboard.participating') : t('leaderboard.notParticipating') }}
-            </button>
-            <div class="period-switcher flex min-w-0 flex-1 rounded-xl border p-1 sm:flex-none" role="tablist">
-              <button
-                v-for="option in periodOptions"
-                :key="option.value"
-                type="button"
-                role="tab"
-                :aria-selected="selectedPeriod === option.value"
-                :disabled="loading"
-                class="period-option min-w-0 flex-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors sm:flex-none sm:px-3"
-                :class="selectedPeriod === option.value ? 'period-option-active' : 'period-option-idle'"
-                @click="selectPeriod(option.value)"
-              >
-                {{ option.label }}
-              </button>
-            </div>
-            <button class="btn btn-secondary btn-sm shrink-0" type="button" :disabled="loading" :aria-label="t('common.refresh')" @click="load">
-              <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
-              <span class="hidden sm:inline">{{ t('common.refresh') }}</span>
             </button>
           </div>
         </div>
@@ -200,10 +202,24 @@ onMounted(load)
 .period-option-active { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
 .period-option-idle { color: var(--md-sys-color-on-surface-variant); }
 .period-option-idle:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent); color: var(--md-sys-color-on-surface); }
-.participation-toggle { max-width: 10rem; }
-.participation-enabled { border-color: color-mix(in srgb, var(--md-sys-color-primary) 48%, var(--md-sys-color-outline)); background: color-mix(in srgb, var(--md-sys-color-primary) 14%, var(--md-sys-color-surface)); color: var(--md-sys-color-primary); }
-.participation-disabled { border-color: var(--md-sys-color-outline); background: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface-variant); }
-.participation-disabled:hover { border-color: var(--md-sys-color-primary); color: var(--md-sys-color-primary); }
+/* 参与按钮：未参与 = 青绿色；已参与 = 适配主题的红色 */
+.participation-toggle { white-space: nowrap; }
+.participation-enabled {
+  border-color: transparent;
+  background: color-mix(in srgb, #e53935 85%, var(--md-sys-color-surface));
+  color: #fff;
+}
+.participation-enabled:hover:not(:disabled) {
+  background: color-mix(in srgb, #c62828 85%, var(--md-sys-color-surface));
+}
+.participation-disabled {
+  border-color: transparent;
+  background: #009688;
+  color: #fff;
+}
+.participation-disabled:hover:not(:disabled) {
+  background: #00796b;
+}
 
 .table-heading { background: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface-variant); }
 .table-row { border-top: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 55%, transparent); }
@@ -223,7 +239,6 @@ onMounted(load)
   .leaderboard-page { max-width: 100%; }
   .hero-content { gap: 1rem; }
   .rank-summary { display: flex; width: 100%; align-items: center; justify-content: space-between; text-align: left; }
-  .participation-toggle { max-width: none; flex: 1 1 auto; }
   .rank-column { width: 3.75rem; }
   .user-column { width: 40%; }
   .metric-column { width: 28%; }
