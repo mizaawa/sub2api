@@ -234,6 +234,17 @@ func openAIWSDifferentModel(requestModel, upstreamModel string) string {
 	return upstreamModel
 }
 
+func restoreOpenAIWSPassthroughResponseModel(payload []byte, requestModel, upstreamModel string, enabled bool) []byte {
+	if !enabled {
+		return payload
+	}
+	eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
+	if !openAIWSEventMayContainModel(eventType) {
+		return payload
+	}
+	return replaceOpenAIWSMessageModel(payload, upstreamModel, requestModel)
+}
+
 func openAIWSPassthroughRequestModelForFrame(payload []byte) string {
 	if len(payload) == 0 || strings.TrimSpace(gjson.GetBytes(payload, "type").String()) != "response.create" {
 		return ""
@@ -915,18 +926,15 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 
 	completedTurns := atomic.Int32{}
 	turnLifecycle := newOpenAIWSPassthroughTurnLifecycle(true)
+	responseModelAuditBypassEnabled := s.responseModelAuditBypassEnabled(c)
 	clientFrameConn := &openAIWSClientFrameConn{
 		conn:                 clientConn,
 		controlCtx:           ctx,
 		interTurnIdleTimeout: s.openAIWSIngressInterTurnIdleTimeout(),
 		interTurnStarted:     make(chan struct{}, 1),
 		restoreResponseModel: func(payload []byte) []byte {
-			eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
-			if !openAIWSEventMayContainModel(eventType) {
-				return payload
-			}
 			requestModel, upstreamModel := usageMeta.turnModels("")
-			return replaceOpenAIWSMessageModel(payload, upstreamModel, requestModel)
+			return restoreOpenAIWSPassthroughResponseModel(payload, requestModel, upstreamModel, responseModelAuditBypassEnabled)
 		},
 	}
 	policyClientConn := &openAIWSPolicyEnforcingFrameConn{
