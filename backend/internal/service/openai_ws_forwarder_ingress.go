@@ -846,7 +846,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			if mappedModel == "" {
 				mappedModel = normalizeOpenAIModelForUpstream(account, account.GetMappedModel(originalModel))
 			}
-			needModelReplace = mappedModel != "" && mappedModel != originalModel
+			needModelReplace = mappedModel != "" && mappedModel != originalModel && (s.settingService == nil || s.settingService.ResponseModelAuditBypassEnabled(ctx))
 			if needModelReplace {
 				mappedModelBytes = []byte(mappedModel)
 			}

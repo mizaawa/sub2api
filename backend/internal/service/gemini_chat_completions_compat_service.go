@@ -87,6 +87,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(req.Model)
 	}
+	responseModel := s.clientResponseModel(ctx, originalModel, mappedModel)
 
 	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody)
 	if err != nil {
@@ -244,7 +245,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	var usage *ClaudeUsage
 	var firstTokenMs *int
 	if clientStream {
-		streamRes, err := s.handleChatCompletionsStreamingResponseFromGemini(c, resp, startTime, originalModel, account.Type == AccountTypeOAuth, includeUsage)
+		streamRes, err := s.handleChatCompletionsStreamingResponseFromGemini(c, resp, startTime, responseModel, account.Type == AccountTypeOAuth, includeUsage)
 		if err != nil {
 			return nil, err
 		}
@@ -256,14 +257,14 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 			return nil, s.writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Failed to read upstream stream")
 		}
 		collectedBytes, _ := json.Marshal(collected)
-		chatResp, usageObj2, err := geminiResponseToChatCompletions(collected, originalModel, collectedBytes, usageObj)
+		chatResp, usageObj2, err := geminiResponseToChatCompletions(collected, responseModel, collectedBytes, usageObj)
 		if err != nil {
 			return nil, s.writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
 		}
 		c.JSON(http.StatusOK, chatResp)
 		usage = usageObj2
 	} else {
-		usageResp, err := s.handleChatCompletionsNonStreamingResponseFromGemini(c, resp, originalModel, account.Type == AccountTypeOAuth)
+		usageResp, err := s.handleChatCompletionsNonStreamingResponseFromGemini(c, resp, responseModel, account.Type == AccountTypeOAuth)
 		if err != nil {
 			return nil, err
 		}

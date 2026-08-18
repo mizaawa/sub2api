@@ -192,9 +192,10 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyLeaderboardEnabled:       "false",
 
 		// Model plaza feature (default disabled; opt-in, public unless require_auth)
-		SettingKeyModelPlazaEnabled:     "false",
-		SettingKeyModelPlazaRequireAuth: "false",
-		SettingKeyModelPlazaDescription: "",
+		SettingKeyModelPlazaEnabled:        "false",
+		SettingKeyModelPlazaRequireAuth:    "false",
+		SettingKeyModelPlazaDescription:    "",
+		SettingKeyResponseModelAuditBypass: "false",
 
 		// Affiliate (邀请返利) feature (default disabled; opt-in)
 		SettingKeyAffiliateEnabled:              "false",
@@ -794,6 +795,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.ModelPlazaEnabled = settings[SettingKeyModelPlazaEnabled] == "true"
 	result.ModelPlazaRequireAuth = settings[SettingKeyModelPlazaRequireAuth] == "true"
 	result.ModelPlazaDescription = settings[SettingKeyModelPlazaDescription]
+	result.ResponseModelAuditBypassEnabled = settings[SettingKeyResponseModelAuditBypass] == "true"
 
 	// Affiliate (邀请返利) feature (default: disabled; strict true)
 	result.AffiliateEnabled = settings[SettingKeyAffiliateEnabled] == "true"

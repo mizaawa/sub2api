@@ -204,9 +204,10 @@ type SystemSettings struct {
 	LeaderboardEnabled       bool `json:"leaderboard_enabled"`
 
 	// Model Plaza feature (public group/model pricing showcase)
-	ModelPlazaEnabled     bool   `json:"model_plaza_enabled"`
-	ModelPlazaRequireAuth bool   `json:"model_plaza_require_auth"`
-	ModelPlazaDescription string `json:"model_plaza_description"`
+	ModelPlazaEnabled               bool   `json:"model_plaza_enabled"`
+	ModelPlazaRequireAuth           bool   `json:"model_plaza_require_auth"`
+	ModelPlazaDescription           string `json:"model_plaza_description"`
+	ResponseModelAuditBypassEnabled bool   `json:"response_model_audit_bypass_enabled"`
 
 	// Claude Code version check
 	MinClaudeCodeVersion string

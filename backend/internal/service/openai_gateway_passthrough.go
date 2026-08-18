@@ -1197,7 +1197,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	defer putSSEScannerBuf64K(scanBuf)
 	documentScanner := newOpenAISSEJSONDocumentScanner(scanner)
 
-	needModelReplace := strings.TrimSpace(originalModel) != "" && strings.TrimSpace(mappedModel) != "" && strings.TrimSpace(originalModel) != strings.TrimSpace(mappedModel)
+	needModelReplace := strings.TrimSpace(originalModel) != "" && strings.TrimSpace(mappedModel) != "" && strings.TrimSpace(originalModel) != strings.TrimSpace(mappedModel) && s.responseModelAuditBypassEnabled(c)
 	resultWithUsage := func() *openaiStreamingResultPassthrough {
 		return &openaiStreamingResultPassthrough{
 			usage:            usage,
@@ -1440,7 +1440,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if contentType == "" {
 		contentType = "application/json"
 	}
-	if originalModel != "" && mappedModel != "" && originalModel != mappedModel {
+	if originalModel != "" && mappedModel != "" && originalModel != mappedModel && s.responseModelAuditBypassEnabled(c) {
 		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
 	}
 	body, err = restoreOpenAIResponsesNamespacePayload(c, body)
@@ -1483,7 +1483,7 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		}
 		finalResponse = supplementCompactionItemFromSSE(c, finalResponse, bodyText)
 		body = finalResponse
-		if originalModel != "" && mappedModel != "" && originalModel != mappedModel {
+		if originalModel != "" && mappedModel != "" && originalModel != mappedModel && s.responseModelAuditBypassEnabled(c) {
 			body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
 		}
 		// Correct tool calls in final response
@@ -1503,7 +1503,7 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 			return nil, s.writeOpenAINonStreamingProtocolError(resp, c, msg)
 		}
 		usage = s.parseSSEUsageFromBody(bodyText)
-		if originalModel != "" && mappedModel != "" && originalModel != mappedModel {
+		if originalModel != "" && mappedModel != "" && originalModel != mappedModel && s.responseModelAuditBypassEnabled(c) {
 			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, originalModel)
 		}
 		body = []byte(bodyText)

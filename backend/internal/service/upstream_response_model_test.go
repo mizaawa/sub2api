@@ -34,6 +34,16 @@ func TestUpstreamResponseModelObserverSupportsAnthropicAndGeminiShapes(t *testin
 	})
 }
 
+func TestRewriteGeminiResponseModel(t *testing.T) {
+	require.JSONEq(t, `{"modelVersion":"requested-model"}`, string(rewriteGeminiResponseModel(
+		[]byte(`{"modelVersion":"upstream-model"}`), "requested-model",
+	)))
+	require.JSONEq(t, `{"response":{"modelVersion":"requested-model"}}`, string(rewriteGeminiResponseModel(
+		[]byte(`{"response":{"modelVersion":"upstream-model"}}`), "requested-model",
+	)))
+	require.Equal(t, `{"candidates":[]}`, string(rewriteGeminiResponseModel([]byte(`{"candidates":[]}`), "requested-model")))
+}
+
 func TestUpstreamResponseModelObservationAttemptReset(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(nil)

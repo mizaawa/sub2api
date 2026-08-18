@@ -335,9 +335,10 @@ type UpdateSettingsRequest struct {
 	LeaderboardEnabled       *bool `json:"leaderboard_enabled"`
 
 	// Model Plaza feature switches + description
-	ModelPlazaEnabled     *bool   `json:"model_plaza_enabled"`
-	ModelPlazaRequireAuth *bool   `json:"model_plaza_require_auth"`
-	ModelPlazaDescription *string `json:"model_plaza_description"`
+	ModelPlazaEnabled               *bool   `json:"model_plaza_enabled"`
+	ModelPlazaRequireAuth           *bool   `json:"model_plaza_require_auth"`
+	ModelPlazaDescription           *string `json:"model_plaza_description"`
+	ResponseModelAuditBypassEnabled *bool   `json:"response_model_audit_bypass_enabled"`
 
 	// Affiliate (邀请返利) feature switch
 	AffiliateEnabled *bool `json:"affiliate_enabled"`
@@ -1891,6 +1892,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ModelPlazaDescription
 		}(),
+		ResponseModelAuditBypassEnabled: func() bool {
+			if req.ResponseModelAuditBypassEnabled != nil {
+				return *req.ResponseModelAuditBypassEnabled
+			}
+			return previousSettings.ResponseModelAuditBypassEnabled
+		}(),
 		AffiliateEnabled: func() bool {
 			if req.AffiliateEnabled != nil {
 				return *req.AffiliateEnabled
@@ -2303,9 +2310,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
 		LeaderboardEnabled:       updatedSettings.LeaderboardEnabled,
 
-		ModelPlazaEnabled:     updatedSettings.ModelPlazaEnabled,
-		ModelPlazaRequireAuth: updatedSettings.ModelPlazaRequireAuth,
-		ModelPlazaDescription: updatedSettings.ModelPlazaDescription,
+		ModelPlazaEnabled:               updatedSettings.ModelPlazaEnabled,
+		ModelPlazaRequireAuth:           updatedSettings.ModelPlazaRequireAuth,
+		ModelPlazaDescription:           updatedSettings.ModelPlazaDescription,
+		ResponseModelAuditBypassEnabled: updatedSettings.ResponseModelAuditBypassEnabled,
 
 		AffiliateEnabled: updatedSettings.AffiliateEnabled,
 

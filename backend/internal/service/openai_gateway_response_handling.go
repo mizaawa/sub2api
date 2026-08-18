@@ -21,6 +21,18 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+func (s *OpenAIGatewayService) responseModelAuditBypassEnabled(c *gin.Context) bool {
+	if s == nil || c == nil || c.Request == nil {
+		return false
+	}
+	// Keep lightweight test/compatibility instances without a settings service
+	// on the historical response-rewrite path.
+	if s.settingService == nil {
+		return true
+	}
+	return s.settingService.ResponseModelAuditBypassEnabled(c.Request.Context())
+}
+
 // openaiStreamingResult streaming response result
 type openaiStreamingResult struct {
 	usage            *OpenAIUsage
@@ -288,7 +300,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		lastDownstreamWriteAt = time.Now()
 	}
 
-	needModelReplace := originalModel != mappedModel
+	needModelReplace := originalModel != mappedModel && s.responseModelAuditBypassEnabled(c)
 	streamOutputAccumulator := apicompat.NewBufferedResponseAccumulator()
 	streamImageOutputs := make([]json.RawMessage, 0, 1)
 	streamSeenImages := make(map[string]struct{})
@@ -1164,7 +1176,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	usage := &usageValue
 
 	// Replace model in response if needed
-	if originalModel != mappedModel {
+	if originalModel != mappedModel && s.responseModelAuditBypassEnabled(c) {
 		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
 	}
 	body, err = restoreGrokResponsesClientToolPayload(c, body)
@@ -1239,7 +1251,7 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 		}
 		finalResponse = supplementCompactionItemFromSSE(c, finalResponse, bodyText)
 		body = finalResponse
-		if originalModel != mappedModel {
+		if originalModel != mappedModel && s.responseModelAuditBypassEnabled(c) {
 			body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
 		}
 		// Correct tool calls in final response
@@ -1263,7 +1275,7 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 			return nil, s.writeOpenAINonStreamingProtocolError(resp, c, msg)
 		}
 		usage = s.parseSSEUsageFromBody(bodyText)
-		if originalModel != mappedModel {
+		if originalModel != mappedModel && s.responseModelAuditBypassEnabled(c) {
 			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, originalModel)
 		}
 		body = []byte(bodyText)

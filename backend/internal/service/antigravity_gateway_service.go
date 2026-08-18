@@ -131,6 +131,13 @@ type AntigravityGatewayService struct {
 	internal500Cache  Internal500CounterCache // INTERNAL 500 渐进惩罚计数器
 }
 
+func (s *AntigravityGatewayService) clientResponseModel(ctx context.Context, originalModel, mappedModel string) string {
+	if s == nil || s.settingService == nil || s.settingService.ResponseModelAuditBypassEnabled(ctx) {
+		return originalModel
+	}
+	return mappedModel
+}
+
 func (s *AntigravityGatewayService) upstreamErrorBodyReadLimit() int64 {
 	limit := gatewayUpstreamErrorBodyReadLimit
 	if s != nil && s.settingService != nil && s.settingService.cfg != nil && s.settingService.cfg.Gateway.LogUpstreamErrorBody && s.settingService.cfg.Gateway.LogUpstreamErrorBodyMaxBytes > int(limit) {

@@ -423,6 +423,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyModelPlazaEnabled] = strconv.FormatBool(settings.ModelPlazaEnabled)
 	updates[SettingKeyModelPlazaRequireAuth] = strconv.FormatBool(settings.ModelPlazaRequireAuth)
 	updates[SettingKeyModelPlazaDescription] = settings.ModelPlazaDescription
+	updates[SettingKeyResponseModelAuditBypass] = strconv.FormatBool(settings.ResponseModelAuditBypassEnabled)
 
 	// Affiliate (邀请返利) feature switch
 	updates[SettingKeyAffiliateEnabled] = strconv.FormatBool(settings.AffiliateEnabled)

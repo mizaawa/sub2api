@@ -353,7 +353,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	responseID := ""
 	var finalResponse []byte
 	wroteDownstream := false
-	needModelReplace := originalModel != mappedModel
+	needModelReplace := originalModel != mappedModel && (s.settingService == nil || s.settingService.ResponseModelAuditBypassEnabled(ctx))
 	var mappedModelBytes []byte
 	if needModelReplace && mappedModel != "" {
 		mappedModelBytes = []byte(mappedModel)

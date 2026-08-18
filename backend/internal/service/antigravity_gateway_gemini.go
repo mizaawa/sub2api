@@ -92,6 +92,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		return nil, s.writeGoogleError(c, http.StatusForbidden, fmt.Sprintf("model %s not in whitelist", originalModel))
 	}
 	billingModel := mappedModel
+	responseModel := s.clientResponseModel(ctx, originalModel, mappedModel)
 
 	// 获取 access_token
 	if s.tokenProvider == nil {
@@ -402,7 +403,7 @@ handleSuccess:
 
 	if stream {
 		// 客户端要求流式，直接透传
-		streamRes, err := s.handleGeminiStreamingResponse(c, resp, startTime)
+		streamRes, err := s.handleGeminiStreamingResponse(c, resp, startTime, responseModel, mappedModel)
 		if err != nil {
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_error error=%v", prefix, err)
 			return nil, err
@@ -412,7 +413,7 @@ handleSuccess:
 		clientDisconnect = streamRes.clientDisconnect
 	} else {
 		// 客户端要求非流式，收集流式响应后返回
-		streamRes, err := s.handleGeminiStreamToNonStreaming(c, resp, startTime)
+		streamRes, err := s.handleGeminiStreamToNonStreaming(c, resp, startTime, responseModel, mappedModel)
 		if err != nil {
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=stream_collect_error error=%v", prefix, err)
 			return nil, err

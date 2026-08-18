@@ -1,11 +1,44 @@
 package service
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
+
+// rewriteGeminiResponseModel changes only client-visible Gemini modelVersion
+// fields. Callers observe the original payload before invoking this helper so
+// internal routing and audit data continue to reflect the upstream model.
+func rewriteGeminiResponseModel(body []byte, model string) []byte {
+	if len(body) == 0 || strings.TrimSpace(model) == "" {
+		return body
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return body
+	}
+	changed := false
+	if _, ok := payload["modelVersion"]; ok {
+		payload["modelVersion"] = model
+		changed = true
+	}
+	if response, ok := payload["response"].(map[string]any); ok {
+		if _, exists := response["modelVersion"]; exists {
+			response["modelVersion"] = model
+			changed = true
+		}
+	}
+	if !changed {
+		return body
+	}
+	rewritten, err := json.Marshal(payload)
+	if err != nil {
+		return body
+	}
+	return rewritten
+}
 
 const (
 	upstreamResponseModelObserverContextKey = "upstream_response_model_observer"

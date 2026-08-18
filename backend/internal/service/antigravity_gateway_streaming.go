@@ -114,7 +114,11 @@ func handleStreamReadError(err error, clientDisconnected bool, prefix string) (d
 	return false, false
 }
 
-func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time) (*antigravityStreamResult, error) {
+func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, modelOverride ...string) (*antigravityStreamResult, error) {
+	responseModel, mappedModel := "", ""
+	if len(modelOverride) >= 2 {
+		responseModel, mappedModel = modelOverride[0], modelOverride[1]
+	}
 	if upstreamResponseModelObserverFromContext(c) == nil {
 		beginUpstreamResponseModelObservation(c)
 	}
@@ -278,6 +282,9 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 						}
 					}
 				}
+				if responseModel != mappedModel {
+					payload = string(rewriteGeminiResponseModel([]byte(payload), responseModel))
+				}
 
 				if firstTokenMs == nil {
 					ms := int(time.Since(startTime).Milliseconds())
@@ -321,7 +328,11 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 
 // handleGeminiStreamToNonStreaming 读取上游流式响应，合并为非流式响应返回给客户端
 // Gemini 流式响应是增量的，需要累积所有 chunk 的内容
-func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Context, resp *http.Response, startTime time.Time) (*antigravityStreamResult, error) {
+func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Context, resp *http.Response, startTime time.Time, modelOverride ...string) (*antigravityStreamResult, error) {
+	responseModel, mappedModel := "", ""
+	if len(modelOverride) >= 2 {
+		responseModel, mappedModel = modelOverride[0], modelOverride[1]
+	}
 	if upstreamResponseModelObserverFromContext(c) == nil {
 		beginUpstreamResponseModelObservation(c)
 	}
@@ -506,6 +517,9 @@ returnResponse:
 	respBody, err := json.Marshal(finalResponse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal response: %w", err)
+	}
+	if responseModel != mappedModel {
+		respBody = rewriteGeminiResponseModel(respBody, responseModel)
 	}
 	c.Data(http.StatusOK, "application/json", respBody)
 

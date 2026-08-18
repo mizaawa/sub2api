@@ -53,6 +53,7 @@ type GeminiMessagesCompatService struct {
 	rateLimitService          *RateLimitService
 	httpUpstream              HTTPUpstream
 	antigravityGatewayService *AntigravityGatewayService
+	settingService            *SettingService
 	cfg                       *config.Config
 	responseHeaderFilter      *responseheaders.CompiledHeaderFilter
 }
@@ -79,6 +80,7 @@ func NewGeminiMessagesCompatService(
 	httpUpstream HTTPUpstream,
 	antigravityGatewayService *AntigravityGatewayService,
 	cfg *config.Config,
+	settingService *SettingService,
 ) *GeminiMessagesCompatService {
 	return &GeminiMessagesCompatService{
 		accountRepo:               accountRepo,
@@ -89,9 +91,17 @@ func NewGeminiMessagesCompatService(
 		rateLimitService:          rateLimitService,
 		httpUpstream:              httpUpstream,
 		antigravityGatewayService: antigravityGatewayService,
+		settingService:            settingService,
 		cfg:                       cfg,
 		responseHeaderFilter:      compileResponseHeaderFilter(cfg),
 	}
+}
+
+func (s *GeminiMessagesCompatService) clientResponseModel(ctx context.Context, originalModel, mappedModel string) string {
+	if s == nil || s.settingService == nil || s.settingService.ResponseModelAuditBypassEnabled(ctx) {
+		return originalModel
+	}
+	return mappedModel
 }
 
 // GetTokenProvider returns the token provider for OAuth accounts
@@ -600,6 +610,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(req.Model)
 	}
+	responseModel := s.clientResponseModel(ctx, originalModel, mappedModel)
 
 	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(body)
 	if err != nil {
@@ -1060,7 +1071,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	var usage *ClaudeUsage
 	var firstTokenMs *int
 	if req.Stream {
-		streamRes, err := s.handleStreamingResponse(c, resp, startTime, originalModel)
+		streamRes, err := s.handleStreamingResponse(c, resp, startTime, responseModel)
 		if err != nil {
 			return nil, err
 		}
@@ -1074,14 +1085,14 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			}
 			collectedBytes, _ := json.Marshal(collected)
 			upstreamResponseModelObserverFromContext(c).ObserveGemini(collectedBytes)
-			claudeResp, usageObj2 := convertGeminiToClaudeMessage(collected, originalModel, collectedBytes, false)
+			claudeResp, usageObj2 := convertGeminiToClaudeMessage(collected, responseModel, collectedBytes, false)
 			c.JSON(http.StatusOK, claudeResp)
 			usage = usageObj2
 			if usageObj != nil && (usageObj.InputTokens > 0 || usageObj.OutputTokens > 0) {
 				usage = usageObj
 			}
 		} else {
-			usage, err = s.handleNonStreamingResponse(c, resp, originalModel)
+			usage, err = s.handleNonStreamingResponse(c, resp, responseModel)
 			if err != nil {
 				return nil, err
 			}
@@ -1154,6 +1165,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(originalModel)
 	}
+	responseModel := s.clientResponseModel(ctx, originalModel, mappedModel)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -1595,7 +1607,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	var firstTokenMs *int
 
 	if stream {
-		streamRes, err := s.handleNativeStreamingResponse(c, resp, startTime, isOAuth)
+		streamRes, err := s.handleNativeStreamingResponse(c, resp, startTime, isOAuth, responseModel, mappedModel)
 		if err != nil {
 			return nil, err
 		}
@@ -1609,10 +1621,13 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 			}
 			b, _ := json.Marshal(collected)
 			upstreamResponseModelObserverFromContext(c).ObserveGemini(b)
+			if responseModel != mappedModel {
+				b = rewriteGeminiResponseModel(b, responseModel)
+			}
 			c.Data(http.StatusOK, "application/json", b)
 			usage = usageObj
 		} else {
-			usageResp, err := s.handleNativeNonStreamingResponse(c, resp, isOAuth)
+			usageResp, err := s.handleNativeNonStreamingResponse(c, resp, isOAuth, responseModel, mappedModel)
 			if err != nil {
 				return nil, err
 			}
@@ -2579,7 +2594,11 @@ type UpstreamHTTPResult struct {
 	Body       []byte
 }
 
-func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponse(c *gin.Context, resp *http.Response, isOAuth bool) (*ClaudeUsage, error) {
+func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponse(c *gin.Context, resp *http.Response, isOAuth bool, modelOverride ...string) (*ClaudeUsage, error) {
+	responseModel, mappedModel := "", ""
+	if len(modelOverride) >= 2 {
+		responseModel, mappedModel = modelOverride[0], modelOverride[1]
+	}
 	if s.cfg != nil && s.cfg.Gateway.GeminiDebugResponseHeaders {
 		logger.LegacyPrintf("service.gemini_messages_compat", "[GeminiAPI] ========== Response Headers ==========")
 		for key, values := range resp.Header {
@@ -2613,6 +2632,9 @@ func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponse(c *gin.Co
 	if contentType == "" {
 		contentType = "application/json"
 	}
+	if responseModel != mappedModel {
+		respBody = rewriteGeminiResponseModel(respBody, responseModel)
+	}
 	c.Data(resp.StatusCode, contentType, respBody)
 
 	if u := extractGeminiUsage(respBody); u != nil {
@@ -2621,7 +2643,11 @@ func (s *GeminiMessagesCompatService) handleNativeNonStreamingResponse(c *gin.Co
 	return &ClaudeUsage{}, nil
 }
 
-func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, isOAuth bool) (*geminiNativeStreamResult, error) {
+func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Context, resp *http.Response, startTime time.Time, isOAuth bool, modelOverride ...string) (*geminiNativeStreamResult, error) {
+	responseModel, mappedModel := "", ""
+	if len(modelOverride) >= 2 {
+		responseModel, mappedModel = modelOverride[0], modelOverride[1]
+	}
 	if s.cfg != nil && s.cfg.Gateway.GeminiDebugResponseHeaders {
 		logger.LegacyPrintf("service.gemini_messages_compat", "[GeminiAPI] ========== Streaming Response Headers ==========")
 		for key, values := range resp.Header {
@@ -2689,6 +2715,13 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 						usage = u
 					}
 					observer.ObserveGemini(rawBytes)
+					if responseModel != mappedModel {
+						rewritten := rewriteGeminiResponseModel(rawBytes, responseModel)
+						rawToWrite = string(rewritten)
+						if !isOAuth {
+							line = "data: " + rawToWrite + "\n"
+						}
+					}
 
 					if firstTokenMs == nil {
 						ms := int(time.Since(startTime).Milliseconds())

@@ -420,6 +420,10 @@ const (
 	// the Model Plaza page (global pricing notes, exchange rate, promotions, ...).
 	SettingKeyModelPlazaDescription = "model_plaza_description"
 
+	// SettingKeyResponseModelAuditBypass controls whether client-facing response
+	// model fields are restored to the originally requested model after routing.
+	SettingKeyResponseModelAuditBypass = "response_model_audit_bypass_enabled"
+
 	// SettingKeyUpstreamBillingProbeSettings stores the global enable switch and interval
 	// for probing remote Sub2API API-key billing metadata.
 	SettingKeyUpstreamBillingProbeSettings = "upstream_billing_probe_settings"

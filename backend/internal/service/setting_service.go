@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -294,6 +295,16 @@ func (s *SettingService) GetAllSettings(ctx context.Context) (*SystemSettings, e
 	}
 
 	return s.parseSettings(settings), nil
+}
+
+// ResponseModelAuditBypassEnabled reads the runtime switch used by gateway
+// response rewriting. A missing or invalid value keeps the feature disabled.
+func (s *SettingService) ResponseModelAuditBypassEnabled(ctx context.Context) bool {
+	if s == nil || s.settingRepo == nil {
+		return false
+	}
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyResponseModelAuditBypass)
+	return err == nil && strings.EqualFold(strings.TrimSpace(value), "true")
 }
 
 // SetOnUpdateCallback sets a callback function to be called when settings are updated
