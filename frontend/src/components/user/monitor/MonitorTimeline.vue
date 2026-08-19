@@ -13,13 +13,13 @@
     >
       {{ t('monitorCommon.maintenancePaused') }}
     </div>
-    <div v-else class="flex items-end gap-[2px] h-5 w-full">
+    <div v-else class="grid h-5 w-full" :style="{ gridTemplateColumns: `repeat(${length}, 1fr)`, gap: '2px' }">
       <div
         v-for="(bar, idx) in displayBars"
         :key="idx"
-        class="flex-1 min-w-0 rounded-sm"
+        class="rounded-sm"
         :class="bar.colorClass"
-        :style="{ height: bar.heightPct + '%' }"
+        :style="{ height: bar.heightPct + '%', alignSelf: 'end' }"
         :title="bar.title"
       ></div>
     </div>
