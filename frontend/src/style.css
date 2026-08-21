@@ -529,12 +529,18 @@
     left: 50% !important;
     top: 50% !important;
     bottom: auto !important;
-    width: min(380px, calc(100vw - 1rem));
+    width: min(520px, calc(100vw - 1rem));
     max-width: calc(100vw - 1rem);
     transform: translate(-50%, -50%);
     background: var(--md-sys-color-surface);
     border: 1px solid var(--md-sys-color-outline);
     box-shadow: 0 1.5rem 3rem rgb(3 44 42 / 0.24), 0 0.35rem 1rem rgb(23 127 121 / 0.14);
+  }
+
+  @media (max-width: 640px) {
+    .group-selector-portal {
+      width: calc(100vw - 1rem);
+    }
   }
 
   .select-centered-backdrop,
