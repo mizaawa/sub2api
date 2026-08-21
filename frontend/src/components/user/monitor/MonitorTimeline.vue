@@ -116,11 +116,16 @@ const displayBars = computed<Bar[]>(() => {
 <style scoped>
 .timeline-container {
   display: grid;
-  grid-template-columns: repeat(v-bind(length), 1fr);
+  grid-template-columns: repeat(v-bind(length), minmax(0, 1fr));
   gap: 3px;
   height: 36px;
   width: 100%;
   align-items: end;
+  justify-items: stretch;
+}
+
+.timeline-bar {
+  width: 100%;
 }
 
 .timeline-bar {
@@ -141,8 +146,8 @@ const displayBars = computed<Bar[]>(() => {
 }
 
 .timeline-bar--degraded {
-  background: linear-gradient(180deg, #e12885 0%, #c91f73 100%);
-  box-shadow: 0 1px 3px rgba(225, 40, 133, 0.3);
+  background: linear-gradient(180deg, #fbbf24 0%, #f59e0b 100%);
+  box-shadow: 0 1px 3px rgba(251, 191, 36, 0.3);
 }
 
 .timeline-bar--failed {
@@ -166,8 +171,8 @@ const displayBars = computed<Bar[]>(() => {
 }
 
 :global(.dark) .timeline-bar--degraded {
-  background: linear-gradient(180deg, #e12885 0%, #c91f73 100%);
-  box-shadow: 0 1px 4px rgba(225, 40, 133, 0.4);
+  background: linear-gradient(180deg, #fbbf24 0%, #f59e0b 100%);
+  box-shadow: 0 1px 4px rgba(251, 191, 36, 0.4);
 }
 
 :global(.dark) .timeline-bar--failed {

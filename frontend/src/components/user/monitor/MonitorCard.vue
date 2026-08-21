@@ -86,10 +86,10 @@ import MonitorAvailabilityRow from './MonitorAvailabilityRow.vue'
 import MonitorTimeline from './MonitorTimeline.vue'
 
 const PROVIDER_TINT: Record<string, string> = {
-  openai: 'text-emerald-600 dark:text-emerald-300',
-  anthropic: 'text-orange-600 dark:text-orange-300',
-  gemini: 'text-sky-600 dark:text-sky-300',
-  grok: 'text-zinc-700 dark:text-zinc-200',
+  openai: 'text-cyan-500 dark:text-cyan-400',
+  anthropic: 'text-pink-500 dark:text-pink-400',
+  gemini: 'text-teal-500 dark:text-teal-400',
+  grok: 'text-gray-600 dark:text-gray-300',
 }
 
 const props = defineProps<{

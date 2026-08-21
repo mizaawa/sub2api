@@ -4,7 +4,7 @@
       <section class="leaderboard-hero overflow-hidden rounded-3xl border">
         <div class="hero-content flex flex-wrap items-end justify-between gap-5 px-5 py-6 sm:px-7 sm:py-7">
           <div class="min-w-0">
-            <p class="hero-period text-xs font-semibold uppercase tracking-[0.12em]">{{ periodLabel }}</p>
+            <p class="hero-period text-xs font-semibold uppercase tracking-[0.12em]">{{ t('leaderboard.periodToday') }}</p>
             <h1 class="mt-1 text-2xl font-bold tracking-tight sm:text-3xl">{{ t('leaderboard.title') }}</h1>
             <p class="hero-description mt-2 max-w-xl text-sm leading-6">{{ t('leaderboard.description') }}</p>
           </div>
@@ -23,22 +23,11 @@
           </div>
           <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             <div class="flex items-center gap-2">
-              <div class="period-switcher flex min-w-0 flex-1 rounded-xl border p-1 sm:flex-none" role="tablist">
-                <button
-                  v-for="option in periodOptions"
-                  :key="option.value"
-                  type="button"
-                  role="tab"
-                  :aria-selected="selectedPeriod === option.value"
-                  :disabled="loading"
-                  class="period-option min-w-0 flex-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors sm:flex-none sm:px-3"
-                  :class="selectedPeriod === option.value ? 'period-option-active' : 'period-option-idle'"
-                  @click="selectPeriod(option.value)"
-                >
-                  {{ option.label }}
-                </button>
+              <div class="countdown-badge flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold">
+                <Icon name="clock" size="sm" />
+                <span>{{ countdownText }}</span>
               </div>
-              <button class="btn btn-secondary btn-sm shrink-0" type="button" :disabled="loading" :aria-label="t('common.refresh')" @click="load">
+              <button class="btn btn-secondary btn-sm shrink-0" type="button" :disabled="loading" :aria-label="t('common.refresh')" @click="manualRefresh">
                 <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
                 <span class="hidden sm:inline">{{ t('common.refresh') }}</span>
               </button>
@@ -57,7 +46,7 @@
         </div>
 
         <div v-if="error" class="px-5 py-10 text-center text-sm text-rose-600 dark:text-rose-300">{{ error }}</div>
-        <div v-else-if="loading" class="muted px-5 py-10 text-center text-sm">{{ t('common.loading') }}</div>
+        <div v-else-if="loading && !entries.length" class="muted px-5 py-10 text-center text-sm">{{ t('common.loading') }}</div>
         <div v-else-if="!entries.length" class="muted px-5 py-8 text-center text-sm">{{ t('leaderboard.noData') }}</div>
         <div v-else class="overflow-x-auto">
           <table class="leaderboard-table w-full table-fixed text-left text-sm">
@@ -98,35 +87,41 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import leaderboardAPI, { type LeaderboardEntry, type LeaderboardResponse } from '@/api/leaderboard'
 
-type LeaderboardPeriod = 'today' | 'week' | 'month'
+const CACHE_KEY = 'leaderboard_cache_today'
+const REFRESH_INTERVAL = 5 * 60 * 1000 // 5分钟
+
+interface CachedLeaderboard {
+  data: LeaderboardResponse
+  timestamp: number
+}
 
 const { t } = useI18n()
 const entries = ref<LeaderboardEntry[]>([])
 const data = ref<LeaderboardResponse | null>(null)
 const loading = ref(false)
 const error = ref('')
-const selectedPeriod = ref<LeaderboardPeriod>('today')
 const participating = ref(false)
 const participationLoading = ref(false)
+const nextUpdateTime = ref<number>(0)
+const countdown = ref<number>(0)
 
-const periodOptions = computed(() => [
-  { value: 'today' as const, label: t('leaderboard.periodToday') },
-  { value: 'week' as const, label: t('leaderboard.periodWeek') },
-  { value: 'month' as const, label: t('leaderboard.periodMonth') },
-])
-
-const periodLabel = computed(() => {
-  const key = selectedPeriod.value === 'week' ? 'leaderboard.periodWeek' : selectedPeriod.value === 'month' ? 'leaderboard.periodMonth' : 'leaderboard.periodToday'
-  return t(key)
-})
+let refreshTimer: number | null = null
+let countdownTimer: number | null = null
 
 const myRankLabel = computed(() => data.value?.my_rank ? `#${data.value.my_rank}` : t('leaderboard.unranked'))
+
+const countdownText = computed(() => {
+  if (countdown.value <= 0) return t('leaderboard.updating')
+  const minutes = Math.floor(countdown.value / 60)
+  const seconds = countdown.value % 60
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+})
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value)
@@ -139,18 +134,66 @@ function rankClass(rank: number): string {
   return 'rank-regular'
 }
 
-async function load(): Promise<void> {
+function loadFromCache(): boolean {
+  try {
+    const cached = localStorage.getItem(CACHE_KEY)
+    if (!cached) return false
+
+    const { data: cachedData, timestamp }: CachedLeaderboard = JSON.parse(cached)
+    const now = Date.now()
+
+    if (now - timestamp < REFRESH_INTERVAL) {
+      data.value = cachedData
+      participating.value = cachedData.participating
+      entries.value = cachedData.entries.slice(0, 25)
+      nextUpdateTime.value = timestamp + REFRESH_INTERVAL
+      updateCountdown()
+      return true
+    }
+  } catch {
+    localStorage.removeItem(CACHE_KEY)
+  }
+  return false
+}
+
+function saveToCache(leaderboardData: LeaderboardResponse): void {
+  try {
+    const cache: CachedLeaderboard = {
+      data: leaderboardData,
+      timestamp: Date.now()
+    }
+    localStorage.setItem(CACHE_KEY, JSON.stringify(cache))
+    nextUpdateTime.value = cache.timestamp + REFRESH_INTERVAL
+  } catch {
+    // 缓存失败不影响功能
+  }
+}
+
+function updateCountdown(): void {
+  const now = Date.now()
+  const remaining = Math.max(0, Math.floor((nextUpdateTime.value - now) / 1000))
+  countdown.value = remaining
+}
+
+async function fetchLeaderboard(): Promise<void> {
   loading.value = true
   error.value = ''
   try {
-    data.value = await leaderboardAPI.get(selectedPeriod.value)
-    participating.value = data.value.participating
-    entries.value = data.value.entries.slice(0, 25)
+    const result = await leaderboardAPI.get('today')
+    data.value = result
+    participating.value = result.participating
+    entries.value = result.entries.slice(0, 25)
+    saveToCache(result)
+    updateCountdown()
   } catch {
     error.value = t('leaderboard.loadFailed')
   } finally {
     loading.value = false
   }
+}
+
+async function manualRefresh(): Promise<void> {
+  await fetchLeaderboard()
 }
 
 async function toggleParticipation(): Promise<void> {
@@ -159,7 +202,7 @@ async function toggleParticipation(): Promise<void> {
   try {
     const result = await leaderboardAPI.setParticipation(!participating.value)
     participating.value = result.participating
-    await load()
+    await fetchLeaderboard()
   } catch {
     error.value = t('leaderboard.participationFailed')
   } finally {
@@ -167,13 +210,52 @@ async function toggleParticipation(): Promise<void> {
   }
 }
 
-function selectPeriod(period: LeaderboardPeriod): void {
-  if (period === selectedPeriod.value || loading.value) return
-  selectedPeriod.value = period
-  void load()
+function startAutoRefresh(): void {
+  // 每秒更新倒计时
+  countdownTimer = window.setInterval(() => {
+    updateCountdown()
+
+    // 倒计时归零时自动刷新
+    if (countdown.value <= 0 && !loading.value) {
+      void fetchLeaderboard()
+    }
+  }, 1000)
+
+  // 定时器作为备份机制
+  refreshTimer = window.setInterval(() => {
+    if (!loading.value) {
+      void fetchLeaderboard()
+    }
+  }, REFRESH_INTERVAL)
 }
 
-onMounted(load)
+function stopAutoRefresh(): void {
+  if (refreshTimer !== null) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+  if (countdownTimer !== null) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+onMounted(() => {
+  // 先尝试从缓存加载
+  const hasCache = loadFromCache()
+
+  // 如果没有缓存或缓存过期，立即获取
+  if (!hasCache) {
+    void fetchLeaderboard()
+  }
+
+  // 启动自动刷新
+  startAutoRefresh()
+})
+
+onUnmounted(() => {
+  stopAutoRefresh()
+})
 </script>
 
 <style scoped>
@@ -198,11 +280,13 @@ onMounted(load)
 }
 
 .card-toolbar { border-color: color-mix(in srgb, var(--md-sys-color-outline) 70%, transparent); }
-.period-switcher { border-color: var(--md-sys-color-outline); background: var(--md-sys-color-surface-container); }
-.period-option-active { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
-.period-option-idle { color: var(--md-sys-color-on-surface-variant); }
-.period-option-idle:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent); color: var(--md-sys-color-on-surface); }
-/* 参与按钮：未参与 = 青绿色；已参与 = 适配主题的红色 */
+
+.countdown-badge {
+  border-color: color-mix(in srgb, var(--md-sys-color-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--md-sys-color-primary) 12%, var(--md-sys-color-surface));
+  color: var(--md-sys-color-primary);
+}
+
 .participation-toggle { white-space: nowrap; }
 .participation-enabled {
   border-color: transparent;
@@ -230,7 +314,6 @@ onMounted(load)
 .rank-badge { border-color: transparent; }
 .rank-regular { background: color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent); color: var(--md-sys-color-primary); }
 
-/* Miku-compatible metallic accents: restrained saturation keeps both themes readable. */
 .rank-gold { border-color: #c7a34a; background: color-mix(in srgb, #e0bd63 26%, var(--md-sys-color-surface)); color: color-mix(in srgb, #9a7212 72%, var(--md-sys-color-on-surface)); }
 .rank-silver { border-color: #93aeb0; background: color-mix(in srgb, #b9d2d3 25%, var(--md-sys-color-surface)); color: color-mix(in srgb, #587476 72%, var(--md-sys-color-on-surface)); }
 .rank-bronze { border-color: #b98262; background: color-mix(in srgb, #c99572 25%, var(--md-sys-color-surface)); color: color-mix(in srgb, #87543c 72%, var(--md-sys-color-on-surface)); }
