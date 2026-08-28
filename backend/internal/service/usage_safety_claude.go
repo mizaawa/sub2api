@@ -90,15 +90,6 @@ func parseBoundedReportedUsageText(raw string) (int, bool) {
 	return boundedReportedUsageGJSONInt(parsed)
 }
 
-// readOptionalBoundedUsageInt treats an omitted or explicit null field as
-// absent. A present non-null field must pass the strict parser.
-func readOptionalBoundedUsageInt(value any) (int, bool) {
-	if value == nil {
-		return 0, true
-	}
-	return parseBoundedReportedUsageInt(value)
-}
-
 func readOptionalBoundedUsageGJSONInt(value gjson.Result) (int, bool) {
 	if !value.Exists() || value.Type == gjson.Null {
 		return 0, true

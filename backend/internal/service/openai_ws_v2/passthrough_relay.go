@@ -926,18 +926,6 @@ func finalizePendingBareErrorLocked(state *relayState, now time.Time) observedUp
 	return finalizeObservedRelayTerminalLocked(state, observed, now)
 }
 
-// finalizeObservedRelayTerminal is the sole path that moves a turn snapshot
-// into the aggregate. Keeping this operation at the terminal boundary makes
-// repeated streaming usage snapshots idempotent for billing.
-func finalizeObservedRelayTerminal(state *relayState, observed observedUpstreamEvent, now time.Time) observedUpstreamEvent {
-	if state == nil {
-		return observedUpstreamEvent{}
-	}
-	state.mu.Lock()
-	defer state.mu.Unlock()
-	return finalizeObservedRelayTerminalLocked(state, observed, now)
-}
-
 func finalizeObservedRelayTerminalLocked(state *relayState, observed observedUpstreamEvent, now time.Time) observedUpstreamEvent {
 	if state == nil || strings.TrimSpace(observed.eventType) == "" {
 		return observedUpstreamEvent{}
@@ -1526,17 +1514,6 @@ func (s *relayState) resetAnonymousTerminal() {
 	defer s.mu.Unlock()
 	s.anonymousTerminalSeen.Store(false)
 	s.terminalSeen.Store(false)
-	s.nonTerminalAfterTerminal.Store(false)
-}
-
-func (s *relayState) resetTerminalSeen() {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.terminalSeen.Store(false)
-	s.anonymousTerminalSeen.Store(false)
 	s.nonTerminalAfterTerminal.Store(false)
 }
 

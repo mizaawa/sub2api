@@ -149,7 +149,11 @@ func TestClaudeCacheRewriteRejectsMalformedOrOverflowingBreakdown(t *testing.T) 
 	if rewriteCacheCreationJSON(obj, "1h") {
 		t.Fatal("fractional cache breakdown should not be rewritten")
 	}
-	if got := obj["cache_creation"].(map[string]any)["ephemeral_5m_input_tokens"]; got != 1.5 {
+	cacheCreation, ok := obj["cache_creation"].(map[string]any)
+	if !ok {
+		t.Fatalf("cache_creation value changed type: %#v", obj)
+	}
+	if got := cacheCreation["ephemeral_5m_input_tokens"]; got != 1.5 {
 		t.Fatalf("malformed cache breakdown changed: %#v", obj)
 	}
 }

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -84,14 +85,14 @@ func TestDisableTempUnschedulableSwitchSkipsModelCooldown(t *testing.T) {
 	}
 
 	SetDisableTempUnschedulableRuntime(false)
-	if !account.isModelRateLimitedWithContext(nil, "model-a") {
+	if !account.isModelRateLimitedWithContext(context.TODO(), "model-a") {
 		t.Fatal("model cooldown must apply when the switch is off")
 	}
 	SetDisableTempUnschedulableRuntime(true)
-	if account.isModelRateLimitedWithContext(nil, "model-a") {
+	if account.isModelRateLimitedWithContext(context.TODO(), "model-a") {
 		t.Fatal("model cooldown must be ignored when the switch is on")
 	}
-	if got := account.GetModelRateLimitRemainingTimeWithContext(nil, "model-a"); got != 0 {
+	if got := account.GetModelRateLimitRemainingTimeWithContext(context.TODO(), "model-a"); got != 0 {
 		t.Fatalf("remaining model cooldown = %s, want zero", got)
 	}
 }

@@ -16,20 +16,6 @@ func addUsageTokens(left, right int) (int, bool) {
 	return left + right, true
 }
 
-func subtractUsageTokens(value int, sub ...int) (int, bool) {
-	if !validUsageToken(value) {
-		return 0, false
-	}
-	result := value
-	for _, part := range sub {
-		if !validUsageToken(part) || part > result {
-			return 0, false
-		}
-		result -= part
-	}
-	return result, true
-}
-
 // subtractUsageTokensClamped preserves the protocol's long-standing
 // conversion semantics for inconsistent cache breakdowns: the uncached
 // portion bottoms out at zero when cache tokens exceed the reported input.
