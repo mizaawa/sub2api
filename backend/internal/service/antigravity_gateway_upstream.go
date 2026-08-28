@@ -155,6 +155,9 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 			OutputTokens:             usage.OutputTokens,
 			CacheReadInputTokens:     usage.CacheReadInputTokens,
 			CacheCreationInputTokens: usage.CacheCreationInputTokens,
+			CacheCreation5mTokens:    usage.CacheCreation5mTokens,
+			CacheCreation1hTokens:    usage.CacheCreation1hTokens,
+			ImageOutputTokens:        usage.ImageOutputTokens,
 		},
 	}, nil
 }
@@ -306,10 +309,24 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 // 仅读取顶层 event.usage 会漏掉 message_start 的输入侧字段，导致流式透传请求落库的
 // usage_logs 记录 input_tokens=0。
 func (s *AntigravityGatewayService) extractSSEUsage(line string, usage *ClaudeUsage) {
-	if !strings.HasPrefix(line, "data: ") {
+	if usage == nil {
 		return
 	}
-	dataStr := strings.TrimPrefix(line, "data: ")
+	dataStr, ok := extractAnthropicSSEDataLine(line)
+	if !ok {
+		return
+	}
+	target := usage
+	previous := *target
+	candidate := previous
+	defer func() {
+		if sanitizeClaudeUsage(&candidate) {
+			*target = candidate
+		} else {
+			*target = previous
+		}
+	}()
+	usage = &candidate
 	var event map[string]any
 	if json.Unmarshal([]byte(dataStr), &event) != nil {
 		return
@@ -325,25 +342,57 @@ func (s *AntigravityGatewayService) extractSSEUsage(line string, usage *ClaudeUs
 	if u == nil {
 		return
 	}
-	if v, ok := u["input_tokens"].(float64); ok && int(v) > 0 {
-		usage.InputTokens = int(v)
+	if _, present, valid := readUsageMapInt(u, "input_tokens"); present && !valid {
+		return
 	}
-	if v, ok := u["output_tokens"].(float64); ok && int(v) > 0 {
-		usage.OutputTokens = int(v)
+	if _, present, valid := readUsageMapInt(u, "output_tokens"); present && !valid {
+		return
 	}
-	if v, ok := u["cache_read_input_tokens"].(float64); ok && int(v) > 0 {
-		usage.CacheReadInputTokens = int(v)
+	if _, present, valid := readUsageMapInt(u, "cache_read_input_tokens"); present && !valid {
+		return
 	}
-	if v, ok := u["cache_creation_input_tokens"].(float64); ok && int(v) > 0 {
-		usage.CacheCreationInputTokens = int(v)
+	if _, present, valid := readUsageMapInt(u, "cache_creation_input_tokens"); present && !valid {
+		return
+	}
+	if _, present, valid := readUsageMapInt(u, "image_output_tokens"); present && !valid {
+		return
+	}
+	inputTokens, _, _ := readUsageMapInt(u, "input_tokens")
+	outputTokens, _, _ := readUsageMapInt(u, "output_tokens")
+	cacheReadTokens, _, _ := readUsageMapInt(u, "cache_read_input_tokens")
+	cacheCreationTokens, _, _ := readUsageMapInt(u, "cache_creation_input_tokens")
+	imageOutputTokens, _, _ := readUsageMapInt(u, "image_output_tokens")
+	if inputTokens > 0 {
+		usage.InputTokens = inputTokens
+	}
+	if outputTokens > 0 {
+		usage.OutputTokens = outputTokens
+	}
+	if cacheReadTokens > 0 {
+		usage.CacheReadInputTokens = cacheReadTokens
+	}
+	if cacheCreationTokens > 0 {
+		usage.CacheCreationInputTokens = cacheCreationTokens
+	}
+	if imageOutputTokens > 0 {
+		usage.ImageOutputTokens = imageOutputTokens
 	}
 	// 解析嵌套的 cache_creation 对象中的 5m/1h 明细
-	if cc, ok := u["cache_creation"].(map[string]any); ok {
-		if v, ok := cc["ephemeral_5m_input_tokens"].(float64); ok {
-			usage.CacheCreation5mTokens = int(v)
+	cc, present, valid := readUsageMapObject(u, "cache_creation")
+	if !valid {
+		return
+	}
+	if present {
+		fiveMinute, fivePresent, fiveValid := readUsageMapInt(cc, "ephemeral_5m_input_tokens")
+		oneHour, onePresent, oneValid := readUsageMapInt(cc, "ephemeral_1h_input_tokens")
+		if !fiveValid || !oneValid {
+			return
 		}
-		if v, ok := cc["ephemeral_1h_input_tokens"].(float64); ok {
-			usage.CacheCreation1hTokens = int(v)
+		if fivePresent {
+			usage.CacheCreation5mTokens = fiveMinute
+		}
+		if onePresent {
+			usage.CacheCreation1hTokens = oneHour
 		}
 	}
 }
@@ -356,27 +405,40 @@ func (s *AntigravityGatewayService) extractClaudeUsage(body []byte) *ClaudeUsage
 		return usage
 	}
 	if u, ok := resp["usage"].(map[string]any); ok {
-		if v, ok := u["input_tokens"].(float64); ok {
-			usage.InputTokens = int(v)
-		}
-		if v, ok := u["output_tokens"].(float64); ok {
-			usage.OutputTokens = int(v)
-		}
-		if v, ok := u["cache_read_input_tokens"].(float64); ok {
-			usage.CacheReadInputTokens = int(v)
-		}
-		if v, ok := u["cache_creation_input_tokens"].(float64); ok {
-			usage.CacheCreationInputTokens = int(v)
-		}
-		// 解析嵌套的 cache_creation 对象中的 5m/1h 明细
-		if cc, ok := u["cache_creation"].(map[string]any); ok {
-			if v, ok := cc["ephemeral_5m_input_tokens"].(float64); ok {
-				usage.CacheCreation5mTokens = int(v)
+		for _, key := range []string{"input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "image_output_tokens"} {
+			if _, present, valid := readUsageMapInt(u, key); present && !valid {
+				return usage
 			}
-			if v, ok := cc["ephemeral_1h_input_tokens"].(float64); ok {
-				usage.CacheCreation1hTokens = int(v)
+		}
+		inputTokens, _, _ := readUsageMapInt(u, "input_tokens")
+		outputTokens, _, _ := readUsageMapInt(u, "output_tokens")
+		cacheReadTokens, _, _ := readUsageMapInt(u, "cache_read_input_tokens")
+		cacheCreationTokens, _, _ := readUsageMapInt(u, "cache_creation_input_tokens")
+		imageOutputTokens, _, _ := readUsageMapInt(u, "image_output_tokens")
+		usage.InputTokens = inputTokens
+		usage.OutputTokens = outputTokens
+		usage.CacheReadInputTokens = cacheReadTokens
+		usage.CacheCreationInputTokens = cacheCreationTokens
+		usage.ImageOutputTokens = imageOutputTokens
+		// 解析嵌套的 cache_creation 对象中的 5m/1h 明细
+		cc, present, valid := readUsageMapObject(u, "cache_creation")
+		if !valid {
+			return usage
+		}
+		if present {
+			fiveMinute, fivePresent, fiveValid := readUsageMapInt(cc, "ephemeral_5m_input_tokens")
+			oneHour, onePresent, oneValid := readUsageMapInt(cc, "ephemeral_1h_input_tokens")
+			if !fiveValid || !oneValid {
+				return usage
+			}
+			if fivePresent {
+				usage.CacheCreation5mTokens = fiveMinute
+			}
+			if onePresent {
+				usage.CacheCreation1hTokens = oneHour
 			}
 		}
 	}
+	sanitizeClaudeUsage(usage)
 	return usage
 }

@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 )
@@ -208,7 +209,23 @@ type UsageLog struct {
 }
 
 func (u *UsageLog) TotalTokens() int {
-	return u.InputTokens + u.OutputTokens + u.CacheCreationTokens + u.CacheReadTokens
+	if u == nil {
+		return 0
+	}
+	total := 0
+	for _, value := range []int{u.InputTokens, u.OutputTokens, u.CacheCreationTokens, u.CacheReadTokens} {
+		// Usage rows may predate the current upstream validation boundary. Do
+		// not let an anomalous negative value or integer overflow turn the
+		// aggregate into a misleading negative number.
+		if value < 0 {
+			return 0
+		}
+		if total > math.MaxInt-value {
+			return math.MaxInt
+		}
+		total += value
+	}
+	return total
 }
 
 func (u *UsageLog) EffectiveRequestType() RequestType {

@@ -483,7 +483,7 @@ func chatFinishReasonToAnthropicStopReason(reason string, blocks []AnthropicCont
 // chatUsageToAnthropicUsage converts Chat Completions token usage to Anthropic
 // usage shape. Mirrors ChatUsageToResponsesUsage + anthropicUsageFromResponsesUsage.
 func chatUsageToAnthropicUsage(usage *ChatUsage) AnthropicUsage {
-	if usage == nil {
+	if usage == nil || !validChatUsage(usage) {
 		return AnthropicUsage{}
 	}
 
@@ -501,9 +501,9 @@ func chatUsageToAnthropicUsage(usage *ChatUsage) AnthropicUsage {
 		}
 	}
 
-	inputTokens := usage.PromptTokens - cachedTokens - cacheCreationTokens
-	if inputTokens < 0 {
-		inputTokens = 0
+	inputTokens, ok := subtractUsageTokensClamped(usage.PromptTokens, cachedTokens, cacheCreationTokens)
+	if !ok {
+		return AnthropicUsage{}
 	}
 
 	return AnthropicUsage{

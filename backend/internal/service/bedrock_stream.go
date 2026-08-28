@@ -218,11 +218,32 @@ func transformBedrockInvocationMetrics(data []byte) []byte {
 	// 转换 camelCase → snake_case 写入 usage
 	inputTokens := metrics.Get("inputTokenCount")
 	outputTokens := metrics.Get("outputTokenCount")
-	if inputTokens.Exists() {
-		data, _ = sjson.SetBytes(data, "usage.input_tokens", inputTokens.Int())
+	var parsedInput, parsedOutput int
+	var inputPresent, outputPresent bool
+	if inputTokens.Exists() && inputTokens.Type != gjson.Null {
+		inputPresent = true
+		var ok bool
+		parsedInput, ok = boundedReportedUsageGJSONInt(inputTokens)
+		if !ok {
+			// The metrics envelope has already been removed above. Reject the
+			// entire synthetic usage snapshot when any known token field is
+			// malformed instead of injecting a partial value.
+			return data
+		}
 	}
-	if outputTokens.Exists() {
-		data, _ = sjson.SetBytes(data, "usage.output_tokens", outputTokens.Int())
+	if outputTokens.Exists() && outputTokens.Type != gjson.Null {
+		outputPresent = true
+		var ok bool
+		parsedOutput, ok = boundedReportedUsageGJSONInt(outputTokens)
+		if !ok {
+			return data
+		}
+	}
+	if inputPresent {
+		data, _ = sjson.SetBytes(data, "usage.input_tokens", parsedInput)
+	}
+	if outputPresent {
+		data, _ = sjson.SetBytes(data, "usage.output_tokens", parsedOutput)
 	}
 
 	return data

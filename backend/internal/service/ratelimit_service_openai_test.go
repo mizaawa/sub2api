@@ -200,6 +200,37 @@ func TestHandle429_OpenAIPersistsCodexSnapshotImmediately(t *testing.T) {
 	}
 }
 
+func TestHandle429_DisableTempUnschedulableKeepsOpenAIMetadata(t *testing.T) {
+	t.Cleanup(func() { SetDisableTempUnschedulableRuntime(false) })
+	SetDisableTempUnschedulableRuntime(true)
+
+	repo := &openAI429SnapshotRepo{}
+	svc := NewRateLimitService(repo, nil, nil, nil, nil)
+	account := &Account{
+		ID:          125,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Credentials: map[string]any{"plan_type": "plus"},
+	}
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "100")
+	headers.Set("x-codex-primary-reset-after-seconds", "604800")
+	headers.Set("x-codex-primary-window-minutes", "10080")
+	headers.Set("x-codex-secondary-used-percent", "100")
+	headers.Set("x-codex-secondary-reset-after-seconds", "18000")
+	headers.Set("x-codex-secondary-window-minutes", "300")
+	body := []byte(`{"error":{"type":"usage_limit_reached","plan_type":"free"}}`)
+
+	svc.handle429(context.Background(), account, headers, body)
+
+	// The switch suppresses scheduling state, but observability metadata still
+	// needs to reflect the upstream response for quota and plan decisions.
+	require.Zero(t, repo.rateLimitedID)
+	require.NotEmpty(t, repo.updatedExtra)
+	require.Equal(t, []int64{account.ID}, repo.bulkUpdatedIDs)
+	require.Equal(t, "free", repo.bulkUpdatedPayload.Credentials["plan_type"])
+}
+
 func TestHandle429_OpenAISyncsObservedPlanType(t *testing.T) {
 	repo := &openAI429SnapshotRepo{}
 	svc := NewRateLimitService(repo, nil, nil, nil, nil)

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -464,7 +465,7 @@ func extractOpenAIImagesFromResponsesCompleted(payload []byte) ([]openAIResponse
 
 	var usageRaw []byte
 	if usage := gjson.GetBytes(payload, "response.tool_usage.image_gen"); usage.Exists() && usage.IsObject() {
-		usageRaw = []byte(usage.Raw)
+		usageRaw = sanitizeOpenAIImagesToolUsageRaw(usage)
 	}
 	return results, createdAt, usageRaw, firstMeta, nil
 }
@@ -1086,17 +1087,99 @@ func openAIImagesToolUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 	if !value.Exists() || !value.IsObject() {
 		return OpenAIUsage{}, false
 	}
+	if !validateOpenAIUsageJSON(value) {
+		return OpenAIUsage{}, false
+	}
 	inputTokens, inputOK := boundedJSONNonNegativeInt(value.Get("input_tokens"))
 	outputTokens, outputOK := boundedJSONNonNegativeInt(value.Get("output_tokens"))
 	imageOutputTokens, imageOutputOK := boundedJSONNonNegativeInt(value.Get("output_tokens_details.image_tokens"))
 	if !inputOK || !outputOK || !imageOutputOK {
 		return OpenAIUsage{}, false
 	}
+	imageInputTokens := 0
+	if field := value.Get("input_tokens_details.image_tokens"); field.Exists() {
+		parsed, ok := boundedReportedUsageGJSONInt(field)
+		if !ok {
+			return OpenAIUsage{}, false
+		}
+		imageInputTokens = parsed
+	}
 	return OpenAIUsage{
 		InputTokens:       inputTokens,
+		ImageInputTokens:  imageInputTokens,
 		OutputTokens:      outputTokens,
 		ImageOutputTokens: imageOutputTokens,
 	}, true
+}
+
+// sanitizeOpenAIImagesToolUsageRaw converts the provider-controlled image tool
+// usage object into a small, numeric-only payload before it is forwarded to a
+// client.  The raw object is otherwise an injection channel: a downstream
+// relay may parse the forwarded usage again and accidentally bill arbitrary
+// fields or magnitudes.  Unknown fields are intentionally omitted.
+func sanitizeOpenAIImagesToolUsageRaw(value gjson.Result) []byte {
+	if !value.Exists() || !value.IsObject() || !validateOpenAIUsageJSON(value) {
+		return nil
+	}
+
+	// `images` is specific to the hosted image tool and is not covered by the
+	// generic token validator.  Validate it separately when present.
+	if images := value.Get("images"); images.Exists() && images.Type != gjson.Null {
+		if _, ok := boundedJSONNonNegativeInt(images); !ok {
+			return nil
+		}
+	}
+
+	// Keep the same aliases accepted by the gateway parser.  Canonicalizing
+	// values through int also removes exponent spellings and any provider-only
+	// JSON extensions while preserving the public usage shape.
+	const numericFields = "input_tokens,output_tokens,prompt_tokens,completion_tokens,total_tokens,cache_read_input_tokens,cache_read_tokens,cached_tokens,cache_write_tokens,cache_creation_input_tokens,cache_write_input_tokens,cache_creation_tokens,images"
+	const nestedNumericFields = "cached_tokens,cache_write_tokens,cache_creation_tokens,image_tokens"
+
+	out := []byte(`{}`)
+	wrote := false
+	setNumeric := func(path string, field gjson.Result) bool {
+		if !field.Exists() || field.Type == gjson.Null {
+			return true
+		}
+		parsed, ok := boundedReportedUsageGJSONInt(field)
+		if !ok {
+			return false
+		}
+		var err error
+		out, err = sjson.SetBytes(out, path, parsed)
+		if err != nil {
+			return false
+		}
+		wrote = true
+		return true
+	}
+	for _, fieldName := range strings.Split(numericFields, ",") {
+		if !setNumeric(fieldName, value.Get(fieldName)) {
+			return nil
+		}
+	}
+	for _, prefix := range []string{"input_tokens_details", "prompt_tokens_details", "output_tokens_details", "completion_tokens_details"} {
+		for _, fieldName := range strings.Split(nestedNumericFields, ",") {
+			if !setNumeric(prefix+"."+fieldName, value.Get(prefix+"."+fieldName)) {
+				return nil
+			}
+		}
+	}
+	if !wrote {
+		return nil
+	}
+	// Marshal/unmarshal once to ensure the resulting payload is valid JSON even
+	// if a future sjson change alters its output representation.
+	var normalized map[string]any
+	if err := json.Unmarshal(out, &normalized); err != nil || normalized == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return nil
+	}
+	return encoded
 }
 
 // boundedJSONNonNegativeInt parses integral JSON exponent notation without

@@ -53,6 +53,17 @@ func TestUsageConversionsPreserveCacheWriteTokens(t *testing.T) {
 	require.Equal(t, 200, roundTrip.InputTokensDetails.CacheWriteTokens)
 }
 
+func TestChatUsageToResponsesUsagePreservesReportedTotal(t *testing.T) {
+	usage := &ChatUsage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 99}
+	converted := ChatUsageToResponsesUsage(usage)
+	require.NotNil(t, converted)
+	require.Equal(t, 99, converted.TotalTokens)
+
+	missingTotal := ChatUsageToResponsesUsage(&ChatUsage{PromptTokens: 10, CompletionTokens: 5})
+	require.NotNil(t, missingTotal)
+	require.Equal(t, 15, missingTotal.TotalTokens)
+}
+
 func TestResponsesUsageNestedCacheWritePresenceOverridesTopLevelAlias(t *testing.T) {
 	tests := []struct {
 		name       string

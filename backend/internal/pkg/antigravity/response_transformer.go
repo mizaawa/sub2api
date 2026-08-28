@@ -280,12 +280,11 @@ func (p *NonStreamingProcessor) buildResponse(geminiResp *GeminiResponse, respon
 	// 但 Claude 的 input_tokens 不包含 cache_read_input_tokens，需要减去
 	usage := ClaudeUsage{}
 	if geminiResp.UsageMetadata != nil {
-		cached := geminiResp.UsageMetadata.CachedContentTokenCount
-		usage.InputTokens = geminiResp.UsageMetadata.PromptTokenCount - cached
-		usage.OutputTokens = geminiResp.UsageMetadata.CandidatesTokenCount + geminiResp.UsageMetadata.ThoughtsTokenCount
-		usage.CacheReadInputTokens = cached
-		usage.ImageOutputTokens = geminiResp.UsageMetadata.ImageOutputTokens()
+		if converted, ok := usageFromGeminiMetadata(geminiResp.UsageMetadata); ok {
+			usage = converted
+		}
 	}
+	sanitizeClaudeUsage(&usage)
 
 	// 生成响应 ID
 	respID := responseID

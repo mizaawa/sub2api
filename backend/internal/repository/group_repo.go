@@ -891,6 +891,13 @@ const (
 					a.overload_until > NOW() OR
 					a.temp_unschedulable_until > NOW()
 				)`
+
+	groupAccountAvailableWithoutTransientSQL = `a.deleted_at IS NULL
+				AND a.status = 'active'
+				AND a.schedulable = true
+				AND (a.expires_at IS NULL OR a.expires_at > NOW() OR a.auto_pause_on_expired = FALSE)`
+	groupAccountTemporarilyLimitedWithoutTransientSQL = `a.deleted_at IS NULL
+				AND FALSE`
 )
 
 func (r *groupRepository) loadAccountCounts(ctx context.Context, groupIDs []int64) (counts map[int64]groupAccountCounts, err error) {
@@ -899,6 +906,12 @@ func (r *groupRepository) loadAccountCounts(ctx context.Context, groupIDs []int6
 		return counts, nil
 	}
 
+	availableSQL := groupAccountAvailableSQL
+	temporarilyLimitedSQL := groupAccountTemporarilyLimitedSQL
+	if !service.ShouldApplyTransientUnschedulableBlock() {
+		availableSQL = groupAccountAvailableWithoutTransientSQL
+		temporarilyLimitedSQL = groupAccountTemporarilyLimitedWithoutTransientSQL
+	}
 	rows, err := r.sql.QueryContext(
 		ctx,
 		fmt.Sprintf(`SELECT ag.group_id,
@@ -908,7 +921,7 @@ func (r *groupRepository) loadAccountCounts(ctx context.Context, groupIDs []int6
 		FROM account_groups ag
 		JOIN accounts a ON a.id = ag.account_id
 		WHERE ag.group_id = ANY($1)
-		GROUP BY ag.group_id`, groupAccountAvailableSQL, groupAccountTemporarilyLimitedSQL),
+		GROUP BY ag.group_id`, availableSQL, temporarilyLimitedSQL),
 		pq.Array(groupIDs),
 	)
 	if err != nil {

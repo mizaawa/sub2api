@@ -297,6 +297,24 @@ func (s *SettingService) GetAllSettings(ctx context.Context) (*SystemSettings, e
 	return s.parseSettings(settings), nil
 }
 
+// IsDisableTempUnschedulableEnabled reports the effective admin switch. A
+// missing/invalid setting fails closed so the normal transient protections
+// remain enabled.
+func (s *SettingService) IsDisableTempUnschedulableEnabled(ctx context.Context) bool {
+	if s == nil || s.settingRepo == nil {
+		SetDisableTempUnschedulableRuntime(false)
+		return false
+	}
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyDisableTempUnschedulable)
+	if err != nil {
+		SetDisableTempUnschedulableRuntime(false)
+		return false
+	}
+	enabled := strings.EqualFold(strings.TrimSpace(value), "true")
+	SetDisableTempUnschedulableRuntime(enabled)
+	return enabled
+}
+
 // ResponseModelAuditBypassEnabled reads the runtime switch used by gateway
 // response rewriting. A missing or invalid value keeps the feature disabled.
 func (s *SettingService) ResponseModelAuditBypassEnabled(ctx context.Context) bool {

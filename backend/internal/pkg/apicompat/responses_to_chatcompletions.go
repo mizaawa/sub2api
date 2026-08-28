@@ -339,13 +339,17 @@ func resToChatHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 }
 
 func chatUsageFromResponsesUsage(u *ResponsesUsage) *ChatUsage {
-	if u == nil {
+	if u == nil || !validResponsesUsage(u) {
+		return nil
+	}
+	totalTokens, ok := addUsageTokens(u.InputTokens, u.OutputTokens)
+	if !ok {
 		return nil
 	}
 	usage := &ChatUsage{
 		PromptTokens:     u.InputTokens,
 		CompletionTokens: u.OutputTokens,
-		TotalTokens:      u.InputTokens + u.OutputTokens,
+		TotalTokens:      totalTokens,
 	}
 	usage.PromptTokensDetails = promptDetailsFromResponses(u.InputTokensDetails)
 	if u.CacheCreationInputTokens > 0 {

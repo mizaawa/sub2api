@@ -27,6 +27,14 @@ func resolveAccountStatsCost(
 	requestCount int,
 	totalCost float64,
 ) *float64 {
+	if !validUsageTokens(tokens) {
+		// An invalid usage snapshot must not fall through to the historical
+		// total_cost fallback, which could otherwise make account statistics
+		// charge an unvalidated amount. A non-nil zero explicitly suppresses
+		// that fallback for this row.
+		zero := 0.0
+		return &zero
+	}
 	if channelService == nil || upstreamModel == "" {
 		return nil
 	}
@@ -61,6 +69,9 @@ func resolveAccountStatsCost(
 
 // tryModelFilePricing 使用模型定价文件（LiteLLM/fallback）中的标准价格计算费用。
 func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens) *float64 {
+	if !validUsageTokens(tokens) {
+		return nil
+	}
 	pricing, err := billingService.GetModelPricing(model)
 	if err != nil || pricing == nil {
 		return nil
@@ -167,7 +178,7 @@ func isPlatformMatch(queryPlatform, pricingPlatform string) bool {
 
 // calculateStatsCost 使用给定的定价计算费用（不含任何倍率，原始费用）。
 func calculateStatsCost(pricing *ChannelModelPricing, tokens UsageTokens, requestCount int) *float64 {
-	if pricing == nil {
+	if pricing == nil || !validUsageTokens(tokens) {
 		return nil
 	}
 	switch pricing.BillingMode {
@@ -180,7 +191,13 @@ func calculateStatsCost(pricing *ChannelModelPricing, tokens UsageTokens, reques
 
 // calculatePerRequestStatsCost 按次/图片计费。
 func calculatePerRequestStatsCost(pricing *ChannelModelPricing, requestCount int) *float64 {
-	if pricing.PerRequestPrice == nil || *pricing.PerRequestPrice <= 0 {
+	if pricing == nil || pricing.PerRequestPrice == nil || *pricing.PerRequestPrice <= 0 {
+		return nil
+	}
+	if requestCount <= 0 {
+		requestCount = 1
+	}
+	if !validBillableRequestCount(requestCount) {
 		return nil
 	}
 	cost := *pricing.PerRequestPrice * float64(requestCount)
@@ -191,9 +208,20 @@ func calculatePerRequestStatsCost(pricing *ChannelModelPricing, requestCount int
 // If the pricing has intervals, find the matching interval by total token count
 // and use its prices instead of the flat pricing fields.
 func calculateTokenStatsCost(pricing *ChannelModelPricing, tokens UsageTokens) *float64 {
+	if pricing == nil || !validUsageTokens(tokens) {
+		return nil
+	}
 	p := pricing
 	if len(pricing.Intervals) > 0 {
-		totalTokens := tokens.InputTokens + tokens.OutputTokens + tokens.CacheCreationTokens + tokens.CacheReadTokens
+		totalTokens, ok := sumNonNegativeInts(
+			tokens.InputTokens,
+			tokens.OutputTokens,
+			tokens.CacheCreationTokens,
+			tokens.CacheReadTokens,
+		)
+		if !ok {
+			return nil
+		}
 		if iv := FindMatchingInterval(pricing.Intervals, totalTokens); iv != nil {
 			p = &ChannelModelPricing{
 				InputPrice:      iv.InputPrice,

@@ -384,6 +384,11 @@ func (s *OpenAIGatewayService) applyGrokCredentialAccountFailure(ctx context.Con
 	}
 
 	if class.transient {
+		if IsDisableTempUnschedulableEnabled() {
+			// The request still fails over, but this policy intentionally avoids
+			// persisting or installing a temporary account quarantine.
+			return "", nil
+		}
 		until := time.Now().Add(tokenRefreshTempUnschedDuration)
 		if ctx.Err() != nil {
 			return "", ctx.Err()

@@ -1008,19 +1008,44 @@ func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
 }
 
 func mergeHostedImageGenToolUsage(imageGen gjson.Result, usage *OpenAIUsage) {
-	if !imageGen.Exists() || !imageGen.IsObject() {
+	if usage == nil || !imageGen.Exists() || !imageGen.IsObject() {
 		return
 	}
-	if usage.ImageOutputTokens == 0 {
-		if v := imageGen.Get("output_tokens_details.image_tokens").Int(); v > 0 {
-			usage.ImageOutputTokens = int(v)
+	// The base usage object is validated by openAIUsageFromGJSON before this
+	// helper runs. The hosted image-generation tool has its own nested usage
+	// object, however, so validate that object independently before copying any
+	// values into the billable result. This prevents an oversized or malformed
+	// nested field from bypassing the top-level usage guard.
+	if !validateOpenAIUsageJSON(imageGen) {
+		return
+	}
+	candidate := *usage
+	if candidate.ImageOutputTokens == 0 {
+		if field := imageGen.Get("output_tokens_details.image_tokens"); field.Exists() {
+			v, ok := boundedReportedUsageGJSONInt(field)
+			if !ok {
+				return
+			}
+			if v > 0 {
+				candidate.ImageOutputTokens = v
+			}
 		}
 	}
-	if usage.ImageInputTokens == 0 {
-		if v := imageGen.Get("input_tokens_details.image_tokens").Int(); v > 0 {
-			usage.ImageInputTokens = int(v)
+	if candidate.ImageInputTokens == 0 {
+		if field := imageGen.Get("input_tokens_details.image_tokens"); field.Exists() {
+			v, ok := boundedReportedUsageGJSONInt(field)
+			if !ok {
+				return
+			}
+			if v > 0 {
+				candidate.ImageInputTokens = v
+			}
 		}
 	}
+	if !sanitizeOpenAIUsage(&candidate) {
+		return
+	}
+	*usage = candidate
 }
 
 func extractOpenAIResponseIDFromJSONBytes(body []byte) string {
@@ -1054,6 +1079,9 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 	if !value.Exists() || !value.IsObject() {
 		return OpenAIUsage{}, false
 	}
+	if !validateOpenAIUsageJSON(value) {
+		return OpenAIUsage{}, false
+	}
 	inputTokens := value.Get("input_tokens").Int()
 	if inputTokens == 0 {
 		inputTokens = value.Get("prompt_tokens").Int()
@@ -1075,14 +1103,18 @@ func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
 		value.Get("input_tokens_details.image_tokens"),
 		value.Get("prompt_tokens_details.image_tokens"),
 	)
-	return OpenAIUsage{
+	usage := OpenAIUsage{
 		InputTokens:              int(inputTokens),
 		ImageInputTokens:         imageInputTokens,
 		OutputTokens:             int(outputTokens),
 		CacheCreationInputTokens: cacheCreationTokens,
 		CacheReadInputTokens:     cacheReadTokens,
 		ImageOutputTokens:        int(imageOutputTokens),
-	}, true
+	}
+	if !sanitizeOpenAIUsage(&usage) {
+		return OpenAIUsage{}, false
+	}
+	return usage, true
 }
 
 func openAICacheReadTokensFromUsage(value gjson.Result) int {

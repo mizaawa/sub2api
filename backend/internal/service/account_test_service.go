@@ -809,7 +809,7 @@ func (s *AccountTestService) testGrokAccountConnection(c *gin.Context, account *
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		if resp.StatusCode == http.StatusPaymentRequired && s.accountRepo != nil {
+		if resp.StatusCode == http.StatusPaymentRequired && s.accountRepo != nil && ShouldApplyTransientUnschedulableBlock() {
 			stateCtx, cancel := openAIAccountStateContext(ctx)
 			defer cancel()
 			_ = s.accountRepo.SetTempUnschedulable(
@@ -1051,6 +1051,9 @@ func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, accoun
 		return
 	}
 
+	if !ShouldApplyTransientUnschedulableBlock() {
+		return
+	}
 	if err := s.accountRepo.SetRateLimited(ctx, account.ID, *resetAt); err != nil {
 		return
 	}

@@ -687,6 +687,13 @@ func ProvideSettingService(settingRepo SettingRepository, groupRepo GroupReposit
 	if err := svc.MigrateCodexBodyFingerprintToSignals(context.Background()); err != nil {
 		logger.LegacyPrintf("service.setting", "Warning: migrate codex body fingerprint to signals failed: %v", err)
 	}
+	// Warm the process-wide transient scheduling policy before scheduler workers
+	// publish their first account snapshot. Missing rows retain the safe default.
+	if settings, err := svc.GetAllSettings(context.Background()); err != nil {
+		logger.LegacyPrintf("service.setting", "Warning: load transient scheduling policy failed: %v", err)
+	} else if settings != nil {
+		SetDisableTempUnschedulableRuntime(settings.DisableTempUnschedulable)
+	}
 	antigravity.SetUserAgentVersionResolver(svc.GetAntigravityUserAgentVersion)
 	// enforceCodexIdentityHeaders 是所有 Codex 出站路径共用的纯函数收口点，拿不到 ctx，
 	// 故注入无参解析器；解析器内部自带 60s TTL 缓存，热路径不触库。

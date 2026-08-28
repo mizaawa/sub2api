@@ -246,6 +246,16 @@ func mergeAntigravityCompatUsage(dst *ClaudeUsage, src *antigravity.ClaudeUsage)
 	if dst == nil || src == nil {
 		return
 	}
+	validated := ClaudeUsage{
+		InputTokens:              src.InputTokens,
+		OutputTokens:             src.OutputTokens,
+		CacheCreationInputTokens: src.CacheCreationInputTokens,
+		CacheReadInputTokens:     src.CacheReadInputTokens,
+		ImageOutputTokens:        src.ImageOutputTokens,
+	}
+	if !sanitizeClaudeUsage(&validated) {
+		return
+	}
 	dst.InputTokens = src.InputTokens
 	dst.OutputTokens = src.OutputTokens
 	dst.CacheCreationInputTokens = src.CacheCreationInputTokens

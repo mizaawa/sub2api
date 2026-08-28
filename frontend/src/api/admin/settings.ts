@@ -683,6 +683,9 @@ export interface SystemSettings {
 
   response_model_audit_bypass_enabled: boolean;
 
+  // Ignore automatic transient account scheduling blockers (429/401/529/timeouts).
+  disable_temp_unschedulable: boolean;
+
   // Affiliate (邀请返利) feature switch
   affiliate_enabled: boolean;
 
@@ -976,6 +979,9 @@ export interface UpdateSettingsRequest {
   model_plaza_description?: string;
 
   response_model_audit_bypass_enabled?: boolean;
+
+  // Ignore automatic transient account scheduling blockers (429/401/529/timeouts).
+  disable_temp_unschedulable?: boolean;
 
   // Affiliate (邀请返利) feature switch
   affiliate_enabled?: boolean;

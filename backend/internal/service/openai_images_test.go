@@ -1333,6 +1333,43 @@ func TestExtractOpenAIImagesBillableCountFromJSONBytes_CompletedEvent(t *testing
 	require.Equal(t, 1, extractOpenAIImagesBillableCountFromJSONBytes(body))
 }
 
+func TestExtractOpenAIImagesBillableCountFromJSONBytes_ValidatesReportedCounts(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want int
+	}{
+		{name: "root usage count", body: `{"usage":{"images":3}}`, want: 3},
+		{name: "nested response tool count", body: `{"response":{"tool_usage":{"image_gen":{"images":4}}}}`, want: 4},
+		{name: "negative", body: `{"usage":{"images":-1}}`, want: 0},
+		{name: "fractional", body: `{"usage":{"images":1.5}}`, want: 0},
+		{name: "string", body: `{"usage":{"images":"3"}}`, want: 0},
+		{name: "overflow", body: `{"usage":{"images":1e1000000000}}`, want: 0},
+		{name: "over guard", body: `{"usage":{"images":100000001}}`, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, extractOpenAIImagesBillableCountFromJSONBytes([]byte(tt.body)))
+		})
+	}
+}
+
+func TestMergeOpenAIUsage_IgnoresProgressEventUsage(t *testing.T) {
+	usage := OpenAIUsage{InputTokens: 12, OutputTokens: 21, ImageOutputTokens: 9}
+	progressEvents := [][]byte{
+		[]byte(`{"type":"response.output_text.delta","usage":{"input_tokens":100000000,"output_tokens":100000000}}`),
+		[]byte(`{"type":"response.image_generation_call.partial_image","usage":{"input_tokens":99999999,"output_tokens":99999999}}`),
+	}
+	for _, event := range progressEvents {
+		mergeOpenAIUsage(&usage, event)
+	}
+	require.Equal(t, OpenAIUsage{InputTokens: 12, OutputTokens: 21, ImageOutputTokens: 9}, usage)
+
+	// Protocol-compatible terminal events remain accepted.
+	mergeOpenAIUsage(&usage, []byte(`{"type":"image_generation.completed","usage":{"input_tokens":14,"output_tokens":23,"output_tokens_details":{"image_tokens":10}}}`))
+	require.Equal(t, OpenAIUsage{InputTokens: 14, OutputTokens: 23, ImageOutputTokens: 10}, usage)
+}
+
 func TestOpenAIGatewayServiceForwardImages_APIKeyEditUsesConfiguredV1BaseURL(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -1771,6 +1808,21 @@ func TestCollectOpenAIImagesFromResponsesBody_MultilineSSE(t *testing.T) {
 	require.Equal(t, "ZmluYWw=", results[0].Result)
 	require.Equal(t, "png", firstMeta.OutputFormat)
 	require.JSONEq(t, `{"images":1}`, string(usageRaw))
+}
+
+func TestSanitizeOpenAIImagesToolUsageRaw_WhitelistsAndNormalizesFields(t *testing.T) {
+	value := gjson.Parse(`{"images":2,"input_tokens":46,"output_tokens":2459,"output_tokens_details":{"image_tokens":2459},"provider_private":"discard-me"}`)
+	raw := sanitizeOpenAIImagesToolUsageRaw(value)
+	require.JSONEq(t, `{"images":2,"input_tokens":46,"output_tokens":2459,"output_tokens_details":{"image_tokens":2459}}`, string(raw))
+	require.NotContains(t, string(raw), "provider_private")
+}
+
+func TestSanitizeOpenAIImagesToolUsageRaw_RejectsMalformedKnownField(t *testing.T) {
+	value := gjson.Parse(`{"images":1,"input_tokens":46,"output_tokens":2459,"input_tokens_details":{"cache_write_tokens":1e999}}`)
+	require.Nil(t, sanitizeOpenAIImagesToolUsageRaw(value))
+
+	value = gjson.Parse(`{"images":100000001}`)
+	require.Nil(t, sanitizeOpenAIImagesToolUsageRaw(value))
 }
 
 func TestOpenAIGatewayServiceForwardImages_OAuthStreamingHandlesOutputItemDoneFallback(t *testing.T) {

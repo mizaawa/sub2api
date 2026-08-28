@@ -1121,11 +1121,26 @@ func extractOpenAIImagesBillableCountFromJSONBytes(body []byte) int {
 	if len(body) == 0 || !gjson.ValidBytes(body) {
 		return 0
 	}
-	if count := int(gjson.GetBytes(body, "usage.images").Int()); count > 0 {
-		return count
-	}
-	if count := int(gjson.GetBytes(body, "tool_usage.image_gen.images").Int()); count > 0 {
-		return count
+	// `images` is a provider-reported billing value, so do not use gjson.Int
+	// here: it silently coerces fractions, strings, negatives, and overflowing
+	// numbers.  Keep the accepted range aligned with the usage boundary guard.
+	for _, path := range []string{
+		"usage.images",
+		"tool_usage.image_gen.images",
+		"response.usage.images",
+		"response.tool_usage.image_gen.images",
+	} {
+		field := gjson.GetBytes(body, path)
+		if !field.Exists() || field.Type == gjson.Null {
+			continue
+		}
+		count, ok := boundedReportedUsageGJSONInt(field)
+		if !ok {
+			return 0
+		}
+		if count > 0 {
+			return count
+		}
 	}
 	eventType := strings.TrimSpace(gjson.GetBytes(body, "type").String())
 	if eventType == "" || !strings.HasSuffix(eventType, ".completed") {
@@ -1139,6 +1154,12 @@ func extractOpenAIImagesBillableCountFromJSONBytes(body []byte) int {
 
 func mergeOpenAIUsage(dst *OpenAIUsage, body []byte) {
 	if dst == nil {
+		return
+	}
+	// Images streams may contain many non-terminal progress events. Usage is a
+	// terminal snapshot, so do not let a usage-shaped field embedded in a delta
+	// or partial-image event overwrite the billable snapshot.
+	if !isOpenAIImageUsageTerminalPayload(body) {
 		return
 	}
 	if parsed, ok := extractOpenAIUsageFromJSONBytes(body); ok {
@@ -1157,6 +1178,35 @@ func mergeOpenAIUsage(dst *OpenAIUsage, body []byte) {
 		if parsed.ImageOutputTokens > 0 {
 			dst.ImageOutputTokens = parsed.ImageOutputTokens
 		}
+	}
+}
+
+func isOpenAIImageUsageTerminalPayload(body []byte) bool {
+	if len(body) == 0 || !gjson.ValidBytes(body) {
+		return false
+	}
+	typeValue := gjson.GetBytes(body, "type")
+	if !typeValue.Exists() {
+		// A plain JSON Images response has no event type and is a valid fallback
+		// payload for the non-SSE stream path.
+		return true
+	}
+	if typeValue.Type != gjson.String {
+		return false
+	}
+	switch strings.TrimSpace(typeValue.String()) {
+	case "image_generation.completed",
+		"image_generation.failed",
+		"image_generation.incomplete",
+		"response.completed",
+		"response.done",
+		"response.failed",
+		"response.incomplete",
+		"response.cancelled",
+		"response.canceled":
+		return true
+	default:
+		return false
 	}
 }
 

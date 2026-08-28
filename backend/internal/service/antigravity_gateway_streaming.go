@@ -980,6 +980,9 @@ returnResponse:
 		CacheReadInputTokens:     agUsage.CacheReadInputTokens,
 		ImageOutputTokens:        agUsage.ImageOutputTokens,
 	}
+	if !sanitizeClaudeUsage(usage) {
+		usage = &ClaudeUsage{}
+	}
 
 	return claudeResp, &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs}, nil
 }
@@ -1043,12 +1046,16 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 		if agUsage == nil {
 			return &ClaudeUsage{}
 		}
-		return &ClaudeUsage{
+		usage := &ClaudeUsage{
 			InputTokens:              agUsage.InputTokens,
 			OutputTokens:             agUsage.OutputTokens,
 			CacheCreationInputTokens: agUsage.CacheCreationInputTokens,
 			CacheReadInputTokens:     agUsage.CacheReadInputTokens,
 		}
+		if !sanitizeClaudeUsage(usage) {
+			return &ClaudeUsage{}
+		}
+		return usage
 	}
 
 	type scanEvent struct {

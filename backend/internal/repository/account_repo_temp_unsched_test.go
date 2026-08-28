@@ -59,6 +59,24 @@ func TestAccountRepository_GrokCredentialConditionalMutationsAreEligibleAndAtomi
 		require.Equal(t, service.SchedulerOutboxEventAccountChanged, exec.execArgs[0][9])
 	})
 
+	t.Run("permanent ignores transient guards when switch is enabled", func(t *testing.T) {
+		service.SetDisableTempUnschedulableRuntime(true)
+		t.Cleanup(func() { service.SetDisableTempUnschedulableRuntime(false) })
+
+		exec := &recordingSQLExecutor{result: rowsAffectedResult(0)}
+		repo := newAccountRepositoryWithSQL(nil, exec, nil)
+
+		updated, err := repo.SetGrokCredentialErrorIfMatch(context.Background(), 42, snapshot, "revoked")
+		require.NoError(t, err)
+		require.False(t, updated)
+		require.Len(t, exec.execQueries, 1)
+		normalized := normalizeSQLWhitespace(exec.execQueries[0])
+		require.NotContains(t, normalized, "a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until <= NOW()")
+		require.NotContains(t, normalized, "a.rate_limit_reset_at IS NULL OR a.rate_limit_reset_at <= NOW()")
+		require.NotContains(t, normalized, "a.overload_until IS NULL OR a.overload_until <= NOW()")
+		require.Contains(t, normalized, "a.credentials = $7::jsonb")
+	})
+
 	t.Run("transient", func(t *testing.T) {
 		exec := &recordingSQLExecutor{result: rowsAffectedResult(0)}
 		repo := newAccountRepositoryWithSQL(nil, exec, nil)
@@ -304,6 +322,36 @@ func TestAccountRepository_ListOAuthRefreshCandidatePage_SQLFilter(t *testing.T)
 	platforms, err := valuer.Value()
 	require.NoError(t, err)
 	require.Contains(t, platforms, service.PlatformGrok)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestAccountRepository_ListOAuthRefreshCandidatePage_IgnoresRetryCooldownWhenTempUnschedDisabled(t *testing.T) {
+	service.SetDisableTempUnschedulableRuntime(true)
+	t.Cleanup(func() {
+		service.SetDisableTempUnschedulableRuntime(false)
+	})
+
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	var capturedSQL string
+	mock.ExpectQuery("SELECT id").WillReturnRows(sqlmock.NewRows([]string{"id"}))
+	repo := newAccountRepositoryWithSQL(nil, captureQuerySQL{db: db, captured: &capturedSQL}, nil)
+
+	_, err = repo.ListOAuthRefreshCandidatePage(context.Background(), service.OAuthRefreshPageOptions{
+		Platforms:            []string{service.PlatformOpenAI},
+		AfterID:              0,
+		Limit:                10,
+		ActiveOnly:           true,
+		IncludeSetupToken:    true,
+		RequireRefreshToken:  true,
+		ExcludeRetryCooldown: true,
+	})
+	require.NoError(t, err)
+
+	normalized := normalizeSQLWhitespace(capturedSQL)
+	require.NotContains(t, normalized, "temp_unschedulable_reason LIKE 'token refresh retry exhausted:%'")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

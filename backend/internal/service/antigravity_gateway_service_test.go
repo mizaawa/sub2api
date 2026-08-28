@@ -1556,6 +1556,11 @@ func TestExtractSSEUsage(t *testing.T) {
 			expected: ClaudeUsage{OutputTokens: 42},
 		},
 		{
+			name:     "data line without optional space",
+			line:     `data:{"type":"message_delta","usage":{"output_tokens":43}}`,
+			expected: ClaudeUsage{OutputTokens: 43},
+		},
+		{
 			name:     "non-data line ignored",
 			line:     `event: message_start`,
 			expected: ClaudeUsage{},
@@ -1609,6 +1614,42 @@ func TestExtractSSEUsage_StreamingSequence(t *testing.T) {
 	require.Equal(t, 35576, usage.InputTokens, "message_start 的 input_tokens 必须被记录，否则记账会缺失输入侧 token (#2332)")
 	require.Equal(t, 12000, usage.CacheReadInputTokens, "message_start 的 cache_read_input_tokens 必须被记录")
 	require.Equal(t, 816, usage.OutputTokens, "message_delta 的最终 output_tokens 必须被记录")
+}
+
+func TestAntigravityForwardUpstream_PreservesExtendedUsageFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude-test","stream":false}`))
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"model":"claude-test","usage":{"input_tokens":10,"output_tokens":20,"cache_creation_input_tokens":100,"cache_read_input_tokens":5,"cache_creation":{"ephemeral_5m_input_tokens":30,"ephemeral_1h_input_tokens":70},"image_output_tokens":9}}`)),
+	}}
+	svc := &AntigravityGatewayService{
+		httpUpstream:   upstream,
+		settingService: &SettingService{cfg: &config.Config{}},
+	}
+	account := &Account{
+		ID:          1,
+		Name:        "upstream",
+		Type:        AccountTypeUpstream,
+		Credentials: map[string]any{"base_url": "https://upstream.example", "api_key": "test-key"},
+	}
+
+	result, err := svc.ForwardUpstream(context.Background(), c, account, []byte(`{"model":"claude-test","stream":false}`))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, ClaudeUsage{
+		InputTokens:              10,
+		OutputTokens:             20,
+		CacheCreationInputTokens: 100,
+		CacheReadInputTokens:     5,
+		CacheCreation5mTokens:    30,
+		CacheCreation1hTokens:    70,
+		ImageOutputTokens:        9,
+	}, result.Usage)
 }
 
 // TestAntigravityClientWriter 验证 antigravityClientWriter 的断开检测

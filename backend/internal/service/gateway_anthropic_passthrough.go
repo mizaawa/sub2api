@@ -629,70 +629,156 @@ func (s *GatewayService) parseSSEUsagePassthrough(data string, usage *ClaudeUsag
 	if usage == nil || data == "" || data == "[DONE]" {
 		return
 	}
+	target := usage
+	previous := *target
+	candidate := previous
+	defer func() {
+		if sanitizeClaudeUsage(&candidate) {
+			*target = candidate
+			return
+		}
+		// Ignore a malformed event without discarding usage collected from
+		// earlier valid events in the same stream.
+		*target = previous
+	}()
+	usage = &candidate
 
+	if !gjson.Valid(data) {
+		return
+	}
 	parsed := gjson.Parse(data)
+	// Validate every usage object before reading fields or deriving cache
+	// totals. This keeps malformed values (including fractional/overflowing
+	// numbers) from being truncated by gjson.Int and then billed.
+	for _, path := range []string{"message.usage", "usage"} {
+		node := parsed.Get(path)
+		if node.Exists() && node.Type != gjson.Null && !validateClaudeUsageJSON(node) {
+			return
+		}
+	}
 	switch parsed.Get("type").String() {
 	case "message_start":
 		msgUsage := parsed.Get("message.usage")
 		if msgUsage.Exists() {
-			usage.InputTokens = int(msgUsage.Get("input_tokens").Int())
-			usage.CacheCreationInputTokens = int(msgUsage.Get("cache_creation_input_tokens").Int())
-			usage.CacheReadInputTokens = int(msgUsage.Get("cache_read_input_tokens").Int())
+			inputTokens, ok := readOptionalBoundedUsageGJSONInt(msgUsage.Get("input_tokens"))
+			if !ok {
+				return
+			}
+			cacheCreationTokens, ok := readOptionalBoundedUsageGJSONInt(msgUsage.Get("cache_creation_input_tokens"))
+			if !ok {
+				return
+			}
+			cacheReadTokens, ok := readOptionalBoundedUsageGJSONInt(msgUsage.Get("cache_read_input_tokens"))
+			if !ok {
+				return
+			}
+			usage.InputTokens = inputTokens
+			usage.CacheCreationInputTokens = cacheCreationTokens
+			usage.CacheReadInputTokens = cacheReadTokens
 
 			// 保持与通用解析一致：message_start 允许覆盖 5m/1h 明细（包括 0）。
 			cc5m := msgUsage.Get("cache_creation.ephemeral_5m_input_tokens")
 			cc1h := msgUsage.Get("cache_creation.ephemeral_1h_input_tokens")
 			if cc5m.Exists() || cc1h.Exists() {
-				usage.CacheCreation5mTokens = int(cc5m.Int())
-				usage.CacheCreation1hTokens = int(cc1h.Int())
+				fiveMinute, ok := readOptionalBoundedUsageGJSONInt(cc5m)
+				if !ok {
+					return
+				}
+				oneHour, ok := readOptionalBoundedUsageGJSONInt(cc1h)
+				if !ok {
+					return
+				}
+				usage.CacheCreation5mTokens = fiveMinute
+				usage.CacheCreation1hTokens = oneHour
 			}
 		}
 	case "message_delta":
 		deltaUsage := parsed.Get("usage")
 		if deltaUsage.Exists() {
-			if v := deltaUsage.Get("input_tokens").Int(); v > 0 {
-				usage.InputTokens = int(v)
+			if v, ok := readOptionalBoundedUsageGJSONInt(deltaUsage.Get("input_tokens")); !ok {
+				return
+			} else if v > 0 {
+				usage.InputTokens = v
 			}
-			if v := deltaUsage.Get("output_tokens").Int(); v > 0 {
-				usage.OutputTokens = int(v)
+			if v, ok := readOptionalBoundedUsageGJSONInt(deltaUsage.Get("output_tokens")); !ok {
+				return
+			} else if v > 0 {
+				usage.OutputTokens = v
 			}
-			if v := deltaUsage.Get("cache_creation_input_tokens").Int(); v > 0 {
-				usage.CacheCreationInputTokens = int(v)
+			if v, ok := readOptionalBoundedUsageGJSONInt(deltaUsage.Get("cache_creation_input_tokens")); !ok {
+				return
+			} else if v > 0 {
+				usage.CacheCreationInputTokens = v
 			}
-			if v := deltaUsage.Get("cache_read_input_tokens").Int(); v > 0 {
-				usage.CacheReadInputTokens = int(v)
+			if v, ok := readOptionalBoundedUsageGJSONInt(deltaUsage.Get("cache_read_input_tokens")); !ok {
+				return
+			} else if v > 0 {
+				usage.CacheReadInputTokens = v
 			}
 
 			cc5m := deltaUsage.Get("cache_creation.ephemeral_5m_input_tokens")
 			cc1h := deltaUsage.Get("cache_creation.ephemeral_1h_input_tokens")
-			if cc5m.Exists() && cc5m.Int() > 0 {
-				usage.CacheCreation5mTokens = int(cc5m.Int())
+			if v, ok := readOptionalBoundedUsageGJSONInt(cc5m); !ok {
+				return
+			} else if cc5m.Exists() && v > 0 {
+				usage.CacheCreation5mTokens = v
 			}
-			if cc1h.Exists() && cc1h.Int() > 0 {
-				usage.CacheCreation1hTokens = int(cc1h.Int())
+			if v, ok := readOptionalBoundedUsageGJSONInt(cc1h); !ok {
+				return
+			} else if cc1h.Exists() && v > 0 {
+				usage.CacheCreation1hTokens = v
 			}
 		}
 	}
 
 	if usage.CacheReadInputTokens == 0 {
-		if cached := parsed.Get("message.usage.cached_tokens").Int(); cached > 0 {
-			usage.CacheReadInputTokens = int(cached)
+		if cached, ok := readOptionalBoundedUsageGJSONInt(parsed.Get("message.usage.cached_tokens")); !ok {
+			return
+		} else if cached > 0 {
+			usage.CacheReadInputTokens = cached
 		}
-		if cached := parsed.Get("usage.cached_tokens").Int(); usage.CacheReadInputTokens == 0 && cached > 0 {
-			usage.CacheReadInputTokens = int(cached)
+		if cached, ok := readOptionalBoundedUsageGJSONInt(parsed.Get("usage.cached_tokens")); !ok {
+			return
+		} else if usage.CacheReadInputTokens == 0 && cached > 0 {
+			usage.CacheReadInputTokens = cached
 		}
 	}
 	if usage.CacheCreationInputTokens == 0 {
-		cc5m := parsed.Get("message.usage.cache_creation.ephemeral_5m_input_tokens").Int()
-		cc1h := parsed.Get("message.usage.cache_creation.ephemeral_1h_input_tokens").Int()
+		cc5m, ok := readOptionalBoundedUsageGJSONInt(parsed.Get("message.usage.cache_creation.ephemeral_5m_input_tokens"))
+		if !ok {
+			return
+		}
+		cc1h, ok := readOptionalBoundedUsageGJSONInt(parsed.Get("message.usage.cache_creation.ephemeral_1h_input_tokens"))
+		if !ok {
+			return
+		}
 		if cc5m == 0 && cc1h == 0 {
-			cc5m = parsed.Get("usage.cache_creation.ephemeral_5m_input_tokens").Int()
-			cc1h = parsed.Get("usage.cache_creation.ephemeral_1h_input_tokens").Int()
+			cc5m, ok = readOptionalBoundedUsageGJSONInt(parsed.Get("usage.cache_creation.ephemeral_5m_input_tokens"))
+			if !ok {
+				return
+			}
+			cc1h, ok = readOptionalBoundedUsageGJSONInt(parsed.Get("usage.cache_creation.ephemeral_1h_input_tokens"))
+			if !ok {
+				return
+			}
 		}
-		total := cc5m + cc1h
+		total, ok := addBoundedReportedUsageInts(cc5m, cc1h)
+		if !ok {
+			return
+		}
 		if total > 0 {
-			usage.CacheCreationInputTokens = int(total)
+			usage.CacheCreationInputTokens = total
 		}
+	}
+	if imageTokens, ok := readOptionalBoundedUsageGJSONInt(parsed.Get("message.usage.image_output_tokens")); !ok {
+		return
+	} else if imageTokens > 0 {
+		usage.ImageOutputTokens = imageTokens
+	}
+	if imageTokens, ok := readOptionalBoundedUsageGJSONInt(parsed.Get("usage.image_output_tokens")); !ok {
+		return
+	} else if usage.ImageOutputTokens == 0 && imageTokens > 0 {
+		usage.ImageOutputTokens = imageTokens
 	}
 }
 
@@ -702,31 +788,66 @@ func parseClaudeUsageFromResponseBody(body []byte) *ClaudeUsage {
 		return usage
 	}
 
+	if !gjson.ValidBytes(body) {
+		return usage
+	}
 	parsed := gjson.ParseBytes(body)
 	usageNode := parsed.Get("usage")
-	if !usageNode.Exists() {
+	if !usageNode.Exists() || usageNode.Type == gjson.Null {
+		return usage
+	}
+	if !validateClaudeUsageJSON(usageNode) {
 		return usage
 	}
 
-	usage.InputTokens = int(usageNode.Get("input_tokens").Int())
-	usage.OutputTokens = int(usageNode.Get("output_tokens").Int())
-	usage.CacheCreationInputTokens = int(usageNode.Get("cache_creation_input_tokens").Int())
-	usage.CacheReadInputTokens = int(usageNode.Get("cache_read_input_tokens").Int())
+	var ok bool
+	if usage.InputTokens, ok = readOptionalBoundedUsageGJSONInt(usageNode.Get("input_tokens")); !ok {
+		return usage
+	}
+	if usage.OutputTokens, ok = readOptionalBoundedUsageGJSONInt(usageNode.Get("output_tokens")); !ok {
+		return &ClaudeUsage{}
+	}
+	if usage.CacheCreationInputTokens, ok = readOptionalBoundedUsageGJSONInt(usageNode.Get("cache_creation_input_tokens")); !ok {
+		return &ClaudeUsage{}
+	}
+	if usage.CacheReadInputTokens, ok = readOptionalBoundedUsageGJSONInt(usageNode.Get("cache_read_input_tokens")); !ok {
+		return &ClaudeUsage{}
+	}
 
-	cc5m := usageNode.Get("cache_creation.ephemeral_5m_input_tokens").Int()
-	cc1h := usageNode.Get("cache_creation.ephemeral_1h_input_tokens").Int()
+	cc5m, ok := readOptionalBoundedUsageGJSONInt(usageNode.Get("cache_creation.ephemeral_5m_input_tokens"))
+	if !ok {
+		return &ClaudeUsage{}
+	}
+	cc1h, ok := readOptionalBoundedUsageGJSONInt(usageNode.Get("cache_creation.ephemeral_1h_input_tokens"))
+	if !ok {
+		return &ClaudeUsage{}
+	}
 	if cc5m > 0 || cc1h > 0 {
-		usage.CacheCreation5mTokens = int(cc5m)
-		usage.CacheCreation1hTokens = int(cc1h)
+		usage.CacheCreation5mTokens = cc5m
+		usage.CacheCreation1hTokens = cc1h
 	}
 	if usage.CacheCreationInputTokens == 0 && (cc5m > 0 || cc1h > 0) {
-		usage.CacheCreationInputTokens = int(cc5m + cc1h)
+		total, ok := addBoundedReportedUsageInts(cc5m, cc1h)
+		if !ok {
+			return &ClaudeUsage{}
+		}
+		usage.CacheCreationInputTokens = total
 	}
 	if usage.CacheReadInputTokens == 0 {
-		if cached := usageNode.Get("cached_tokens").Int(); cached > 0 {
-			usage.CacheReadInputTokens = int(cached)
+		cached, ok := readOptionalBoundedUsageGJSONInt(usageNode.Get("cached_tokens"))
+		if !ok {
+			return &ClaudeUsage{}
+		}
+		if cached > 0 {
+			usage.CacheReadInputTokens = cached
 		}
 	}
+	if imageTokens, ok := readOptionalBoundedUsageGJSONInt(usageNode.Get("image_output_tokens")); !ok {
+		return &ClaudeUsage{}
+	} else if imageTokens > 0 {
+		usage.ImageOutputTokens = imageTokens
+	}
+	sanitizeClaudeUsage(usage)
 	return usage
 }
 
@@ -821,11 +942,27 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 }
 
 func classifyAnthropicResponseInputAsCacheRead(body []byte, usage *ClaudeUsage) ([]byte, error) {
+	if usage == nil {
+		return body, nil
+	}
+	classifiedUsage := *usage
+	if !sanitizeClaudeUsage(&classifiedUsage) || classifiedUsage.InputTokens == 0 {
+		return body, nil
+	}
+	cacheReadTokens, ok := addBoundedReportedUsageInts(
+		classifiedUsage.CacheReadInputTokens,
+		classifiedUsage.InputTokens,
+	)
+	if !ok {
+		// Keep the original response and let the billing boundary reject the
+		// over-limit aggregate rather than wrapping it into a negative value.
+		return body, nil
+	}
 	classified, err := sjson.SetBytes(body, "usage.input_tokens", 0)
 	if err != nil {
 		return nil, fmt.Errorf("classify forced cache billing input tokens: %w", err)
 	}
-	classified, err = sjson.SetBytes(classified, "usage.cache_read_input_tokens", usage.CacheReadInputTokens+usage.InputTokens)
+	classified, err = sjson.SetBytes(classified, "usage.cache_read_input_tokens", cacheReadTokens)
 	if err != nil {
 		return nil, fmt.Errorf("classify forced cache billing cache read tokens: %w", err)
 	}

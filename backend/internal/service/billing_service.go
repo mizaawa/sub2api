@@ -939,6 +939,9 @@ type CostInput struct {
 // CalculateCostUnified 统一计费入口，支持三种计费模式。
 // 使用 ModelPricingResolver 解析定价，然后根据 BillingMode 分发计算。
 func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, error) {
+	if err := validateUsageTokens(input.Tokens); err != nil {
+		return nil, err
+	}
 	if input.Resolver == nil {
 		// 无 Resolver，回退到旧路径
 		applyLongContextBilling := true
@@ -988,7 +991,17 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 
 // calculateTokenCost 按 token 区间计费
 func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input CostInput) (*CostBreakdown, error) {
-	totalContext := input.Tokens.InputTokens + input.Tokens.CacheCreationTokens + input.Tokens.CacheReadTokens
+	if err := validateUsageTokens(input.Tokens); err != nil {
+		return nil, err
+	}
+	totalContext, ok := sumNonNegativeInts(
+		input.Tokens.InputTokens,
+		input.Tokens.CacheCreationTokens,
+		input.Tokens.CacheReadTokens,
+	)
+	if !ok {
+		return nil, fmt.Errorf("%w: context token total", ErrInvalidUsageTokens)
+	}
 
 	pricing := input.Resolver.GetIntervalPricing(resolved, totalContext)
 	if pricing == nil {
@@ -1013,6 +1026,9 @@ func (s *BillingService) computeTokenBreakdown(
 	rateMultiplier float64, serviceTier string,
 	applyLongCtx bool,
 ) *CostBreakdown {
+	if pricing == nil || !validUsageTokens(tokens) {
+		return &CostBreakdown{}
+	}
 	// 保存时强制 > 0；若仍有负数泄漏，按 0 处理避免按 1x 误扣。
 	if rateMultiplier < 0 {
 		rateMultiplier = 0
@@ -1120,6 +1136,9 @@ func (s *BillingService) computeTokenBreakdown(
 // computeCacheCreationCost 计算缓存创建费用（支持 5m/1h 分类或标准计费）。
 // multiplier 用于长上下文等场景下的整体价格缩放（普通调用传 1.0 即可）。
 func (s *BillingService) computeCacheCreationCost(pricing *ModelPricing, tokens UsageTokens, price, multiplier float64) float64 {
+	if pricing == nil || !validUsageTokens(tokens) {
+		return 0
+	}
 	if pricing.SupportsCacheBreakdown && (pricing.CacheCreation5mPrice > 0 || pricing.CacheCreation1hPrice > 0) {
 		if tokens.CacheCreation5mTokens == 0 && tokens.CacheCreation1hTokens == 0 && tokens.CacheCreationTokens > 0 {
 			// API 未返回 ephemeral 明细，回退到全部按 5m 单价计费
@@ -1133,9 +1152,15 @@ func (s *BillingService) computeCacheCreationCost(pricing *ModelPricing, tokens 
 
 // calculatePerRequestCost 按次/图片计费
 func (s *BillingService) calculatePerRequestCost(resolved *ResolvedPricing, input CostInput) (*CostBreakdown, error) {
+	if err := validateUsageTokens(input.Tokens); err != nil {
+		return nil, err
+	}
 	count := input.RequestCount
 	if count <= 0 {
 		count = 1
+	}
+	if !validBillableRequestCount(count) {
+		return nil, fmt.Errorf("%w: request_count=%d", ErrInvalidUsageTokens, input.RequestCount)
 	}
 
 	var unitPrice float64
@@ -1145,7 +1170,14 @@ func (s *BillingService) calculatePerRequestCost(resolved *ResolvedPricing, inpu
 	}
 
 	if unitPrice == 0 {
-		totalContext := input.Tokens.InputTokens + input.Tokens.CacheCreationTokens + input.Tokens.CacheReadTokens
+		totalContext, ok := sumNonNegativeInts(
+			input.Tokens.InputTokens,
+			input.Tokens.CacheCreationTokens,
+			input.Tokens.CacheReadTokens,
+		)
+		if !ok {
+			return nil, fmt.Errorf("%w: context token total", ErrInvalidUsageTokens)
+		}
 		unitPrice = input.Resolver.GetRequestTierPriceByContext(resolved, totalContext)
 	}
 
@@ -1194,6 +1226,9 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 	channelPricing *ChannelModelPricing,
 	longContextBillingEnabled bool,
 ) (*CostBreakdown, error) {
+	if err := validateUsageTokens(tokens); err != nil {
+		return nil, err
+	}
 	var pricing *ModelPricing
 	var err error
 	if channelPricing != nil {
@@ -1249,13 +1284,16 @@ func (s *BillingService) applyModelSpecificPricingPolicy(model string, pricing *
 }
 
 func (s *BillingService) shouldApplySessionLongContextPricing(tokens UsageTokens, pricing *ModelPricing) bool {
-	if pricing == nil || pricing.LongContextInputThreshold <= 0 {
+	if pricing == nil || pricing.LongContextInputThreshold <= 0 || !validUsageTokens(tokens) {
 		return false
 	}
 	if pricing.LongContextInputMultiplier <= 1 && pricing.LongContextOutputMultiplier <= 1 {
 		return false
 	}
-	totalInputTokens := tokens.InputTokens + tokens.CacheCreationTokens + tokens.CacheReadTokens
+	totalInputTokens, ok := sumNonNegativeInts(tokens.InputTokens, tokens.CacheCreationTokens, tokens.CacheReadTokens)
+	if !ok {
+		return false
+	}
 	return totalInputTokens > pricing.LongContextInputThreshold
 }
 
@@ -1280,13 +1318,19 @@ func (s *BillingService) CalculateCostWithConfig(model string, tokens UsageToken
 // 拆分为：范围内 (200k, 0) + 范围外 (10k, 10k)
 // 范围内正常计费，范围外 × 2 计费
 func (s *BillingService) CalculateCostWithLongContext(model string, tokens UsageTokens, rateMultiplier float64, threshold int, extraMultiplier float64) (*CostBreakdown, error) {
+	if err := validateUsageTokens(tokens); err != nil {
+		return nil, err
+	}
 	// 未启用长上下文计费，直接走正常计费
 	if threshold <= 0 || extraMultiplier <= 1 {
 		return s.CalculateCost(model, tokens, rateMultiplier)
 	}
 
 	// 计算总输入 token（缓存读取 + 新输入）
-	total := tokens.CacheReadTokens + tokens.InputTokens
+	total, ok := sumNonNegativeInts(tokens.CacheReadTokens, tokens.InputTokens)
+	if !ok {
+		return nil, fmt.Errorf("%w: long-context token total", ErrInvalidUsageTokens)
+	}
 	if total <= threshold {
 		return s.CalculateCost(model, tokens, rateMultiplier)
 	}
@@ -1441,7 +1485,7 @@ const (
 // groupPrice: 分组配置的单次价格（nil 表示使用默认价 0.01；0 表示免费）
 // rateMultiplier: 分组费率倍数
 func (s *BillingService) CalculateWebSearchCost(callCount int, groupPrice *float64, rateMultiplier float64) *CostBreakdown {
-	if callCount <= 0 {
+	if callCount <= 0 || callCount > maxBillableRequestCount {
 		return &CostBreakdown{}
 	}
 	unitPrice := defaultWebSearchPricePerCall
@@ -1468,7 +1512,7 @@ func (s *BillingService) CalculateWebSearchCost(callCount int, groupPrice *float
 // groupConfig: 分组配置的价格（可能为 nil，表示使用默认值）
 // rateMultiplier: 费率倍数
 func (s *BillingService) CalculateImageCost(model string, imageSize string, imageCount int, groupConfig *ImagePriceConfig, rateMultiplier float64) *CostBreakdown {
-	if imageCount <= 0 {
+	if imageCount <= 0 || imageCount > maxBillableRequestCount {
 		return &CostBreakdown{}
 	}
 	imageSize = NormalizeImageBillingTierOrDefault(imageSize)
@@ -1500,7 +1544,7 @@ func (s *BillingService) CalculateImageCost(model string, imageSize string, imag
 // groupConfig: 分组配置的每秒价格（可能为 nil，表示使用默认值）
 // rateMultiplier: 费率倍数
 func (s *BillingService) CalculateVideoCost(model string, resolution string, videoCount int, durationSeconds int, groupConfig *VideoPriceConfig, rateMultiplier float64) *CostBreakdown {
-	if videoCount <= 0 {
+	if videoCount <= 0 || videoCount > maxBillableRequestCount {
 		return &CostBreakdown{}
 	}
 	resolution = NormalizeVideoBillingResolutionOrDefault(resolution)

@@ -307,3 +307,24 @@ func TestRateLimitService_RecoverAccountState_InvalidatesOAuthTokenOnErrorRecove
 	require.Len(t, invalidator.accounts, 1)
 	require.Equal(t, int64(21), invalidator.accounts[0].ID)
 }
+
+func TestRateLimitService_GetTempUnschedStatus_DisableSwitchIgnoresPersistedState(t *testing.T) {
+	t.Cleanup(func() { SetDisableTempUnschedulableRuntime(false) })
+	SetDisableTempUnschedulableRuntime(true)
+
+	future := time.Now().Add(time.Hour)
+	repo := &rateLimitClearRepoStub{
+		getByIDAccount: &Account{
+			ID:                     88,
+			TempUnschedulableUntil: &future,
+		},
+	}
+	cache := &tempUnschedCacheRecorder{}
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, cache)
+
+	state, err := svc.GetTempUnschedStatus(context.Background(), 88)
+	require.NoError(t, err)
+	require.Nil(t, state)
+	require.Zero(t, repo.getByIDCalls)
+	require.Empty(t, cache.deletedIDs)
+}

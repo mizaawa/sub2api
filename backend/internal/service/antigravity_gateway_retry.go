@@ -783,6 +783,9 @@ const googleConfigErrorCooldown = 1 * time.Minute
 // tempUnscheduleGoogleConfigError 对服务端配置类 400 错误触发临时封禁，
 // 避免短时间内反复调度到同一个有问题的账号。
 func tempUnscheduleGoogleConfigError(ctx context.Context, repo AccountRepository, accountID int64, logPrefix string) {
+	if IsDisableTempUnschedulableEnabled() {
+		return
+	}
 	until := time.Now().Add(googleConfigErrorCooldown)
 	reason := "400: invalid project resource name (auto temp-unschedule 1m)"
 	if err := repo.SetTempUnschedulable(ctx, accountID, until, reason); err != nil {
@@ -798,6 +801,9 @@ const emptyResponseCooldown = 1 * time.Minute
 // tempUnscheduleEmptyResponse 对空流式响应触发临时封禁，
 // 避免短时间内反复调度到同一个返回空响应的账号。
 func tempUnscheduleEmptyResponse(ctx context.Context, repo AccountRepository, accountID int64, logPrefix string) {
+	if IsDisableTempUnschedulableEnabled() {
+		return
+	}
 	until := time.Now().Add(emptyResponseCooldown)
 	reason := "empty stream response (auto temp-unschedule 1m)"
 	if err := repo.SetTempUnschedulable(ctx, accountID, until, reason); err != nil {
@@ -843,7 +849,7 @@ func isSingleAccountRetry(ctx context.Context) bool {
 // 直接使用上游返回的模型 ID（如 claude-sonnet-4-5）作为限流 key
 // 返回是否已成功设置（若模型名为空或 repo 为 nil 将返回 false）
 func setModelRateLimitByModelName(ctx context.Context, repo AccountRepository, accountID int64, modelName, prefix string, statusCode int, resetAt time.Time, afterSmartRetry bool) bool {
-	if repo == nil || modelName == "" {
+	if IsDisableTempUnschedulableEnabled() || repo == nil || modelName == "" {
 		return false
 	}
 	// 直接使用官方模型 ID 作为 key，不再转换为 scope
@@ -1240,6 +1246,9 @@ func (s *AntigravityGatewayService) handleUpstreamError(
 
 		// 无法解析模型 key，兜底为账号级限流
 		ra := s.resolveResetTime(resetAt, defaultDur)
+		if !ShouldApplyTransientUnschedulableBlock() {
+			return nil
+		}
 		logger.LegacyPrintf("service.antigravity_gateway", "%s status=429 rate_limited account=%d reset_at=%v reset_in=%v (fallback)",
 			prefix, account.ID, ra.Format("15:04:05"), time.Until(ra).Truncate(time.Second))
 		if err := s.accountRepo.SetRateLimited(ctx, account.ID, ra); err != nil {

@@ -135,6 +135,14 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if result == nil {
 		return errors.New("openai usage result is nil")
 	}
+	// Do not let untrusted upstream usage reach cost calculation or quota writes.
+	if !sanitizeOpenAIUsage(&result.Usage) {
+		accountID := int64(0)
+		if input.Account != nil {
+			accountID = input.Account.ID
+		}
+		logger.LegacyPrintf("service.openai_gateway", "invalid upstream usage rejected: request_id=%s account_id=%d", result.RequestID, accountID)
+	}
 	if s.rateLimitService != nil && input.Account != nil && input.Account.Platform == PlatformOpenAI {
 		s.rateLimitService.ResetOpenAI403Counter(ctx, input.Account.ID)
 	}

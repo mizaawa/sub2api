@@ -2933,32 +2933,66 @@ func extractGeminiUsage(data []byte) *ClaudeUsage {
 	if !usage.Exists() {
 		return nil
 	}
-	prompt := int(usage.Get("promptTokenCount").Int())
-	cand := int(usage.Get("candidatesTokenCount").Int())
-	cached := int(usage.Get("cachedContentTokenCount").Int())
-	thoughts := int(usage.Get("thoughtsTokenCount").Int())
+	if usage.Type == gjson.Null || !usage.IsObject() {
+		return &ClaudeUsage{}
+	}
+	readToken := func(path string) (int, bool) {
+		return readOptionalBoundedUsageGJSONInt(usage.Get(path))
+	}
+	prompt, promptOK := readToken("promptTokenCount")
+	cand, candOK := readToken("candidatesTokenCount")
+	cached, cachedOK := readToken("cachedContentTokenCount")
+	thoughts, thoughtsOK := readToken("thoughtsTokenCount")
+	if !promptOK || !candOK || !cachedOK || !thoughtsOK {
+		return &ClaudeUsage{}
+	}
+	output, outputOK := addBoundedReportedUsageInts(cand, thoughts)
+	if !outputOK || cached > prompt {
+		return &ClaudeUsage{}
+	}
 
 	// 从 candidatesTokensDetails 提取 IMAGE 模态 token 数
 	imageTokens := 0
 	candidateDetails := usage.Get("candidatesTokensDetails")
-	if candidateDetails.Exists() {
+	if candidateDetails.Exists() && candidateDetails.Type != gjson.Null {
+		if !candidateDetails.IsArray() {
+			return &ClaudeUsage{}
+		}
+		validDetails := true
+		foundImage := false
 		candidateDetails.ForEach(func(_, detail gjson.Result) bool {
-			if detail.Get("modality").String() == "IMAGE" {
-				imageTokens = int(detail.Get("tokenCount").Int())
+			if !detail.IsObject() {
+				validDetails = false
 				return false
+			}
+			tokenCount, tokenOK := readOptionalBoundedUsageGJSONInt(detail.Get("tokenCount"))
+			if !tokenOK {
+				validDetails = false
+				return false
+			}
+			if detail.Get("modality").String() == "IMAGE" && !foundImage {
+				imageTokens = tokenCount
+				foundImage = true
 			}
 			return true
 		})
+		if !validDetails {
+			return &ClaudeUsage{}
+		}
 	}
 
 	// 注意：Gemini 的 promptTokenCount 包含 cachedContentTokenCount，
 	// 但 Claude 的 input_tokens 不包含 cache_read_input_tokens，需要减去
-	return &ClaudeUsage{
+	result := &ClaudeUsage{
 		InputTokens:          prompt - cached,
-		OutputTokens:         cand + thoughts,
+		OutputTokens:         output,
 		CacheReadInputTokens: cached,
 		ImageOutputTokens:    imageTokens,
 	}
+	if !sanitizeClaudeUsage(result) {
+		return &ClaudeUsage{}
+	}
+	return result
 }
 
 func asInt(v any) (int, bool) {
@@ -2990,6 +3024,14 @@ func (s *GeminiMessagesCompatService) handleGeminiUpstreamError(ctx context.Cont
 		return
 	}
 	if statusCode != 429 {
+		return
+	}
+	// The admin switch disables all automatic transient scheduling blockers,
+	// including this compatibility path's account-level 429 cooldown. Keep the
+	// current request's error handling intact, but leave the account eligible
+	// for the next request. The repository also guards its write, while this
+	// service-level check keeps test doubles and alternate repositories aligned.
+	if !ShouldApplyTransientUnschedulableBlock() {
 		return
 	}
 

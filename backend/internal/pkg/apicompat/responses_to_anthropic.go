@@ -96,7 +96,7 @@ func ResponsesToAnthropic(resp *ResponsesResponse, model string) *AnthropicRespo
 }
 
 func anthropicUsageFromResponsesUsage(usage *ResponsesUsage) AnthropicUsage {
-	if usage == nil {
+	if usage == nil || !validResponsesUsage(usage) {
 		return AnthropicUsage{}
 	}
 
@@ -105,9 +105,12 @@ func anthropicUsageFromResponsesUsage(usage *ResponsesUsage) AnthropicUsage {
 		cachedTokens = usage.InputTokensDetails.CachedTokens
 	}
 
-	inputTokens := usage.InputTokens - cachedTokens - usage.CacheCreationInputTokens
-	if inputTokens < 0 {
-		inputTokens = 0
+	inputTokens, ok := subtractUsageTokensClamped(usage.InputTokens, cachedTokens, usage.CacheCreationInputTokens)
+	if !ok {
+		// An inconsistent breakdown is safer to treat as unusable than to
+		// clamp it and accidentally turn forged negative arithmetic into a
+		// positive billable value.
+		return AnthropicUsage{}
 	}
 
 	return AnthropicUsage{

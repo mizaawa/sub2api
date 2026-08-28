@@ -59,7 +59,7 @@ func (a *Account) isCreditsExhausted() bool {
 
 // setCreditsExhausted 标记账号积分耗尽：写入 model_rate_limits["AICredits"] + 更新缓存。
 func (s *AntigravityGatewayService) setCreditsExhausted(ctx context.Context, account *Account) {
-	if account == nil || account.ID == 0 {
+	if IsDisableTempUnschedulableEnabled() || account == nil || account.ID == 0 {
 		return
 	}
 	resetAt := time.Now().Add(creditsExhaustedDuration)

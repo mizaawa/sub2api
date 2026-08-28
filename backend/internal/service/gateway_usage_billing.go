@@ -660,6 +660,14 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	user := input.User
 	account := input.Account
 	subscription := input.Subscription
+	// Do not let untrusted upstream usage reach cost calculation or quota writes.
+	if result != nil && !sanitizeClaudeUsage(&result.Usage) {
+		accountID := int64(0)
+		if account != nil {
+			accountID = account.ID
+		}
+		logger.LegacyPrintf("service.gateway", "invalid upstream usage rejected: request_id=%s account_id=%d", result.RequestID, accountID)
+	}
 	ApplyForwardImageBillingResolution(result)
 
 	// 强制缓存计费：将 input_tokens 转为 cache_read_input_tokens
@@ -667,8 +675,15 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	if input.ForceCacheBilling && result.Usage.InputTokens > 0 {
 		logger.LegacyPrintf("service.gateway", "force_cache_billing: %d input_tokens → cache_read_input_tokens (account=%d)",
 			result.Usage.InputTokens, account.ID)
-		result.Usage.CacheReadInputTokens += result.Usage.InputTokens
-		result.Usage.InputTokens = 0
+		if next, ok := addBoundedReportedUsageInts(result.Usage.CacheReadInputTokens, result.Usage.InputTokens); ok {
+			result.Usage.CacheReadInputTokens = next
+			result.Usage.InputTokens = 0
+		} else {
+			// Do not let the forced reclassification overflow into a wrapped or
+			// over-limit billable value.
+			result.Usage = ClaudeUsage{}
+			logger.LegacyPrintf("service.gateway", "force_cache_billing rejected over-limit usage: account=%d", account.ID)
+		}
 	}
 
 	// Cache TTL Override: 确保计费时 token 分类与账号设置一致。
@@ -676,7 +691,15 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	cacheTTLOverridden := false
 	if overrideTarget, ok := s.resolveCacheTTLUsageOverrideTarget(ctx, account); ok {
 		applyCacheTTLOverride(&result.Usage, overrideTarget)
-		cacheTTLOverridden = (result.Usage.CacheCreation5mTokens + result.Usage.CacheCreation1hTokens) > 0
+		// Avoid adding untrusted fields merely to determine whether a
+		// classification exists; an anomalous max-int pair must not wrap.
+		cacheTTLOverridden = result.Usage.CacheCreation5mTokens > 0 || result.Usage.CacheCreation1hTokens > 0
+	}
+	// Re-validate after local transformations (forced cache billing and TTL
+	// reclassification can introduce a new sum even when each source field was
+	// individually bounded).
+	if !sanitizeClaudeUsage(&result.Usage) {
+		logger.LegacyPrintf("service.gateway", "usage rejected after billing transformation: account=%d", account.ID)
 	}
 
 	// 获取费率倍数（优先级：用户专属 > 分组默认 > 系统默认）

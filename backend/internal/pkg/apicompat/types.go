@@ -7,6 +7,7 @@ package apicompat
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 )
 
 // ---------------------------------------------------------------------------
@@ -541,10 +542,20 @@ func (u *ResponsesUsage) UnmarshalJSON(data []byte) error {
 		canonicalCacheCreationTokens = nestedPresence.PromptTokensDetails.CacheCreationTokens
 	}
 	if canonicalCacheCreationTokens != nil {
-		u.CacheCreationInputTokens = max(*canonicalCacheCreationTokens, 0)
+		if !validUsageToken(*canonicalCacheCreationTokens) {
+			return fmt.Errorf("invalid cache creation token value")
+		}
+		u.CacheCreationInputTokens = *canonicalCacheCreationTokens
 	}
 	if u.TotalTokens == 0 && (u.InputTokens != 0 || u.OutputTokens != 0) {
-		u.TotalTokens = u.InputTokens + u.OutputTokens
+		if total, ok := addUsageTokens(u.InputTokens, u.OutputTokens); ok {
+			u.TotalTokens = total
+		} else {
+			return fmt.Errorf("usage token total exceeds bound")
+		}
+	}
+	if !validResponsesUsage(u) {
+		return fmt.Errorf("invalid usage token value")
 	}
 	return nil
 }

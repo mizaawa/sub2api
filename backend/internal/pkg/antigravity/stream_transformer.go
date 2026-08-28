@@ -110,11 +110,12 @@ func (p *StreamingProcessor) ProcessLine(line string) []byte {
 	// 注意：Gemini 的 promptTokenCount 包含 cachedContentTokenCount，
 	// 但 Claude 的 input_tokens 不包含 cache_read_input_tokens，需要减去
 	if geminiResp.UsageMetadata != nil {
-		cached := geminiResp.UsageMetadata.CachedContentTokenCount
-		p.inputTokens = geminiResp.UsageMetadata.PromptTokenCount - cached
-		p.outputTokens = geminiResp.UsageMetadata.CandidatesTokenCount + geminiResp.UsageMetadata.ThoughtsTokenCount
-		p.cacheReadTokens = cached
-		p.imageOutputTokens = geminiResp.UsageMetadata.ImageOutputTokens()
+		if usage, ok := usageFromGeminiMetadata(geminiResp.UsageMetadata); ok {
+			p.inputTokens = usage.InputTokens
+			p.outputTokens = usage.OutputTokens
+			p.cacheReadTokens = usage.CacheReadInputTokens
+			p.imageOutputTokens = usage.ImageOutputTokens
+		}
 	}
 
 	// 处理 parts
@@ -157,6 +158,7 @@ func (p *StreamingProcessor) Finish() ([]byte, *ClaudeUsage) {
 		CacheReadInputTokens: p.cacheReadTokens,
 		ImageOutputTokens:    p.imageOutputTokens,
 	}
+	sanitizeClaudeUsage(usage)
 
 	if !p.messageStartSent {
 		return nil, usage
@@ -183,12 +185,11 @@ func (p *StreamingProcessor) emitMessageStart(v1Resp *V1InternalResponse) []byte
 
 	usage := ClaudeUsage{}
 	if v1Resp.Response.UsageMetadata != nil {
-		cached := v1Resp.Response.UsageMetadata.CachedContentTokenCount
-		usage.InputTokens = v1Resp.Response.UsageMetadata.PromptTokenCount - cached
-		usage.OutputTokens = v1Resp.Response.UsageMetadata.CandidatesTokenCount + v1Resp.Response.UsageMetadata.ThoughtsTokenCount
-		usage.CacheReadInputTokens = cached
-		usage.ImageOutputTokens = v1Resp.Response.UsageMetadata.ImageOutputTokens()
+		if converted, ok := usageFromGeminiMetadata(v1Resp.Response.UsageMetadata); ok {
+			usage = converted
+		}
 	}
+	sanitizeClaudeUsage(&usage)
 
 	responseID := v1Resp.ResponseID
 	if responseID == "" {
@@ -524,6 +525,7 @@ func (p *StreamingProcessor) emitFinish(finishReason string) []byte {
 		CacheReadInputTokens: p.cacheReadTokens,
 		ImageOutputTokens:    p.imageOutputTokens,
 	}
+	sanitizeClaudeUsage(&usage)
 
 	var usageValue any = usage
 	if p.usageMapHook != nil {

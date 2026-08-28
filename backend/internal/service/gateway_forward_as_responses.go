@@ -271,6 +271,15 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 	if dst == nil {
 		return
 	}
+	validated := ClaudeUsage{
+		InputTokens:              src.InputTokens,
+		OutputTokens:             src.OutputTokens,
+		CacheReadInputTokens:     src.CacheReadInputTokens,
+		CacheCreationInputTokens: src.CacheCreationInputTokens,
+	}
+	if !sanitizeClaudeUsage(&validated) {
+		return
+	}
 	if src.InputTokens > 0 {
 		dst.InputTokens = src.InputTokens
 	}

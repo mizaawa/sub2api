@@ -10,7 +10,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -1189,23 +1188,35 @@ func (s *GatewayService) extractSSEUsagePatch(event map[string]any) *sseUsagePat
 
 		patch := &sseUsagePatch{}
 		patch.hasInputTokens = true
-		if v, ok := parseSSEUsageInt(usageObj["input_tokens"]); ok {
+		if v, present, valid := readUsageMapInt(usageObj, "input_tokens"); !valid {
+			return nil
+		} else if present {
 			patch.inputTokens = v
 		}
 		patch.hasCacheCreationInput = true
-		if v, ok := parseSSEUsageInt(usageObj["cache_creation_input_tokens"]); ok {
+		if v, present, valid := readUsageMapInt(usageObj, "cache_creation_input_tokens"); !valid {
+			return nil
+		} else if present {
 			patch.cacheCreationInputTokens = v
 		}
 		patch.hasCacheReadInput = true
-		if v, ok := parseSSEUsageInt(usageObj["cache_read_input_tokens"]); ok {
+		if v, present, valid := readUsageMapInt(usageObj, "cache_read_input_tokens"); !valid {
+			return nil
+		} else if present {
 			patch.cacheReadInputTokens = v
 		}
-		if cc, ok := usageObj["cache_creation"].(map[string]any); ok {
-			if v, exists := parseSSEUsageInt(cc["ephemeral_5m_input_tokens"]); exists {
+		if cc, present, valid := readUsageMapObject(usageObj, "cache_creation"); !valid {
+			return nil
+		} else if present {
+			if v, exists, valid := readUsageMapInt(cc, "ephemeral_5m_input_tokens"); !valid {
+				return nil
+			} else if exists {
 				patch.cacheCreation5mTokens = v
 				patch.hasCacheCreation5m = true
 			}
-			if v, exists := parseSSEUsageInt(cc["ephemeral_1h_input_tokens"]); exists {
+			if v, exists, valid := readUsageMapInt(cc, "ephemeral_1h_input_tokens"); !valid {
+				return nil
+			} else if exists {
 				patch.cacheCreation1hTokens = v
 				patch.hasCacheCreation1h = true
 			}
@@ -1219,28 +1230,42 @@ func (s *GatewayService) extractSSEUsagePatch(event map[string]any) *sseUsagePat
 		}
 
 		patch := &sseUsagePatch{}
-		if v, ok := parseSSEUsageInt(usageObj["input_tokens"]); ok && v > 0 {
+		if v, present, valid := readUsageMapInt(usageObj, "input_tokens"); !valid {
+			return nil
+		} else if present && v > 0 {
 			patch.inputTokens = v
 			patch.hasInputTokens = true
 		}
-		if v, ok := parseSSEUsageInt(usageObj["output_tokens"]); ok && v > 0 {
+		if v, present, valid := readUsageMapInt(usageObj, "output_tokens"); !valid {
+			return nil
+		} else if present && v > 0 {
 			patch.outputTokens = v
 			patch.hasOutputTokens = true
 		}
-		if v, ok := parseSSEUsageInt(usageObj["cache_creation_input_tokens"]); ok && v > 0 {
+		if v, present, valid := readUsageMapInt(usageObj, "cache_creation_input_tokens"); !valid {
+			return nil
+		} else if present && v > 0 {
 			patch.cacheCreationInputTokens = v
 			patch.hasCacheCreationInput = true
 		}
-		if v, ok := parseSSEUsageInt(usageObj["cache_read_input_tokens"]); ok && v > 0 {
+		if v, present, valid := readUsageMapInt(usageObj, "cache_read_input_tokens"); !valid {
+			return nil
+		} else if present && v > 0 {
 			patch.cacheReadInputTokens = v
 			patch.hasCacheReadInput = true
 		}
-		if cc, ok := usageObj["cache_creation"].(map[string]any); ok {
-			if v, exists := parseSSEUsageInt(cc["ephemeral_5m_input_tokens"]); exists && v > 0 {
+		if cc, present, valid := readUsageMapObject(usageObj, "cache_creation"); !valid {
+			return nil
+		} else if present {
+			if v, exists, valid := readUsageMapInt(cc, "ephemeral_5m_input_tokens"); !valid {
+				return nil
+			} else if exists && v > 0 {
 				patch.cacheCreation5mTokens = v
 				patch.hasCacheCreation5m = true
 			}
-			if v, exists := parseSSEUsageInt(cc["ephemeral_1h_input_tokens"]); exists && v > 0 {
+			if v, exists, valid := readUsageMapInt(cc, "ephemeral_1h_input_tokens"); !valid {
+				return nil
+			} else if exists && v > 0 {
 				patch.cacheCreation1hTokens = v
 				patch.hasCacheCreation1h = true
 			}
@@ -1253,6 +1278,15 @@ func (s *GatewayService) extractSSEUsagePatch(event map[string]any) *sseUsagePat
 
 func mergeSSEUsagePatch(usage *ClaudeUsage, patch *sseUsagePatch) {
 	if usage == nil || patch == nil {
+		return
+	}
+	previous := *usage
+	if (patch.hasInputTokens && !validReportedUsageTokenCount(int64(patch.inputTokens))) ||
+		(patch.hasOutputTokens && !validReportedUsageTokenCount(int64(patch.outputTokens))) ||
+		(patch.hasCacheCreationInput && !validReportedUsageTokenCount(int64(patch.cacheCreationInputTokens))) ||
+		(patch.hasCacheReadInput && !validReportedUsageTokenCount(int64(patch.cacheReadInputTokens))) ||
+		(patch.hasCacheCreation5m && !validReportedUsageTokenCount(int64(patch.cacheCreation5mTokens))) ||
+		(patch.hasCacheCreation1h && !validReportedUsageTokenCount(int64(patch.cacheCreation1hTokens))) {
 		return
 	}
 
@@ -1274,74 +1308,108 @@ func mergeSSEUsagePatch(usage *ClaudeUsage, patch *sseUsagePatch) {
 	if patch.hasCacheCreation1h {
 		usage.CacheCreation1hTokens = patch.cacheCreation1hTokens
 	}
+	if !sanitizeClaudeUsage(usage) {
+		// A single event may contain individually bounded but collectively
+		// overflowing cache breakdown values. Preserve the last valid snapshot
+		// instead of allowing the invalid aggregate to reach billing.
+		*usage = previous
+	}
 }
 
 func parseSSEUsageInt(value any) (int, bool) {
-	switch v := value.(type) {
-	case float64:
-		return int(v), true
-	case float32:
-		return int(v), true
-	case int:
-		return v, true
-	case int64:
-		return int(v), true
-	case int32:
-		return int(v), true
-	case json.Number:
-		if i, err := v.Int64(); err == nil {
-			return int(i), true
-		}
-		if f, err := v.Float64(); err == nil {
-			return int(f), true
-		}
-	case string:
-		if parsed, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
-			return parsed, true
-		}
+	return parseBoundedReportedUsageInt(value)
+}
+
+// readUsageMapInt distinguishes an omitted/null field from a malformed field.
+// Callers can therefore preserve the provider's partial-event semantics while
+// rejecting a present value that would otherwise be silently truncated or
+// ignored.
+func readUsageMapInt(values map[string]any, key string) (value int, present bool, valid bool) {
+	raw, exists := values[key]
+	if !exists || raw == nil {
+		return 0, false, true
 	}
-	return 0, false
+	parsed, ok := parseSSEUsageInt(raw)
+	return parsed, true, ok
+}
+
+func readUsageMapObject(values map[string]any, key string) (object map[string]any, present bool, valid bool) {
+	raw, exists := values[key]
+	if !exists || raw == nil {
+		return nil, false, true
+	}
+	object, ok := raw.(map[string]any)
+	return object, true, ok
 }
 
 // applyCacheTTLOverride 将所有 cache creation tokens 归入指定的 TTL 类型。
 // target 为 "5m" 或 "1h"。返回 true 表示发生了变更。
 func applyCacheTTLOverride(usage *ClaudeUsage, target string) bool {
+	if usage == nil {
+		return false
+	}
+	candidate := *usage
+	if !sanitizeClaudeUsage(&candidate) {
+		return false
+	}
 	// Fallback: 如果只有聚合字段但无 5m/1h 明细，将聚合字段归入 5m 默认类别
-	if usage.CacheCreation5mTokens == 0 && usage.CacheCreation1hTokens == 0 && usage.CacheCreationInputTokens > 0 {
-		usage.CacheCreation5mTokens = usage.CacheCreationInputTokens
+	if candidate.CacheCreation5mTokens == 0 && candidate.CacheCreation1hTokens == 0 && candidate.CacheCreationInputTokens > 0 {
+		candidate.CacheCreation5mTokens = candidate.CacheCreationInputTokens
 	}
 
-	total := usage.CacheCreation5mTokens + usage.CacheCreation1hTokens
+	total, ok := addBoundedReportedUsageInts(candidate.CacheCreation5mTokens, candidate.CacheCreation1hTokens)
+	if !ok {
+		return false
+	}
 	if total == 0 {
 		return false
 	}
 	switch target {
 	case "1h":
-		if usage.CacheCreation1hTokens == total {
+		if candidate.CacheCreation1hTokens == total {
 			return false // 已经全是 1h
 		}
-		usage.CacheCreation1hTokens = total
-		usage.CacheCreation5mTokens = 0
+		candidate.CacheCreation1hTokens = total
+		candidate.CacheCreation5mTokens = 0
 	default: // "5m"
-		if usage.CacheCreation5mTokens == total {
+		if candidate.CacheCreation5mTokens == total {
 			return false // 已经全是 5m
 		}
-		usage.CacheCreation5mTokens = total
-		usage.CacheCreation1hTokens = 0
+		candidate.CacheCreation5mTokens = total
+		candidate.CacheCreation1hTokens = 0
 	}
+	if !sanitizeClaudeUsage(&candidate) {
+		return false
+	}
+	*usage = candidate
 	return true
 }
 
 // rewriteCacheCreationJSON 在 JSON usage 对象中重写 cache_creation 嵌套对象的 TTL 分类。
 // usageObj 是 usage JSON 对象（map[string]any）。
 func rewriteCacheCreationJSON(usageObj map[string]any, target string) bool {
+	if usageObj == nil {
+		return false
+	}
 	ccObj, ok := usageObj["cache_creation"].(map[string]any)
 	if !ok {
 		return false
 	}
-	v5m, _ := parseSSEUsageInt(ccObj["ephemeral_5m_input_tokens"])
-	v1h, _ := parseSSEUsageInt(ccObj["ephemeral_1h_input_tokens"])
-	total := v5m + v1h
+	v5m, present5m, valid5m := readUsageMapInt(ccObj, "ephemeral_5m_input_tokens")
+	if !valid5m {
+		return false
+	}
+	v1h, present1h, valid1h := readUsageMapInt(ccObj, "ephemeral_1h_input_tokens")
+	if !valid1h {
+		return false
+	}
+	if !present5m && !present1h {
+		return false
+	}
+	total, ok := addBoundedReportedUsageInts(v5m, v1h)
+	if !ok {
+		return false
+	}
 	if total == 0 {
 		return false
 	}
@@ -1350,14 +1418,14 @@ func rewriteCacheCreationJSON(usageObj map[string]any, target string) bool {
 		if v1h == total {
 			return false
 		}
-		ccObj["ephemeral_1h_input_tokens"] = float64(total)
-		ccObj["ephemeral_5m_input_tokens"] = float64(0)
+		ccObj["ephemeral_1h_input_tokens"] = total
+		ccObj["ephemeral_5m_input_tokens"] = 0
 	default: // "5m"
 		if v5m == total {
 			return false
 		}
-		ccObj["ephemeral_5m_input_tokens"] = float64(total)
-		ccObj["ephemeral_1h_input_tokens"] = float64(0)
+		ccObj["ephemeral_5m_input_tokens"] = total
+		ccObj["ephemeral_1h_input_tokens"] = 0
 	}
 	return true
 }
@@ -1400,21 +1468,32 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 
-	// 解析嵌套的 cache_creation 对象中的 5m/1h 明细
-	cc5m := gjson.GetBytes(body, "usage.cache_creation.ephemeral_5m_input_tokens")
-	cc1h := gjson.GetBytes(body, "usage.cache_creation.ephemeral_1h_input_tokens")
-	if cc5m.Exists() || cc1h.Exists() {
-		response.Usage.CacheCreation5mTokens = int(cc5m.Int())
-		response.Usage.CacheCreation1hTokens = int(cc1h.Int())
-	}
-
-	// 兼容 Kimi cached_tokens → cache_read_input_tokens
-	if response.Usage.CacheReadInputTokens == 0 {
-		cachedTokens := gjson.GetBytes(body, "usage.cached_tokens").Int()
-		if cachedTokens > 0 {
-			response.Usage.CacheReadInputTokens = int(cachedTokens)
-			if newBody, err := sjson.SetBytes(body, "usage.cache_read_input_tokens", cachedTokens); err == nil {
-				body = newBody
+	usageNode := gjson.GetBytes(body, "usage")
+	if usageNode.Exists() && usageNode.Type != gjson.Null {
+		if !validateClaudeUsageJSON(usageNode) {
+			// Keep the response body available to the caller, but never expose a
+			// malformed upstream usage object to the billing path.
+			response.Usage = ClaudeUsage{}
+		} else {
+			// Reuse the strict parser so nested cache fields and their aggregate
+			// are validated consistently with the streaming path.
+			parsedUsage := parseClaudeUsageFromResponseBody(body)
+			if parsedUsage == nil || !sanitizeClaudeUsage(parsedUsage) {
+				response.Usage = ClaudeUsage{}
+			} else {
+				response.Usage = *parsedUsage
+				// 兼容 Kimi cached_tokens → cache_read_input_tokens，并同步
+				// 改写返回体；本地计费仍使用未强制分类前的 usage。
+				standardNode := usageNode.Get("cache_read_input_tokens")
+				standardCacheRead, standardValid := readOptionalBoundedUsageGJSONInt(standardNode)
+				standardPresent := standardNode.Exists() && standardNode.Type != gjson.Null
+				if !standardValid {
+					response.Usage = ClaudeUsage{}
+				} else if (!standardPresent || standardCacheRead == 0) && response.Usage.CacheReadInputTokens > 0 {
+					if newBody, err := sjson.SetBytes(body, "usage.cache_read_input_tokens", response.Usage.CacheReadInputTokens); err == nil {
+						body = newBody
+					}
+				}
 			}
 		}
 	}
@@ -1474,14 +1553,25 @@ func reconcileCachedTokens(usage map[string]any) bool {
 	if usage == nil {
 		return false
 	}
-	cacheRead, _ := usage["cache_read_input_tokens"].(float64)
-	if cacheRead > 0 {
-		return false // 已有标准字段，无需处理
+	if raw, exists := usage["cache_read_input_tokens"]; exists && raw != nil {
+		cacheRead, ok := parseSSEUsageInt(raw)
+		if !ok {
+			return false
+		}
+		if cacheRead > 0 {
+			return false // 已有标准字段，无需处理
+		}
 	}
-	cached, _ := usage["cached_tokens"].(float64)
-	if cached <= 0 {
+	rawCached, exists := usage["cached_tokens"]
+	if !exists || rawCached == nil {
 		return false
 	}
-	usage["cache_read_input_tokens"] = cached
+	cached, ok := parseSSEUsageInt(rawCached)
+	if !ok || cached <= 0 {
+		return false
+	}
+	// Keep the map's json.Unmarshal representation stable (float64) so callers
+	// that compare or re-marshal the event observe the same wire shape.
+	usage["cache_read_input_tokens"] = float64(cached)
 	return true
 }

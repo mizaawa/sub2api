@@ -207,6 +207,8 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		// cyber 会话屏蔽（默认关闭，TTL 默认 3600s）
 		SettingKeyCyberSessionBlockEnabled:    "false",
 		SettingKeyCyberSessionBlockTTLSeconds: "3600",
+		// 自动临时不可调度保护默认开启；管理员可在“拓展功能”中关闭。
+		SettingKeyDisableTempUnschedulable: "false",
 
 		// Claude Code version check (default: empty = disabled)
 		SettingKeyMinClaudeCodeVersion: "",
@@ -810,6 +812,10 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	} else {
 		result.CyberSessionBlockTTLSeconds = 3600
 	}
+	result.DisableTempUnschedulable = settings[SettingKeyDisableTempUnschedulable] == "true"
+	// Keep the process-wide scheduling policy synchronized whenever settings are
+	// loaded (startup, admin reads, and partial-update reconciliation).
+	SetDisableTempUnschedulableRuntime(result.DisableTempUnschedulable)
 
 	// Claude Code version check
 	result.MinClaudeCodeVersion = settings[SettingKeyMinClaudeCodeVersion]

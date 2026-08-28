@@ -194,7 +194,7 @@ func writeOpenAIEmbeddingsError(c *gin.Context, statusCode int, errType, message
 
 func extractOpenAIEmbeddingsUsage(body []byte) OpenAIUsage {
 	usage := gjson.GetBytes(body, "usage")
-	if !usage.Exists() || !usage.IsObject() {
+	if !usage.Exists() || !usage.IsObject() || !validateOpenAIUsageJSON(usage) {
 		return OpenAIUsage{}
 	}
 	inputTokens := firstPositiveGJSONInt(
@@ -214,13 +214,15 @@ func extractOpenAIEmbeddingsUsage(body []byte) OpenAIUsage {
 		usage.Get("prompt_tokens_details.image_tokens"),
 		usage.Get("input_tokens_details.image_tokens"),
 	)
-	return OpenAIUsage{
+	result := OpenAIUsage{
 		InputTokens:              inputTokens,
 		ImageInputTokens:         imageInputTokens,
 		OutputTokens:             outputTokens,
 		CacheReadInputTokens:     cacheReadTokens,
 		CacheCreationInputTokens: cacheCreationTokens,
 	}
+	sanitizeOpenAIUsage(&result)
+	return result
 }
 
 func firstPositiveGJSONInt(values ...gjson.Result) int {

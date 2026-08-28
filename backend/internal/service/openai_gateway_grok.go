@@ -1054,12 +1054,38 @@ func addOpenAIUsage(dst *OpenAIUsage, usage OpenAIUsage) {
 	if dst == nil {
 		return
 	}
-	dst.InputTokens += usage.InputTokens
-	dst.ImageInputTokens += usage.ImageInputTokens
-	dst.OutputTokens += usage.OutputTokens
-	dst.CacheCreationInputTokens += usage.CacheCreationInputTokens
-	dst.CacheReadInputTokens += usage.CacheReadInputTokens
-	dst.ImageOutputTokens += usage.ImageOutputTokens
+	// Usage from an upstream bridge is untrusted. Ignore malformed values and
+	// keep previously collected usage intact.
+	if !sanitizeOpenAIUsage(&usage) || !sanitizeOpenAIUsage(dst) {
+		return
+	}
+	candidate := *dst
+	add := func(current, incoming int) (int, bool) {
+		return addBoundedReportedUsageInts(current, incoming)
+	}
+	var ok bool
+	if candidate.InputTokens, ok = add(candidate.InputTokens, usage.InputTokens); !ok {
+		return
+	}
+	if candidate.ImageInputTokens, ok = add(candidate.ImageInputTokens, usage.ImageInputTokens); !ok {
+		return
+	}
+	if candidate.OutputTokens, ok = add(candidate.OutputTokens, usage.OutputTokens); !ok {
+		return
+	}
+	if candidate.CacheCreationInputTokens, ok = add(candidate.CacheCreationInputTokens, usage.CacheCreationInputTokens); !ok {
+		return
+	}
+	if candidate.CacheReadInputTokens, ok = add(candidate.CacheReadInputTokens, usage.CacheReadInputTokens); !ok {
+		return
+	}
+	if candidate.ImageOutputTokens, ok = add(candidate.ImageOutputTokens, usage.ImageOutputTokens); !ok {
+		return
+	}
+	if !sanitizeOpenAIUsage(&candidate) {
+		return
+	}
+	*dst = candidate
 }
 
 func buildGrokResponsesRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token, cacheIdentity string, cfg *config.Config) (*http.Request, error) {
@@ -1316,7 +1342,7 @@ func clearGrokRateLimitAfterRecovery(ctx context.Context, repo AccountRepository
 }
 
 func persistGrokRateLimit(ctx context.Context, repo AccountRepository, account *Account, resetAt time.Time) {
-	if repo == nil || account == nil || account.ID <= 0 {
+	if !ShouldApplyTransientUnschedulableBlock() || repo == nil || account == nil || account.ID <= 0 {
 		return
 	}
 	resetAt = normalizeGrokRateLimitResetAt(account, resetAt, time.Now())
@@ -1334,7 +1360,7 @@ func persistGrokRateLimit(ctx context.Context, repo AccountRepository, account *
 }
 
 func (s *OpenAIGatewayService) rateLimitGrok(ctx context.Context, account *Account, resetAt time.Time) {
-	if s == nil || account == nil {
+	if IsDisableTempUnschedulableEnabled() || s == nil || account == nil {
 		return
 	}
 	resetAt = normalizeGrokRateLimitResetAt(account, resetAt, time.Now())
@@ -1381,7 +1407,7 @@ func (s *OpenAIGatewayService) handleGrokAccountUpstreamError(ctx context.Contex
 }
 
 func (s *OpenAIGatewayService) tempUnscheduleGrok(ctx context.Context, account *Account, cooldown time.Duration, reason string) {
-	if s == nil || account == nil {
+	if IsDisableTempUnschedulableEnabled() || s == nil || account == nil {
 		return
 	}
 	until := time.Now().Add(cooldown)

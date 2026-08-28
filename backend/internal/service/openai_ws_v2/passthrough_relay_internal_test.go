@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -307,6 +308,7 @@ func TestParseUsageAndEnrichCoverage(t *testing.T) {
 	require.Equal(t, 0, state.usage.CacheReadInputTokens)
 
 	parseUsageAndAccumulate(state, []byte(`{"type":"response.completed","response":{"usage":{"input_tokens":2,"output_tokens":1,"input_tokens_details":{"cached_tokens":1,"cache_write_tokens":4},"output_tokens_details":{"image_tokens":3}}}}`), "response.completed", nil)
+	finalizeRelayTurnUsage(state)
 	require.Equal(t, 2, state.usage.InputTokens)
 	require.Equal(t, 1, state.usage.OutputTokens)
 	require.Equal(t, 1, state.usage.CacheReadInputTokens)
@@ -321,7 +323,159 @@ func TestParseUsageAndEnrichCoverage(t *testing.T) {
 	require.Equal(t, 5*time.Millisecond, result.Duration)
 	parseUsageAndAccumulate(state, []byte(`{"type":"response.in_progress","response":{"usage":{"input_tokens":9}}}`), "response.in_progress", nil)
 	require.Equal(t, 2, state.usage.InputTokens)
+	require.Equal(t, 9, state.turnUsage.InputTokens)
 	enrichResult(nil, state, 0)
+}
+
+func TestObserveUpstreamMessage_DeduplicatesTerminalUsageByResponseID(t *testing.T) {
+	t.Parallel()
+
+	state := &relayState{}
+	first := observeUpstreamMessage(state, []byte(`{"type":"response.completed","response":{"id":"resp_dup","usage":{"input_tokens":10,"output_tokens":4}}}`), time.Unix(1, 0), time.Now, nil)
+	duplicate := observeUpstreamMessage(state, []byte(`{"type":"response.done","response":{"id":"resp_dup","usage":{"input_tokens":10,"output_tokens":4}}}`), time.Unix(1, 0), time.Now, nil)
+
+	if first.duplicateTerminal {
+		t.Fatal("first terminal event must not be marked duplicate")
+	}
+	if !duplicate.terminal || !duplicate.duplicateTerminal {
+		t.Fatalf("duplicate terminal event should still drain but not bill: %+v", duplicate)
+	}
+	if state.usage.InputTokens != 10 || state.usage.OutputTokens != 4 {
+		t.Fatalf("duplicate terminal usage was accumulated: %+v", state.usage)
+	}
+	turns := 0
+	emitTurnComplete(func(RelayTurnResult) { turns++ }, state, first)
+	emitTurnComplete(func(RelayTurnResult) { turns++ }, state, duplicate)
+	if turns != 1 {
+		t.Fatalf("expected one turn callback, got %d", turns)
+	}
+}
+
+func TestObserveUpstreamMessage_DeduplicatesTerminalUsageWhenResponseIDChanges(t *testing.T) {
+	t.Parallel()
+
+	state := &relayState{}
+	created := observeUpstreamMessage(
+		state,
+		[]byte(`{"type":"response.created","response":{"id":"resp_original","model":"gpt-5.3"}}`),
+		time.Unix(1, 0),
+		time.Now,
+		nil,
+	)
+	if created.terminal {
+		t.Fatal("response.created must not be terminal")
+	}
+	first := observeUpstreamMessage(
+		state,
+		[]byte(`{"type":"response.completed","response":{"id":"resp_original","usage":{"input_tokens":10,"output_tokens":4}}}`),
+		time.Unix(1, 0),
+		time.Now,
+		nil,
+	)
+	mutated := observeUpstreamMessage(
+		state,
+		[]byte(`{"type":"response.completed","response":{"id":"resp_mutated","usage":{"input_tokens":999999,"output_tokens":888888}}}`),
+		time.Unix(1, 0),
+		time.Now,
+		nil,
+	)
+
+	require.True(t, first.terminal)
+	require.False(t, first.duplicateTerminal)
+	require.True(t, mutated.terminal)
+	require.True(t, mutated.duplicateTerminal)
+	require.Equal(t, Usage{InputTokens: 10, OutputTokens: 4}, state.usage)
+}
+
+func TestObserveUpstreamMessage_DeduplicatesAnonymousTerminalUsage(t *testing.T) {
+	t.Parallel()
+
+	state := &relayState{}
+	first := observeUpstreamMessage(
+		state,
+		[]byte(`{"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":4}}}`),
+		time.Unix(1, 0),
+		time.Now,
+		nil,
+	)
+	duplicate := observeUpstreamMessage(
+		state,
+		[]byte(`{"type":"response.done","response":{"usage":{"input_tokens":999999,"output_tokens":888888}}}`),
+		time.Unix(1, 0),
+		time.Now,
+		nil,
+	)
+
+	require.True(t, first.terminal)
+	require.Empty(t, first.responseID)
+	require.False(t, first.duplicateTerminal)
+	require.True(t, duplicate.terminal)
+	require.True(t, duplicate.duplicateTerminal)
+	require.Equal(t, Usage{InputTokens: 10, OutputTokens: 4}, state.usage)
+}
+
+func TestRelayState_ResetAnonymousTerminalStartsNextTurn(t *testing.T) {
+	t.Parallel()
+
+	state := &relayState{}
+	first := observeUpstreamMessage(
+		state,
+		[]byte(`{"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":4}}}`),
+		time.Unix(1, 0),
+		time.Now,
+		nil,
+	)
+	require.True(t, first.terminal)
+	require.True(t, state.anonymousTerminalSeen.Load())
+
+	state.resetAnonymousTerminal()
+	next := observeUpstreamMessage(
+		state,
+		[]byte(`{"type":"response.completed","response":{"usage":{"input_tokens":3,"output_tokens":2}}}`),
+		time.Unix(1, 0),
+		time.Now,
+		nil,
+	)
+	require.True(t, next.terminal)
+	require.False(t, next.duplicateTerminal)
+	require.Equal(t, Usage{InputTokens: 13, OutputTokens: 6}, state.usage)
+}
+
+func TestObserveUpstreamMessage_DeduplicatesAnonymousAfterIDTerminal(t *testing.T) {
+	t.Parallel()
+
+	state := &relayState{}
+	withID := observeUpstreamMessage(
+		state,
+		[]byte(`{"type":"response.completed","response":{"id":"resp_with_id","usage":{"input_tokens":10,"output_tokens":4}}}`),
+		time.Unix(1, 0),
+		time.Now,
+		nil,
+	)
+	require.True(t, withID.terminal)
+	require.False(t, state.anonymousTerminalSeen.Load())
+
+	anonymous := observeUpstreamMessage(
+		state,
+		[]byte(`{"type":"response.done","response":{"usage":{"input_tokens":3,"output_tokens":2}}}`),
+		time.Unix(1, 0),
+		time.Now,
+		nil,
+	)
+	require.True(t, anonymous.terminal)
+	require.True(t, anonymous.duplicateTerminal)
+	require.Equal(t, Usage{InputTokens: 10, OutputTokens: 4}, state.usage)
+}
+
+func TestParseUsageAndAccumulateRejectsAggregateOverflow(t *testing.T) {
+	t.Parallel()
+	state := &relayState{usage: Usage{InputTokens: maxReportedUsageTokens - 1}}
+	got := parseUsageAndAccumulate(state, []byte(`{"type":"response.done","response":{"usage":{"input_tokens":2,"output_tokens":1}}}`), "response.done", nil)
+	require.Equal(t, Usage{InputTokens: 2, OutputTokens: 1}, got)
+	require.Equal(t, Usage{}, finalizeRelayTurnUsage(state))
+	if state.usage.InputTokens != maxReportedUsageTokens-1 || state.usage.OutputTokens != 0 {
+		t.Fatalf("aggregate usage changed after overflow: %+v", state.usage)
+	}
 }
 
 func TestParseUsageAndAccumulateAcceptsChatUsageAliases(t *testing.T) {
@@ -338,14 +492,64 @@ func TestParseUsageAndAccumulateAcceptsChatUsageAliases(t *testing.T) {
 	require.Equal(t, 6, got.OutputTokens)
 	require.Equal(t, 4, got.CacheReadInputTokens)
 	require.Equal(t, 2, got.ImageOutputTokens)
+	require.Equal(t, got, finalizeRelayTurnUsage(state))
 	require.Equal(t, got, state.usage)
+}
+
+func TestParseUsageAndAccumulateRejectsFractionalAndMalformedNestedFields(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		usage string
+	}{
+		{name: "fractional input", usage: `{"input_tokens":1.9,"output_tokens":2}`},
+		{name: "fractional image", usage: `{"input_tokens":1,"output_tokens":2,"output_tokens_details":{"image_tokens":3.5}}`},
+		{name: "string cache", usage: `{"input_tokens":1,"output_tokens":2,"input_tokens_details":{"cached_tokens":"4"}}`},
+		{name: "huge exponent cache", usage: `{"input_tokens":1,"output_tokens":2,"input_tokens_details":{"cache_write_tokens":1e999}}`},
+		{name: "negative nested", usage: `{"input_tokens":1,"output_tokens":2,"prompt_tokens_details":{"cached_tokens":-1}}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			state := &relayState{}
+			got := parseUsageAndAccumulate(state, []byte(`{"type":"response.done","response":{"usage":`+tc.usage+`}}`), "response.done", nil)
+			require.Equal(t, Usage{}, got)
+			require.Equal(t, Usage{}, state.usage)
+		})
+	}
+}
+
+func TestObserveUpstreamMessage_DoesNotReopenTerminalAfterInterveningData(t *testing.T) {
+	t.Parallel()
+
+	state := &relayState{}
+	first := observeUpstreamMessage(state,
+		[]byte(`{"type":"response.completed","response":{"id":"resp_a","usage":{"input_tokens":10,"output_tokens":4}}}`),
+		time.Unix(1, 0), time.Now, nil)
+	require.True(t, first.terminal)
+	require.False(t, first.duplicateTerminal)
+
+	// A forged data/lifecycle event must not reset the one-terminal guard.
+	nonTerminal := observeUpstreamMessage(state,
+		[]byte(`{"type":"response.output_text.delta","response":{"id":"resp_a"},"delta":"x"}`),
+		time.Unix(1, 0), time.Now, nil)
+	require.False(t, nonTerminal.terminal)
+
+	mutated := observeUpstreamMessage(state,
+		[]byte(`{"type":"response.done","response":{"id":"resp_b","usage":{"input_tokens":999,"output_tokens":888}}}`),
+		time.Unix(1, 0), time.Now, nil)
+	require.True(t, mutated.terminal)
+	require.True(t, mutated.duplicateTerminal)
+	require.Equal(t, Usage{InputTokens: 10, OutputTokens: 4}, state.usage)
 }
 
 func TestOpenAICacheCreationTokensFromUsageNestedZeroWins(t *testing.T) {
 	t.Parallel()
 
 	usage := gjson.Parse(`{"input_tokens_details":{"cache_write_tokens":0},"cache_creation_input_tokens":19}`)
-	require.Zero(t, openAICacheCreationTokensFromUsage(usage))
+	got, ok := openAICacheCreationTokensFromUsage(usage)
+	require.True(t, ok)
+	require.Zero(t, got)
 }
 
 func TestEmitTurnCompleteCoverage(t *testing.T) {
@@ -493,6 +697,7 @@ func TestObserveUpstreamMessage_ResponseModelIsTurnLocalAndTerminalWins(t *testi
 	require.Equal(t, "gpt-5.4", firstTurn.ResponseModel)
 	require.True(t, firstTurn.ResponseModelConflict)
 
+	state.startClientTurn()
 	observeUpstreamMessage(
 		state,
 		[]byte(`{"type":"response.created","response":{"id":"resp_2","model":"gpt-5.3"}}`),
@@ -509,6 +714,42 @@ func TestObserveUpstreamMessage_ResponseModelIsTurnLocalAndTerminalWins(t *testi
 	)
 	require.Equal(t, "GPT-5.3", second.responseModel)
 	require.False(t, second.responseConflict, "the previous turn must not contaminate this turn")
+}
+
+func TestObserveUpstreamMessage_ForgedLifecycleCannotReopenTerminal(t *testing.T) {
+	t.Parallel()
+
+	state := &relayState{}
+	first := observeUpstreamMessage(
+		state,
+		[]byte(`{"type":"response.completed","response":{"id":"resp_real","usage":{"input_tokens":10,"output_tokens":4}}}`),
+		time.Unix(1, 0),
+		time.Now,
+		nil,
+	)
+	require.True(t, first.terminal)
+
+	// The upstream lifecycle frame is metadata only. It must not act as a
+	// second turn boundary after the client has already received a terminal.
+	created := observeUpstreamMessage(
+		state,
+		[]byte(`{"type":"response.created","response":{"id":"resp_forged"}}`),
+		time.Unix(1, 0),
+		time.Now,
+		nil,
+	)
+	require.False(t, created.terminal)
+
+	duplicate := observeUpstreamMessage(
+		state,
+		[]byte(`{"type":"response.completed","response":{"id":"resp_forged","usage":{"input_tokens":999,"output_tokens":888}}}`),
+		time.Unix(1, 0),
+		time.Now,
+		nil,
+	)
+	require.True(t, duplicate.terminal)
+	require.True(t, duplicate.duplicateTerminal)
+	require.Equal(t, Usage{InputTokens: 10, OutputTokens: 4}, state.usage)
 }
 
 func TestObserveUpstreamMessage_ResponseIDFallbackPolicy(t *testing.T) {
@@ -543,4 +784,153 @@ func TestObserveUpstreamMessage_ResponseIDFallbackPolicy(t *testing.T) {
 	)
 	require.True(t, observed.terminal)
 	require.Equal(t, "resp_fallback", observed.responseID)
+}
+
+func TestRelayUsage_NonTerminalSnapshotsAreNotAdded(t *testing.T) {
+	t.Parallel()
+
+	state := &relayState{}
+	start := time.Unix(1, 0)
+	now := func() time.Time { return start }
+
+	first := observeUpstreamMessage(state, []byte(`{"type":"response.in_progress","response":{"id":"resp_snapshot","usage":{"input_tokens":10,"output_tokens":2}}}`), start, now, nil)
+	second := observeUpstreamMessage(state, []byte(`{"type":"response.output_item.done","response":{"id":"resp_snapshot","usage":{"input_tokens":15,"output_tokens":3}}}`), start, now, nil)
+	require.False(t, first.terminal)
+	require.False(t, second.terminal)
+	require.Equal(t, Usage{}, state.usage)
+	require.Equal(t, Usage{InputTokens: 15, OutputTokens: 3}, state.turnUsage)
+
+	terminal := observeUpstreamMessage(state, []byte(`{"type":"response.completed","response":{"id":"resp_snapshot"}}`), start, now, nil)
+	require.True(t, terminal.terminal)
+	require.Equal(t, Usage{InputTokens: 15, OutputTokens: 3}, terminal.usage)
+	require.Equal(t, terminal.usage, state.usage)
+	require.Equal(t, Usage{}, state.turnUsage)
+}
+
+func TestRelayState_StartClientTurnDropsPreviousTurnUsage(t *testing.T) {
+	t.Parallel()
+
+	state := &relayState{
+		turnUsage: Usage{InputTokens: 15, OutputTokens: 3},
+		pendingBareError: &observedUpstreamEvent{
+			eventType: "error",
+			usage:     Usage{InputTokens: 7, OutputTokens: 2},
+		},
+	}
+
+	state.startClientTurn()
+
+	require.Equal(t, Usage{}, state.turnUsage)
+	require.Nil(t, state.pendingBareError)
+
+	// A terminal snapshot in the new turn must be billed on its own.
+	next := observeUpstreamMessage(
+		state,
+		[]byte(`{"type":"response.completed","response":{"id":"resp_next","usage":{"input_tokens":4,"output_tokens":1}}}`),
+		time.Unix(1, 0),
+		time.Now,
+		nil,
+	)
+	require.True(t, next.terminal)
+	require.Equal(t, Usage{InputTokens: 4, OutputTokens: 1}, next.usage)
+	require.Equal(t, Usage{InputTokens: 4, OutputTokens: 1}, state.usage)
+}
+
+func TestRelayUsage_EmptyTerminalKeepsPriorSnapshot(t *testing.T) {
+	t.Parallel()
+
+	state := &relayState{}
+	start := time.Unix(2, 0)
+	now := func() time.Time { return start }
+	observeUpstreamMessage(state, []byte(`{"type":"response.in_progress","response":{"id":"resp_empty","usage":{"input_tokens":9,"output_tokens":4,"input_tokens_details":{"cached_tokens":2}}}}`), start, now, nil)
+
+	terminal := observeUpstreamMessage(state, []byte(`{"type":"response.completed","response":{"id":"resp_empty"}}`), start, now, nil)
+	require.True(t, terminal.terminal)
+	require.Equal(t, Usage{InputTokens: 9, OutputTokens: 4, CacheReadInputTokens: 2}, terminal.usage)
+	require.Equal(t, terminal.usage, state.usage)
+}
+
+func TestRelayUsage_ErrorThenFailedSettlesOnce(t *testing.T) {
+	t.Parallel()
+
+	state := &relayState{}
+	start := time.Unix(3, 0)
+	now := func() time.Time { return start }
+	observeUpstreamMessage(state, []byte(`{"type":"response.in_progress","response":{"id":"resp_failed","usage":{"input_tokens":11,"output_tokens":5}}}`), start, now, nil)
+
+	bareError := observeUpstreamMessage(state, []byte(`{"type":"error","error":{"message":"upstream"},"usage":{"input_tokens":7,"output_tokens":2}}`), start, now, nil)
+	require.False(t, bareError.terminal)
+	require.NotNil(t, state.pendingBareError)
+
+	failed := observeUpstreamMessage(state, []byte(`{"type":"response.failed","response":{"id":"resp_failed","usage":{"input_tokens":8,"output_tokens":3}}}`), start, now, nil)
+	require.True(t, failed.terminal)
+	require.Equal(t, Usage{InputTokens: 8, OutputTokens: 3}, failed.usage)
+	require.Nil(t, state.pendingBareError)
+
+	turns := 0
+	emitTurnComplete(func(RelayTurnResult) { turns++ }, state, bareError)
+	emitTurnComplete(func(RelayTurnResult) { turns++ }, state, failed)
+	require.Equal(t, 1, turns)
+	require.Equal(t, Usage{InputTokens: 8, OutputTokens: 3}, state.usage)
+}
+
+func TestRelayState_ConcurrentTransitionsAreSerialized(t *testing.T) {
+	state := &relayState{requestModel: "gpt-4o"}
+	const iterations = 200
+	var wg sync.WaitGroup
+	wg.Add(4)
+
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			state.startClientTurn()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			observeUpstreamMessage(
+				state,
+				[]byte(`{"type":"response.in_progress","response":{"id":"resp_concurrent","usage":{"input_tokens":3}}}`),
+				time.Unix(1, 0),
+				time.Now,
+				nil,
+			)
+			observeUpstreamMessage(
+				state,
+				[]byte(`{"type":"response.completed","response":{"id":"resp_concurrent","usage":{"input_tokens":3,"output_tokens":2}}}`),
+				time.Unix(1, 0),
+				time.Now,
+				nil,
+			)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			finalizePendingBareError(state, time.Now())
+			finalizeRelayTurnUsage(state)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < iterations; i++ {
+			var result RelayResult
+			enrichResult(&result, state, time.Millisecond)
+		}
+	}()
+
+	wg.Wait()
+	var result RelayResult
+	enrichResult(&result, state, 0)
+	for _, value := range []int{
+		result.Usage.InputTokens,
+		result.Usage.OutputTokens,
+		result.Usage.CacheCreationInputTokens,
+		result.Usage.CacheReadInputTokens,
+		result.Usage.ImageOutputTokens,
+	} {
+		require.GreaterOrEqual(t, value, 0)
+		require.LessOrEqual(t, value, maxReportedUsageTokens)
+	}
 }

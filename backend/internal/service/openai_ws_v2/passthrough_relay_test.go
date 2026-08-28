@@ -437,37 +437,55 @@ func TestRelay_OnTurnComplete_PerTerminalEvent(t *testing.T) {
 	t.Parallel()
 
 	clientConn := newPassthroughTestFrameConn(nil, false)
-	upstreamConn := newPassthroughTestFrameConn([]passthroughTestFrame{
-		{
-			msgType: coderws.MessageText,
-			payload: []byte(`{"type":"response.completed","response":{"id":"resp_turn_1","usage":{"input_tokens":2,"output_tokens":1}}}`),
-		},
-		{
-			msgType: coderws.MessageText,
-			payload: []byte(`{"type":"response.failed","response":{"id":"resp_turn_2","usage":{"input_tokens":3,"output_tokens":4}}}`),
-		},
-	}, true)
+	upstreamConn := newPassthroughTestFrameConn(nil, false)
 
 	firstPayload := []byte(`{"type":"response.create","model":"gpt-5.3-codex","input":[]}`)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	turns := make([]RelayTurnResult, 0, 2)
-	result, relayExit := Relay(ctx, clientConn, upstreamConn, firstPayload, RelayOptions{
-		OnTurnComplete: func(turn RelayTurnResult) {
-			turns = append(turns, turn)
-		},
-	})
+	turns := make(chan RelayTurnResult, 2)
+	done := make(chan struct{})
+	var result RelayResult
+	var relayExit *RelayExit
+	go func() {
+		defer close(done)
+		result, relayExit = Relay(ctx, clientConn, upstreamConn, firstPayload, RelayOptions{
+			OnTurnComplete: func(turn RelayTurnResult) {
+				turns <- turn
+			},
+		})
+	}()
+
+	// First terminal belongs to the initial client response.create.
+	upstreamConn.readCh <- passthroughTestFrame{
+		msgType: coderws.MessageText,
+		payload: []byte(`{"type":"response.completed","response":{"id":"resp_turn_1","usage":{"input_tokens":2,"output_tokens":1}}}`),
+	}
+	firstTurn := <-turns
+	require.Equal(t, "resp_turn_1", firstTurn.RequestID)
+
+	// A second billable response must be opened by a client response.create.
+	clientConn.readCh <- passthroughTestFrame{
+		msgType: coderws.MessageText,
+		payload: []byte(`{"type":"response.create","model":"gpt-5.3-codex","input":[]}`),
+	}
+	require.Eventually(t, func() bool { return len(upstreamConn.Writes()) == 2 }, time.Second, 10*time.Millisecond)
+	upstreamConn.readCh <- passthroughTestFrame{
+		msgType: coderws.MessageText,
+		payload: []byte(`{"type":"response.failed","response":{"id":"resp_turn_2","usage":{"input_tokens":3,"output_tokens":4}}}`),
+	}
+	secondTurn := <-turns
+	require.Equal(t, "resp_turn_2", secondTurn.RequestID)
+	require.Equal(t, "response.failed", secondTurn.TerminalEventType)
+
+	_ = upstreamConn.Close()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("relay did not stop after test connections closed")
+	}
+	_ = clientConn.Close()
 	require.Nil(t, relayExit)
-	require.Len(t, turns, 2)
-	require.Equal(t, "resp_turn_1", turns[0].RequestID)
-	require.Equal(t, "response.completed", turns[0].TerminalEventType)
-	require.Equal(t, 2, turns[0].Usage.InputTokens)
-	require.Equal(t, 1, turns[0].Usage.OutputTokens)
-	require.Equal(t, "resp_turn_2", turns[1].RequestID)
-	require.Equal(t, "response.failed", turns[1].TerminalEventType)
-	require.Equal(t, 3, turns[1].Usage.InputTokens)
-	require.Equal(t, 4, turns[1].Usage.OutputTokens)
 	require.Equal(t, 5, result.Usage.InputTokens)
 	require.Equal(t, 5, result.Usage.OutputTokens)
 }

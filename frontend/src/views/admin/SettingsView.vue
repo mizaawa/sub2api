@@ -6788,7 +6788,7 @@
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-              {{ localText('作弊功能', 'Cheat Features') }}
+              {{ localText('拓展功能', 'Extended Features') }}
             </h2>
             <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
               {{ localText('米砸的一些小巧思', "Miza's little ideas") }}
@@ -6805,6 +6805,21 @@
                 </p>
               </div>
               <Toggle v-model="form.response_model_audit_bypass_enabled" />
+            </div>
+
+            <div class="flex items-center justify-between border-t border-gray-100 pt-5 dark:border-dark-700">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ localText('禁用临时不可调度', 'Disable temporary unschedulable state') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ localText('开启后忽略上游返回的 429、401、529 和超时等自动临时阻断，账号仍受手动停用、永久错误、过期和硬配额限制。', 'When enabled, ignore automatic temporary blocks from upstream 429, 401, 529, and timeouts. Manual disablement, permanent errors, expiry, and hard quotas still apply.') }}
+                </p>
+              </div>
+              <Toggle
+                v-model="form.disable_temp_unschedulable"
+                data-testid="disable-temp-unschedulable-toggle"
+              />
             </div>
           </div>
         </div>
@@ -9515,6 +9530,7 @@ const form = reactive<SettingsForm>({
   model_plaza_require_auth: false,
   model_plaza_description: '',
   response_model_audit_bypass_enabled: false,
+  disable_temp_unschedulable: false,
   // Affiliate (邀请返利) feature switch
   affiliate_enabled: false,
   // Allow user view error requests
@@ -11152,6 +11168,7 @@ async function saveSettings() {
       model_plaza_require_auth: form.model_plaza_require_auth,
       model_plaza_description: form.model_plaza_description,
       response_model_audit_bypass_enabled: form.response_model_audit_bypass_enabled,
+      disable_temp_unschedulable: form.disable_temp_unschedulable,
       // Affiliate (邀请返利) feature switch
       affiliate_enabled: form.affiliate_enabled,
       allow_user_view_error_requests: form.allow_user_view_error_requests,

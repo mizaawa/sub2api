@@ -1182,16 +1182,25 @@ func chatMessageContentText(raw json.RawMessage) string {
 // ChatUsageToResponsesUsage converts Chat Completions token usage to Responses
 // usage shape.
 func ChatUsageToResponsesUsage(usage *ChatUsage) *ResponsesUsage {
-	if usage == nil {
+	if usage == nil || !validChatUsage(usage) {
 		return nil
+	}
+	// Preserve a provider-reported total when present.  Some compatible
+	// providers include additional billable categories in total_tokens, so
+	// replacing it with prompt+completion would silently change the wire
+	// contract.  A missing total is filled from the two validated components.
+	totalTokens := usage.TotalTokens
+	if totalTokens == 0 {
+		var ok bool
+		totalTokens, ok = addUsageTokens(usage.PromptTokens, usage.CompletionTokens)
+		if !ok {
+			return nil
+		}
 	}
 	out := &ResponsesUsage{
 		InputTokens:  usage.PromptTokens,
 		OutputTokens: usage.CompletionTokens,
-		TotalTokens:  usage.TotalTokens,
-	}
-	if out.TotalTokens == 0 {
-		out.TotalTokens = out.InputTokens + out.OutputTokens
+		TotalTokens:  totalTokens,
 	}
 	if usage.PromptTokensDetails != nil && (usage.PromptTokensDetails.CachedTokens > 0 ||
 		usage.PromptTokensDetails.CacheCreationTokens > 0 || usage.PromptTokensDetails.CacheWriteTokens > 0) {

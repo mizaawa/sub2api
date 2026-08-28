@@ -185,7 +185,7 @@ func (s *TokenRefreshService) SetAccountRuntimeBlocker(blocker AccountRuntimeBlo
 }
 
 func (s *TokenRefreshService) notifyAccountSchedulingBlocked(account *Account, until time.Time, reason string) {
-	if s == nil || s.runtimeBlocker == nil || account == nil {
+	if IsDisableTempUnschedulableEnabled() || s == nil || s.runtimeBlocker == nil || account == nil {
 		return
 	}
 	s.runtimeBlocker.BlockAccountScheduling(account, until, reason)
@@ -1080,12 +1080,20 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 		"max_retries", maxRetries,
 		"error", logredact.RedactText(lastErr.Error()),
 	)
+	if IsDisableTempUnschedulableEnabled() {
+		// Keep the refresh error visible to the caller, but leave the account
+		// eligible for the next request when transient quarantines are disabled.
+		return lastErr
+	}
 
 	// 设置临时不可调度 10 分钟（不标记 error，保持 status=active 让下个刷新周期能继续尝试）
 	until := time.Now().Add(tokenRefreshTempUnschedDuration)
 	reason := "token refresh retry exhausted"
 	if lastErr != nil {
 		reason += ": " + logredact.RedactText(lastErr.Error())
+	}
+	if !ShouldApplyTransientUnschedulableBlock() {
+		return lastErr
 	}
 	if account.IsGrokOAuth() {
 		conditionalRepo, ok := s.accountRepo.(GrokOAuthRefreshMutationRepository)

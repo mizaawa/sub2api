@@ -131,7 +131,7 @@ func shouldCooldownOpenAITransientUpstreamError(statusCode int, responseBody []b
 }
 
 func (s *OpenAIGatewayService) markOpenAIOAuth429RateLimited(ctx context.Context, account *Account, headers http.Header, responseBody []byte) {
-	if s == nil || !isOpenAIOAuthAccount(account) {
+	if IsDisableTempUnschedulableEnabled() || s == nil || !isOpenAIOAuthAccount(account) {
 		return
 	}
 	// Spark 影子：不按 /responses 429 的 global x-codex-* 信号做内存运行时熔断(同 handle429,外审第8轮 P1)。
@@ -157,7 +157,7 @@ func (s *OpenAIGatewayService) markOpenAIOAuth429RateLimited(ctx context.Context
 }
 
 func (s *OpenAIGatewayService) BlockAccountScheduling(account *Account, until time.Time, reason string) {
-	if s == nil || !isOpenAIAccount(account) {
+	if IsDisableTempUnschedulableEnabled() || s == nil || !isOpenAIAccount(account) {
 		return
 	}
 	mu := s.openAIAccountRuntimeBlockLock(account.ID)
@@ -223,7 +223,10 @@ func (s *OpenAIGatewayService) ClearAccountSchedulingBlock(accountID int64) {
 }
 
 func (s *OpenAIGatewayService) isOpenAIAccountRuntimeBlocked(account *Account) bool {
-	if s == nil || !isOpenAIAccount(account) {
+	// The admin switch disables only automatic transient scheduling blocks. Keep
+	// the runtime marker around so turning the switch back off restores the
+	// normal protection, but do not let it reject requests while enabled.
+	if IsDisableTempUnschedulableEnabled() || s == nil || !isOpenAIAccount(account) {
 		return false
 	}
 	mu := s.openAIAccountRuntimeBlockLock(account.ID)
@@ -275,7 +278,7 @@ func openAIAccountModelTransientModel(canonicalModel string) string {
 }
 
 func (s *OpenAIGatewayService) recordOpenAIAccountModelTransientFailure(account *Account, canonicalModel string, now time.Time) openAIAccountModelTransientDecision {
-	if s == nil || account == nil {
+	if IsDisableTempUnschedulableEnabled() || s == nil || account == nil {
 		return openAIAccountModelTransientDecision{}
 	}
 	state := s.getOpenAIAccountModelTransientState()
@@ -294,7 +297,7 @@ func (s *OpenAIGatewayService) clearOpenAIAccountModelTransientState(accountID i
 }
 
 func (s *OpenAIGatewayService) isOpenAIAccountModelRuntimeBlocked(account *Account, requestedModel string) bool {
-	if s == nil || account == nil {
+	if IsDisableTempUnschedulableEnabled() || s == nil || account == nil {
 		return false
 	}
 	state := s.getOpenAIAccountModelTransientState()

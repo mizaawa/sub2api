@@ -69,6 +69,23 @@ func TestTransformBedrockInvocationMetrics(t *testing.T) {
 		assert.False(t, gjson.GetBytes(result, "amazon-bedrock-invocationMetrics").Exists())
 		assert.Equal(t, int64(100), gjson.GetBytes(result, "usage.output_tokens").Int())
 	})
+
+	for _, tc := range []struct {
+		name    string
+		metrics string
+	}{
+		{name: "fractional input", metrics: `{"inputTokenCount":1.5,"outputTokenCount":42}`},
+		{name: "string output", metrics: `{"inputTokenCount":150,"outputTokenCount":"42"}`},
+		{name: "negative input", metrics: `{"inputTokenCount":-1,"outputTokenCount":42}`},
+		{name: "oversized exponent", metrics: `{"inputTokenCount":1e1000000000,"outputTokenCount":42}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := `{"type":"message_delta","delta":{},"amazon-bedrock-invocationMetrics":` + tc.metrics + `}`
+			result := transformBedrockInvocationMetrics([]byte(input))
+			assert.False(t, gjson.GetBytes(result, "amazon-bedrock-invocationMetrics").Exists())
+			assert.False(t, gjson.GetBytes(result, "usage").Exists(), "malformed metrics must not create partial usage")
+		})
+	}
 }
 
 func TestExtractEventStreamHeaderValue(t *testing.T) {

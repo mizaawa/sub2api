@@ -1196,7 +1196,7 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 			AND credentials ? 'refresh_token'
 			AND btrim(credentials->>'refresh_token') <> ''`
 	}
-	if options.ExcludeRetryCooldown {
+	if options.ExcludeRetryCooldown && service.ShouldApplyTransientUnschedulableBlock() {
 		query += `
 			AND (
 				temp_unschedulable_until > NOW()
@@ -1346,7 +1346,19 @@ func (r *accountRepository) SetGrokCredentialErrorIfMatch(
 	snapshot service.GrokCredentialMutationSnapshot,
 	errorMsg string,
 ) (bool, error) {
-	result, err := r.sql.ExecContext(ctx, `
+	// Permanent credential failures must still be persisted when the admin has
+	// disabled transient scheduling blockers.  The old cooldown predicates were
+	// useful for the normal path, but they also made a stale temporary marker
+	// prevent the permanent transition entirely.  Keep them for the default
+	// policy and omit them only while the switch is enabled.
+	transientGuards := `
+			AND (a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until <= NOW())
+			AND (a.rate_limit_reset_at IS NULL OR a.rate_limit_reset_at <= NOW())
+			AND (a.overload_until IS NULL OR a.overload_until <= NOW())`
+	if !service.ShouldApplyTransientUnschedulableBlock() {
+		transientGuards = ""
+	}
+	query := `
 		WITH updated AS (
 		UPDATE accounts AS a
 		SET status = $1,
@@ -1359,9 +1371,7 @@ func (r *accountRepository) SetGrokCredentialErrorIfMatch(
 			AND a.platform = $5
 			AND a.type = $6
 			AND a.schedulable IS TRUE
-			AND (a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until <= NOW())
-			AND (a.rate_limit_reset_at IS NULL OR a.rate_limit_reset_at <= NOW())
-			AND (a.overload_until IS NULL OR a.overload_until <= NOW())
+		` + transientGuards + `
 			AND (a.auto_pause_on_expired IS NOT TRUE OR a.expires_at IS NULL OR a.expires_at > NOW())
 			AND a.credentials = $7::jsonb
 			AND a.proxy_id IS NOT DISTINCT FROM $8
@@ -1374,7 +1384,8 @@ func (r *accountRepository) SetGrokCredentialErrorIfMatch(
 		)
 		INSERT INTO scheduler_outbox (event_type, account_id, group_id, payload)
 		SELECT $10, updated.id, NULL, NULL FROM updated
-	`, service.StatusError, errorMsg, id, service.StatusActive, service.PlatformGrok, service.AccountTypeOAuth,
+	`
+	result, err := r.sql.ExecContext(ctx, query, service.StatusError, errorMsg, id, service.StatusActive, service.PlatformGrok, service.AccountTypeOAuth,
 		snapshot.CredentialsJSON, snapshot.ProxyID, string(service.GrokCredentialReasonProxyInvalid),
 		service.SchedulerOutboxEventAccountChanged)
 	if err != nil {
@@ -1581,6 +1592,9 @@ func (r *accountRepository) SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnc
 	until time.Time,
 	reason string,
 ) (bool, error) {
+	if !service.ShouldApplyTransientUnschedulableBlock() {
+		return false, nil
+	}
 	if r == nil || r.sql == nil {
 		return false, errors.New("account repository SQL executor is not configured")
 	}
@@ -1871,10 +1885,10 @@ func (r *accountRepository) schedulableAccountsQuery(now time.Time) *dbent.Accou
 		Where(
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
-			tempUnschedulablePredicate(),
+			transientTempUnschedulablePredicate(),
 			notExpiredPredicate(now),
-			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
-			dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
+			transientOverloadPredicate(now),
+			transientRateLimitPredicate(now),
 		).
 		Order(dbent.Asc(dbaccount.FieldPriority))
 }
@@ -1914,7 +1928,14 @@ func (r *accountRepository) ListSchedulableCapacityByGroupIDs(ctx context.Contex
 		return rows, nil
 	}
 
-	rows, err := r.sql.QueryContext(ctx, `
+	transientPredicates := `
+			AND (a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until <= $3)
+			AND (a.overload_until IS NULL OR a.overload_until <= $3)
+			AND (a.rate_limit_reset_at IS NULL OR a.rate_limit_reset_at <= $3)`
+	if !service.ShouldApplyTransientUnschedulableBlock() {
+		transientPredicates = ""
+	}
+	query := `
 		SELECT
 			ag.group_id,
 			a.id AS account_id,
@@ -1929,12 +1950,11 @@ func (r *accountRepository) ListSchedulableCapacityByGroupIDs(ctx context.Contex
 			AND a.deleted_at IS NULL
 			AND a.status = $2
 			AND a.schedulable = TRUE
-			AND (a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until <= $3)
+			` + transientPredicates + `
 			AND (a.expires_at IS NULL OR a.expires_at > $3 OR a.auto_pause_on_expired = FALSE)
-			AND (a.overload_until IS NULL OR a.overload_until <= $3)
-			AND (a.rate_limit_reset_at IS NULL OR a.rate_limit_reset_at <= $3)
 		ORDER BY ag.group_id ASC, ag.priority ASC, a.priority ASC, a.id ASC
-	`, pq.Array(groupIDs), service.StatusActive, time.Now())
+	`
+	rows, err := r.sql.QueryContext(ctx, query, pq.Array(groupIDs), service.StatusActive, time.Now())
 	if err != nil {
 		return nil, err
 	}
@@ -1977,10 +1997,10 @@ func (r *accountRepository) ListSchedulableByPlatform(ctx context.Context, platf
 			dbaccount.PlatformEQ(platform),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
-			tempUnschedulablePredicate(),
+			transientTempUnschedulablePredicate(),
 			notExpiredPredicate(now),
-			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
-			dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
+			transientOverloadPredicate(now),
+			transientRateLimitPredicate(now),
 		).
 		Order(dbent.Asc(dbaccount.FieldPriority)).
 		All(ctx)
@@ -2011,10 +2031,10 @@ func (r *accountRepository) ListSchedulableByPlatforms(ctx context.Context, plat
 			dbaccount.PlatformIn(platforms...),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
-			tempUnschedulablePredicate(),
+			transientTempUnschedulablePredicate(),
 			notExpiredPredicate(now),
-			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
-			dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
+			transientOverloadPredicate(now),
+			transientRateLimitPredicate(now),
 		).
 		Order(dbent.Asc(dbaccount.FieldPriority)).
 		All(ctx)
@@ -2032,10 +2052,10 @@ func (r *accountRepository) ListSchedulableUngroupedByPlatform(ctx context.Conte
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
 			dbaccount.Not(dbaccount.HasAccountGroups()),
-			tempUnschedulablePredicate(),
+			transientTempUnschedulablePredicate(),
 			notExpiredPredicate(now),
-			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
-			dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
+			transientOverloadPredicate(now),
+			transientRateLimitPredicate(now),
 		).
 		Order(dbent.Asc(dbaccount.FieldPriority)).
 		All(ctx)
@@ -2056,10 +2076,10 @@ func (r *accountRepository) ListSchedulableUngroupedByPlatforms(ctx context.Cont
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
 			dbaccount.Not(dbaccount.HasAccountGroups()),
-			tempUnschedulablePredicate(),
+			transientTempUnschedulablePredicate(),
 			notExpiredPredicate(now),
-			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
-			dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
+			transientOverloadPredicate(now),
+			transientRateLimitPredicate(now),
 		).
 		Order(dbent.Asc(dbaccount.FieldPriority)).
 		All(ctx)
@@ -2122,6 +2142,9 @@ func (r *accountRepository) ListModelAvailabilityCandidates(
 }
 
 func (r *accountRepository) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
+	if !service.ShouldApplyTransientUnschedulableBlock() {
+		return nil
+	}
 	now := time.Now()
 	_, err := r.client.Account.Update().
 		Where(dbaccount.IDEQ(id)).
@@ -2142,6 +2165,9 @@ func (r *accountRepository) SetRateLimited(ctx context.Context, id int64, resetA
 // requests may finish concurrently, so an older response must not overwrite a
 // later reset boundary observed by another request or instance.
 func (r *accountRepository) SetRateLimitedIfLater(ctx context.Context, id int64, resetAt time.Time) error {
+	if !service.ShouldApplyTransientUnschedulableBlock() {
+		return nil
+	}
 	now := time.Now()
 	updated, err := r.client.Account.Update().
 		Where(
@@ -2200,7 +2226,7 @@ func (r *accountRepository) ClearRateLimitIfObserved(ctx context.Context, id int
 }
 
 func (r *accountRepository) SetModelRateLimit(ctx context.Context, id int64, scope string, resetAt time.Time, reason ...string) error {
-	if scope == "" {
+	if !service.ShouldApplyTransientUnschedulableBlock() || scope == "" {
 		return nil
 	}
 	now := time.Now().UTC()
@@ -2253,6 +2279,9 @@ func (r *accountRepository) SetModelRateLimit(ctx context.Context, id int64, sco
 }
 
 func (r *accountRepository) SetOverloaded(ctx context.Context, id int64, until time.Time) error {
+	if !service.ShouldApplyTransientUnschedulableBlock() {
+		return nil
+	}
 	_, err := r.client.Account.Update().
 		Where(dbaccount.IDEQ(id)).
 		SetOverloadUntil(until).
@@ -2268,6 +2297,9 @@ func (r *accountRepository) SetOverloaded(ctx context.Context, id int64, until t
 }
 
 func (r *accountRepository) SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error {
+	if !service.ShouldApplyTransientUnschedulableBlock() {
+		return nil
+	}
 	result, err := r.sql.ExecContext(ctx, `
 		UPDATE accounts
 		SET temp_unschedulable_until = $1,
@@ -2301,6 +2333,9 @@ func (r *accountRepository) SetGrokCredentialTempUnschedulableIfMatch(
 	until time.Time,
 	reason string,
 ) (bool, error) {
+	if !service.ShouldApplyTransientUnschedulableBlock() {
+		return false, nil
+	}
 	result, err := r.sql.ExecContext(ctx, `
 		WITH updated AS (
 		UPDATE accounts AS a
@@ -3029,10 +3064,10 @@ func (r *accountRepository) queryAccountsByGroup(ctx context.Context, groupID in
 		if !opts.ignoreTransientState {
 			now := time.Now()
 			preds = append(preds,
-				tempUnschedulablePredicate(),
+				transientTempUnschedulablePredicate(),
 				notExpiredPredicate(now),
-				dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
-				dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
+				transientOverloadPredicate(now),
+				transientRateLimitPredicate(now),
 			)
 		}
 	}
@@ -3142,6 +3177,34 @@ func tempUnschedulablePredicate() dbpredicate.Account {
 			entsql.LTE(col, entsql.Expr("NOW()")),
 		))
 	})
+}
+
+// The admin switch is process-wide so repository queries, Redis snapshots, and
+// in-memory account checks use one policy. A no-op Ent predicate preserves the
+// existing query builder shape while removing only transient runtime filters.
+func transientNoopAccountPredicate() dbpredicate.Account {
+	return dbpredicate.Account(func(*entsql.Selector) {})
+}
+
+func transientTempUnschedulablePredicate() dbpredicate.Account {
+	if !service.ShouldApplyTransientUnschedulableBlock() {
+		return transientNoopAccountPredicate()
+	}
+	return tempUnschedulablePredicate()
+}
+
+func transientOverloadPredicate(now time.Time) dbpredicate.Account {
+	if !service.ShouldApplyTransientUnschedulableBlock() {
+		return transientNoopAccountPredicate()
+	}
+	return dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now))
+}
+
+func transientRateLimitPredicate(now time.Time) dbpredicate.Account {
+	if !service.ShouldApplyTransientUnschedulableBlock() {
+		return transientNoopAccountPredicate()
+	}
+	return dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now))
 }
 
 func notExpiredPredicate(now time.Time) dbpredicate.Account {

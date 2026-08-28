@@ -213,19 +213,28 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 	bucket := s.bucketFor(groupID, platform, mode)
 	var writeToken SchedulerBucketWriteToken
 	canPublish := false
+	skipSnapshotCache := IsDisableTempUnschedulableEnabled()
 	if err := ctx.Err(); err != nil {
 		return nil, useMixed, err
 	}
 
 	if s.cache != nil {
-		cached, hit, err := s.cache.GetSnapshot(ctx, bucket)
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, useMixed, ctxErr
-		}
-		if err != nil {
-			logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] cache read failed: bucket=%s err=%v", bucket.String(), err)
-		} else if hit {
-			return derefAccounts(cached), useMixed, nil
+		if !skipSnapshotCache {
+			cached, hit, err := s.cache.GetSnapshot(ctx, bucket)
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, useMixed, ctxErr
+			}
+			if err != nil {
+				logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] cache read failed: bucket=%s err=%v", bucket.String(), err)
+			} else if hit {
+				// A snapshot can have been published while the transient-block
+				// switch was enabled.  Such a snapshot intentionally contains
+				// accounts that are currently cooling down.  If the switch is
+				// subsequently turned off, do the final policy check at the read
+				// boundary so those accounts cannot bypass the normal temporary
+				// safeguards until the asynchronous rebuild catches up.
+				return derefSchedulableAccounts(cached), useMixed, nil
+			}
 		}
 		token, err := s.cache.CaptureBucketWriteToken(ctx, bucket)
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -1647,6 +1656,30 @@ func derefAccounts(accounts []*Account) []Account {
 	out := make([]Account, 0, len(accounts))
 	for _, account := range accounts {
 		if account == nil {
+			continue
+		}
+		out = append(out, *account)
+	}
+	return out
+}
+
+// derefSchedulableAccounts converts a scheduler snapshot to value accounts
+// while re-applying the current transient scheduling policy.  Redis snapshots
+// do not encode which value of the process-wide policy was active when they
+// were written, so this check closes the stale-snapshot window after an admin
+// toggles disable_temp_unschedulable off.  The caller only uses this helper
+// when the switch is off; keeping the guard here also makes it safe for future
+// cache readers that may call it directly.
+func derefSchedulableAccounts(accounts []*Account) []Account {
+	if !ShouldApplyTransientUnschedulableBlock() {
+		return derefAccounts(accounts)
+	}
+	if len(accounts) == 0 {
+		return []Account{}
+	}
+	out := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		if account == nil || !account.IsSchedulable() {
 			continue
 		}
 		out = append(out, *account)

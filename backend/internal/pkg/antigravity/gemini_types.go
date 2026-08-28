@@ -168,8 +168,11 @@ type GeminiUsageMetadata struct {
 
 // ImageOutputTokens 从 CandidatesTokensDetails 中提取 IMAGE 模态的 token 数
 func (m *GeminiUsageMetadata) ImageOutputTokens() int {
+	if m == nil || !validGeminiUsageMetadata(m) {
+		return 0
+	}
 	for _, d := range m.CandidatesTokensDetails {
-		if d.Modality == "IMAGE" {
+		if d.Modality == "IMAGE" && validUsageToken(d.TokenCount) {
 			return d.TokenCount
 		}
 	}

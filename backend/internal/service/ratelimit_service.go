@@ -125,7 +125,7 @@ func (s *RateLimitService) IsOpenAIAdvancedSchedulerStickyWeightedEnabled(ctx co
 }
 
 func (s *RateLimitService) notifyAccountSchedulingBlocked(account *Account, until time.Time, reason string) {
-	if s == nil || s.runtimeBlocker == nil || account == nil {
+	if s == nil || s.runtimeBlocker == nil || account == nil || !ShouldApplyTransientUnschedulableBlock() {
 		return
 	}
 	s.runtimeBlocker.BlockAccountScheduling(account, until, reason)
@@ -330,9 +330,11 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 				cooldownMinutes = 10
 			}
 			until := time.Now().Add(time.Duration(cooldownMinutes) * time.Minute)
-			s.notifyAccountSchedulingBlocked(authAccount, until, "oauth_401")
-			if err := s.accountRepo.SetTempUnschedulable(ctx, authAccount.ID, until, msg); err != nil {
-				slog.Warn("oauth_401_set_temp_unschedulable_failed", "account_id", authAccount.ID, "error", err)
+			if ShouldApplyTransientUnschedulableBlock() {
+				s.notifyAccountSchedulingBlocked(authAccount, until, "oauth_401")
+				if err := s.accountRepo.SetTempUnschedulable(ctx, authAccount.ID, until, msg); err != nil {
+					slog.Warn("oauth_401_set_temp_unschedulable_failed", "account_id", authAccount.ID, "error", err)
+				}
 			}
 			shouldDisable = true
 		} else {
@@ -847,6 +849,12 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 		s.handleAuthError(ctx, account, msg)
 		return true
 	}
+	if !ShouldApplyTransientUnschedulableBlock() {
+		// Keep this request on the normal failover path while leaving the account
+		// eligible for subsequent requests. Repeated failures still reach the
+		// permanent threshold branch above.
+		return true
+	}
 
 	until := time.Now().Add(time.Duration(openAI403CooldownMinutesDefault) * time.Minute)
 	reason := fmt.Sprintf("OpenAI 403 temporary cooldown (%d/%d): %s", count, openAI403DisableThreshold, msg)
@@ -935,10 +943,22 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	if account.IsShadow() {
 		return
 	}
-	// 1. OpenAI 平台：优先尝试解析 x-codex-* 响应头（用于 rate_limit_exceeded）
+	// OpenAI 平台：先记录 x-codex-* 观测值（用于 rate_limit_exceeded）
 	if account.Platform == PlatformOpenAI {
+		// Plan metadata and quota snapshots are observations, not scheduling
+		// blockers. Keep them up to date even when the admin switch suppresses
+		// transient unschedulable state below.
 		persistOpenAI429PlanType(ctx, s.accountRepo, account, responseBody)
 		s.persistOpenAICodexSnapshot(ctx, account, headers)
+	}
+	// The admin switch keeps the account eligible after a transient 429. The
+	// request may still fail over, but no cooldown state is persisted. Metadata
+	// observations above are intentionally retained regardless of this switch.
+	if !ShouldApplyTransientUnschedulableBlock() {
+		return
+	}
+	// 1. OpenAI 平台：优先尝试解析 x-codex-* 响应头（用于 rate_limit_exceeded）
+	if account.Platform == PlatformOpenAI {
 		if resetAt := s.calculateOpenAI429ResetTime(headers); resetAt != nil {
 			s.notifyAccountSchedulingBlocked(account, *resetAt, "429")
 			if err := s.accountRepo.SetRateLimited(ctx, account.ID, *resetAt); err != nil {
@@ -1231,7 +1251,7 @@ func shouldPersistAnthropicWindowLimit(account *Account, limit *anthropicWindowL
 }
 
 func (s *RateLimitService) persistAnthropicExhaustedWindowLimit(ctx context.Context, account *Account, headers http.Header) bool {
-	if s == nil || s.accountRepo == nil || account == nil {
+	if s == nil || s.accountRepo == nil || account == nil || !ShouldApplyTransientUnschedulableBlock() {
 		return false
 	}
 	now := time.Now()
@@ -1307,7 +1327,7 @@ func parseAnthropicAggregateReset(headers http.Header, now time.Time) (time.Time
 // (or a) trigger of this 429, so the caller must not fall through to logic that
 // would mark the whole account as rate limited.
 func (s *RateLimitService) persistAnthropicFableWindowLimit(ctx context.Context, account *Account, headers http.Header) bool {
-	if s == nil || s.accountRepo == nil || account == nil {
+	if s == nil || s.accountRepo == nil || account == nil || !ShouldApplyTransientUnschedulableBlock() {
 		return false
 	}
 	now := time.Now()
@@ -1569,6 +1589,9 @@ func persistOpenAI429PlanType(ctx context.Context, repo AccountRepository, accou
 // handle529 处理529过载错误
 // 根据配置决定是否暂停账号调度及冷却时长
 func (s *RateLimitService) handle529(ctx context.Context, account *Account) {
+	if !ShouldApplyTransientUnschedulableBlock() {
+		return
+	}
 	var settings *OverloadCooldownSettings
 	if s.settingService != nil {
 		var err error
@@ -1855,6 +1878,9 @@ func hasNonEmptyMapValue(extra map[string]any, key string) bool {
 }
 
 func (s *RateLimitService) GetTempUnschedStatus(ctx context.Context, accountID int64) (*TempUnschedState, error) {
+	if IsDisableTempUnschedulableEnabled() {
+		return nil, nil
+	}
 	now := time.Now().Unix()
 	if s.tempUnschedCache != nil {
 		state, err := s.tempUnschedCache.GetTempUnsched(ctx, accountID)
@@ -1919,6 +1945,11 @@ func (s *RateLimitService) HandleTempUnschedulable(ctx context.Context, account 
 func (s *RateLimitService) HandleOpenAIImageRateLimit(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte) bool {
 	if s == nil || account == nil || s.accountRepo == nil {
 		return false
+	}
+	if !ShouldApplyTransientUnschedulableBlock() {
+		// Fail over the current image request, but do not persist a model
+		// cooldown that would affect subsequent requests.
+		return isOpenAIImageRateLimitError(statusCode, responseBody)
 	}
 	if account.Platform != PlatformOpenAI {
 		return false
@@ -2037,6 +2068,10 @@ const tempUnschedMessageMaxBytes = 2048
 func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, account *Account, requestedModel string, statusCode int, responseBody []byte) bool {
 	if s == nil || account == nil || s.accountRepo == nil {
 		return false
+	}
+	if !ShouldApplyTransientUnschedulableBlock() {
+		return isUpstreamModelNotFoundError(statusCode, responseBody) ||
+			(isOpenAIOAuthAccount(account) && isOpenAICodexPlanGatedModelError(statusCode, responseBody))
 	}
 	if !account.ShouldHandleErrorCode(statusCode) {
 		return false
@@ -2172,7 +2207,7 @@ func matchTempUnschedulableRules(account *Account, statusCode int, responseBody 
 }
 
 func (s *RateLimitService) tryTempUnschedulable(ctx context.Context, account *Account, statusCode int, responseBody []byte, requestedModel ...string) bool {
-	if account == nil {
+	if account == nil || !ShouldApplyTransientUnschedulableBlock() {
 		return false
 	}
 	if !account.IsTempUnschedulableEnabled() {
@@ -2237,7 +2272,7 @@ func matchTempUnschedKeyword(bodyLower string, keywords []string) string {
 }
 
 func (s *RateLimitService) triggerTempUnschedulable(ctx context.Context, account *Account, rule TempUnschedulableRule, ruleIndex int, statusCode int, matchedKeyword string, responseBody []byte, requestedModel ...string) bool {
-	if account == nil {
+	if account == nil || !ShouldApplyTransientUnschedulableBlock() {
 		return false
 	}
 	if rule.DurationMinutes <= 0 {
@@ -2354,6 +2389,12 @@ func (s *RateLimitService) HandleStreamTimeout(ctx context.Context, account *Acc
 	// 达到阈值，执行相应操作
 	switch settings.Action {
 	case StreamTimeoutActionTempUnsched:
+		if !ShouldApplyTransientUnschedulableBlock() {
+			// The switch only suppresses the temporary scheduling quarantine. Keep
+			// the timeout counter/metrics path intact, while allowing a configured
+			// permanent-error action to remain effective below.
+			return false
+		}
 		return s.triggerStreamTimeoutTempUnsched(ctx, account, settings, model)
 	case StreamTimeoutActionError:
 		return s.triggerStreamTimeoutError(ctx, account, model)
@@ -2364,6 +2405,9 @@ func (s *RateLimitService) HandleStreamTimeout(ctx context.Context, account *Acc
 
 // triggerStreamTimeoutTempUnsched 触发流超时临时不可调度
 func (s *RateLimitService) triggerStreamTimeoutTempUnsched(ctx context.Context, account *Account, settings *StreamTimeoutSettings, model string) bool {
+	if !ShouldApplyTransientUnschedulableBlock() {
+		return false
+	}
 	now := time.Now()
 	until := now.Add(time.Duration(settings.TempUnschedMinutes) * time.Minute)
 
