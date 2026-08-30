@@ -954,16 +954,10 @@ onBeforeUnmount(() => {
   left: 0.75rem;
   margin: 0;
   padding: 0.625rem;
-  border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 34%, var(--md-sys-color-outline));
-  border-radius: 1.25rem;
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, var(--md-sys-color-surface) 90%, transparent),
-    color-mix(in srgb, var(--md-sys-color-surface-container-high) 82%, var(--md-sys-color-primary))
-  );
-  box-shadow:
-    0 0.9rem 1.7rem rgb(3 44 42 / 0.22),
-    0 0.3rem 0.75rem rgb(23 127 121 / 0.14);
+  border: 1px solid transparent;
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--md-sys-color-surface) 92%, transparent);
+  box-shadow: 0 0.75rem 1.5rem rgb(15 23 42 / 0.08);
   backdrop-filter: blur(14px) saturate(135%);
 }
 
@@ -974,16 +968,10 @@ onBeforeUnmount(() => {
   bottom: 0.75rem;
   left: 0.75rem;
   padding: 0.375rem;
-  border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 34%, var(--md-sys-color-outline));
-  border-radius: 1.25rem;
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, var(--md-sys-color-surface) 90%, transparent),
-    color-mix(in srgb, var(--md-sys-color-surface-container-high) 82%, var(--md-sys-color-primary))
-  );
-  box-shadow:
-    0 -0.9rem 1.7rem rgb(3 44 42 / 0.2),
-    0 -0.3rem 0.75rem rgb(23 127 121 / 0.12);
+  border: 1px solid transparent;
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--md-sys-color-surface) 92%, transparent);
+  box-shadow: 0 -0.75rem 1.5rem rgb(15 23 42 / 0.07);
   backdrop-filter: blur(14px) saturate(135%);
 }
 
@@ -993,19 +981,18 @@ onBeforeUnmount(() => {
 }
 
 .admin-panel-toggle {
-  border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 30%, var(--md-sys-color-outline));
-  background: color-mix(in srgb, var(--md-sys-color-surface-container) 82%, var(--md-sys-color-primary));
+  border-color: transparent;
 }
 
 .admin-panel-section,
 .personal-panel-section {
-  padding: 0.55rem;
-  border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 24%, var(--md-sys-color-outline));
-  border-radius: 1.25rem;
-  background: color-mix(in srgb, var(--md-sys-color-surface) 58%, var(--md-sys-color-surface-container-high));
+  padding: 0.35rem 0;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
+  background: transparent;
 }
 
-.sidebar-submenu { border-color: var(--md-sys-color-outline); }
+.sidebar-submenu { border-color: transparent; }
 .mobile-sidebar-backdrop {
   background: rgb(3 28 27 / 0.58);
   backdrop-filter: blur(2px);
@@ -1014,9 +1001,9 @@ onBeforeUnmount(() => {
 .sidebar-logo {
   flex: 0 0 2.25rem;
   min-width: 2.25rem;
-  border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 42%, var(--md-sys-color-outline));
-  background: var(--md-sys-color-surface);
-  box-shadow: 0 0.25rem 0.75rem rgb(13 73 69 / 0.12);
+  border: 1px solid transparent;
+  background: var(--md-sys-color-surface-container-high);
+  box-shadow: none;
 }
 
 .sidebar-header-collapsed {
@@ -1060,13 +1047,18 @@ onBeforeUnmount(() => {
 }
 
 .sidebar-header :deep(.version-pill) {
-  border-color: color-mix(in srgb, var(--md-sys-color-primary) 38%, var(--md-sys-color-outline));
-  background: color-mix(in srgb, var(--md-sys-color-surface) 64%, var(--md-sys-color-primary));
-  color: color-mix(in srgb, var(--md-sys-color-primary) 72%, var(--md-sys-color-on-surface));
+  border-color: transparent;
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface-variant);
 }
 
 .sidebar-header :deep(.version-pill:hover) {
-  background: color-mix(in srgb, var(--md-sys-color-surface) 50%, var(--md-sys-color-primary));
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.sidebar-header :deep(.version-popover) {
+  border-color: transparent;
+  box-shadow: 0 1rem 2.5rem rgb(15 23 42 / 0.12);
 }
 
 .sidebar-link-collapsed {

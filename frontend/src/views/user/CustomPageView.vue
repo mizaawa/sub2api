@@ -380,7 +380,9 @@ onUnmounted(() => {
 }
 
 .toc-sidebar {
-  @apply flex flex-col h-full border-r border-gray-200 dark:border-dark-600 bg-gray-50 dark:bg-dark-800;
+  @apply flex flex-col h-full;
+  border-right: 0;
+  background: transparent;
   width: min(240px, 30%);
   min-width: 160px;
   max-width: 280px;
@@ -396,12 +398,14 @@ onUnmounted(() => {
     width: 70%;
     max-width: 240px;
     height: 100%;
-    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+    box-shadow: none;
   }
 }
 
 .toc-header {
-  @apply flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-600;
+  @apply flex items-center justify-between px-4 py-3;
+  border-bottom: 0;
+  background: transparent;
 }
 
 .toc-title {
@@ -409,7 +413,21 @@ onUnmounted(() => {
 }
 
 .toc-close-btn {
-  @apply p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-dark-200 hover:bg-gray-200 dark:hover:bg-dark-600 transition-colors;
+  @apply p-1 rounded text-gray-400 dark:text-dark-400 hover:text-gray-700 dark:hover:text-dark-100 transition-colors;
+  background: transparent;
+  border: 0;
+}
+
+.toc-close-btn:hover,
+.toc-close-btn:focus-visible {
+  background: var(--md-sys-color-surface-container-high);
+}
+
+.toc-close-btn:focus-visible,
+.toc-item:focus-visible,
+.toc-toggle-btn:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--md-sys-color-primary) 62%, transparent);
+  outline-offset: 2px;
 }
 
 .toc-nav {
@@ -418,11 +436,24 @@ onUnmounted(() => {
 
 .toc-item {
   @apply block px-2 py-1.5 text-sm rounded transition-colors truncate;
-  @apply text-gray-600 dark:text-dark-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-dark-600;
+  color: var(--md-sys-color-on-surface-variant);
+  background: transparent;
+  border: 0;
+}
+
+.toc-item:hover {
+  color: var(--md-sys-color-on-surface);
+  background: var(--md-sys-color-surface-container-high);
 }
 
 .toc-item.toc-active {
-  @apply text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/20 font-medium;
+  @apply font-medium;
+  color: var(--md-sys-color-primary);
+  background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent);
+}
+
+.toc-item.toc-active:hover {
+  background: color-mix(in srgb, var(--md-sys-color-primary) 17%, transparent);
 }
 
 .toc-level-1 { padding-left: 8px; }
@@ -432,9 +463,15 @@ onUnmounted(() => {
 
 .toc-toggle-btn {
   @apply absolute left-2 top-2 z-10 flex items-center px-2 py-1.5 rounded-md text-sm;
-  @apply bg-white dark:bg-dark-700 border border-gray-200 dark:border-dark-500;
-  @apply text-gray-600 dark:text-dark-300 hover:bg-gray-100 dark:hover:bg-dark-600;
-  @apply shadow-sm transition-colors cursor-pointer;
+  @apply text-gray-600 dark:text-dark-300 transition-colors cursor-pointer;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.toc-toggle-btn:hover {
+  color: var(--md-sys-color-on-surface);
+  background: var(--md-sys-color-surface-container-high);
 }
 
 .custom-embed-shell {
