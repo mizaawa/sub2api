@@ -417,10 +417,10 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .app-header {
-  border: 1px solid color-mix(in srgb, var(--md-sys-color-primary) 22%, var(--md-sys-color-outline));
+  border: 1px solid transparent;
   border-radius: 1.375rem;
   background: color-mix(in srgb, var(--md-sys-color-surface) 88%, transparent);
-  box-shadow: 0 0.625rem 1.75rem rgb(13 73 69 / 0.09);
+  box-shadow: 0 0.625rem 1.75rem rgb(15 23 42 / 0.08);
   backdrop-filter: blur(18px) saturate(1.08);
 }
 
@@ -431,7 +431,7 @@ onBeforeUnmount(() => {
 }
 
 .header-balance-popover {
-  border-color: var(--md-sys-color-outline);
+  border-color: transparent;
   background: var(--md-sys-color-surface-container-high);
   color: var(--md-sys-color-on-surface);
 }
@@ -465,7 +465,7 @@ onBeforeUnmount(() => {
 
 .app-header-actions {
   padding: 0.1875rem;
-  border: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 72%, transparent);
+  border: 1px solid transparent;
   border-radius: 1rem;
   background: color-mix(in srgb, var(--md-sys-color-surface-container) 64%, transparent);
 }

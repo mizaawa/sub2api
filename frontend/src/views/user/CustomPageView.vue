@@ -380,9 +380,8 @@ onUnmounted(() => {
 }
 
 .toc-sidebar {
-  @apply flex flex-col h-full;
+  @apply flex flex-col h-full bg-gray-50 dark:bg-dark-800;
   border-right: 0;
-  background: transparent;
   width: min(240px, 30%);
   min-width: 160px;
   max-width: 280px;
@@ -398,14 +397,13 @@ onUnmounted(() => {
     width: 70%;
     max-width: 240px;
     height: 100%;
-    box-shadow: none;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
   }
 }
 
 .toc-header {
   @apply flex items-center justify-between px-4 py-3;
   border-bottom: 0;
-  background: transparent;
 }
 
 .toc-title {
@@ -413,8 +411,7 @@ onUnmounted(() => {
 }
 
 .toc-close-btn {
-  @apply p-1 rounded text-gray-400 dark:text-dark-400 hover:text-gray-700 dark:hover:text-dark-100 transition-colors;
-  background: transparent;
+  @apply p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-dark-200 hover:bg-gray-200 dark:hover:bg-dark-600 transition-colors;
   border: 0;
 }
 
@@ -436,24 +433,20 @@ onUnmounted(() => {
 
 .toc-item {
   @apply block px-2 py-1.5 text-sm rounded transition-colors truncate;
-  color: var(--md-sys-color-on-surface-variant);
-  background: transparent;
+  @apply text-gray-600 dark:text-dark-300;
   border: 0;
 }
 
 .toc-item:hover {
-  color: var(--md-sys-color-on-surface);
-  background: var(--md-sys-color-surface-container-high);
+  @apply text-gray-900 dark:text-white bg-gray-200 dark:bg-dark-600;
 }
 
 .toc-item.toc-active {
-  @apply font-medium;
-  color: var(--md-sys-color-primary);
-  background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent);
+  @apply text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-900/20 font-medium;
 }
 
 .toc-item.toc-active:hover {
-  background: color-mix(in srgb, var(--md-sys-color-primary) 17%, transparent);
+  @apply bg-primary-100 dark:bg-primary-900/30;
 }
 
 .toc-level-1 { padding-left: 8px; }
@@ -463,15 +456,13 @@ onUnmounted(() => {
 
 .toc-toggle-btn {
   @apply absolute left-2 top-2 z-10 flex items-center px-2 py-1.5 rounded-md text-sm;
-  @apply text-gray-600 dark:text-dark-300 transition-colors cursor-pointer;
+  @apply text-gray-600 dark:text-dark-300 hover:bg-gray-100 dark:hover:bg-dark-600 transition-colors cursor-pointer;
   border: 0;
-  background: transparent;
-  box-shadow: none;
+  @apply bg-white dark:bg-dark-700 shadow-sm;
 }
 
 .toc-toggle-btn:hover {
-  color: var(--md-sys-color-on-surface);
-  background: var(--md-sys-color-surface-container-high);
+  @apply text-gray-900 dark:text-white;
 }
 
 .custom-embed-shell {

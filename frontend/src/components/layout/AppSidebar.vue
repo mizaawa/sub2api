@@ -87,7 +87,7 @@
                 </span>
               </button>
               <!-- Children -->
-              <div v-if="!sidebarCollapsed && isGroupExpanded(item)" class="sidebar-submenu mb-1 ml-4 border-l pl-2">
+              <div v-if="!sidebarCollapsed && isGroupExpanded(item)" class="sidebar-submenu mb-1 ml-4 pl-2">
                 <router-link
                   v-for="child in item.children"
                   :key="child.path"
@@ -955,9 +955,15 @@ onBeforeUnmount(() => {
   margin: 0;
   padding: 0.625rem;
   border: 1px solid transparent;
-  border-radius: 1rem;
-  background: color-mix(in srgb, var(--md-sys-color-surface) 92%, transparent);
-  box-shadow: 0 0.75rem 1.5rem rgb(15 23 42 / 0.08);
+  border-radius: 1.25rem;
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--md-sys-color-surface) 90%, transparent),
+    color-mix(in srgb, var(--md-sys-color-surface-container-high) 82%, var(--md-sys-color-primary))
+  );
+  box-shadow:
+    0 0.9rem 1.7rem rgb(15 23 42 / 0.1),
+    0 0.3rem 0.75rem rgb(15 23 42 / 0.06);
   backdrop-filter: blur(14px) saturate(135%);
 }
 
@@ -969,9 +975,15 @@ onBeforeUnmount(() => {
   left: 0.75rem;
   padding: 0.375rem;
   border: 1px solid transparent;
-  border-radius: 1rem;
-  background: color-mix(in srgb, var(--md-sys-color-surface) 92%, transparent);
-  box-shadow: 0 -0.75rem 1.5rem rgb(15 23 42 / 0.07);
+  border-radius: 1.25rem;
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--md-sys-color-surface) 90%, transparent),
+    color-mix(in srgb, var(--md-sys-color-surface-container-high) 82%, var(--md-sys-color-primary))
+  );
+  box-shadow:
+    0 -0.9rem 1.7rem rgb(15 23 42 / 0.08),
+    0 -0.3rem 0.75rem rgb(15 23 42 / 0.05);
   backdrop-filter: blur(14px) saturate(135%);
 }
 
@@ -982,17 +994,18 @@ onBeforeUnmount(() => {
 
 .admin-panel-toggle {
   border-color: transparent;
+  background: color-mix(in srgb, var(--md-sys-color-surface-container) 82%, var(--md-sys-color-primary));
 }
 
 .admin-panel-section,
 .personal-panel-section {
-  padding: 0.35rem 0;
+  padding: 0.55rem;
   border: 1px solid transparent;
-  border-radius: 0.75rem;
-  background: transparent;
+  border-radius: 1.25rem;
+  background: color-mix(in srgb, var(--md-sys-color-surface) 58%, var(--md-sys-color-surface-container-high));
 }
 
-.sidebar-submenu { border-color: transparent; }
+.sidebar-submenu { border: 0; }
 .mobile-sidebar-backdrop {
   background: rgb(3 28 27 / 0.58);
   backdrop-filter: blur(2px);
@@ -1002,8 +1015,8 @@ onBeforeUnmount(() => {
   flex: 0 0 2.25rem;
   min-width: 2.25rem;
   border: 1px solid transparent;
-  background: var(--md-sys-color-surface-container-high);
-  box-shadow: none;
+  background: var(--md-sys-color-surface);
+  box-shadow: 0 0.25rem 0.75rem rgb(15 23 42 / 0.08);
 }
 
 .sidebar-header-collapsed {
@@ -1048,12 +1061,12 @@ onBeforeUnmount(() => {
 
 .sidebar-header :deep(.version-pill) {
   border-color: transparent;
-  background: var(--md-sys-color-surface-container-high);
-  color: var(--md-sys-color-on-surface-variant);
+  background: color-mix(in srgb, var(--md-sys-color-surface) 64%, var(--md-sys-color-primary));
+  color: color-mix(in srgb, var(--md-sys-color-primary) 72%, var(--md-sys-color-on-surface));
 }
 
 .sidebar-header :deep(.version-pill:hover) {
-  background: var(--md-sys-color-surface-container-high);
+  background: color-mix(in srgb, var(--md-sys-color-surface) 50%, var(--md-sys-color-primary));
 }
 
 .sidebar-header :deep(.version-popover) {
