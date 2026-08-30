@@ -1,5 +1,5 @@
 <template>
-  <AppLayout>
+  <AppLayout class="dashboard-layout">
     <div class="space-y-6">
       <!-- Loading State -->
       <div v-if="loading" class="flex items-center justify-center py-12">

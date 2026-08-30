@@ -950,3 +950,56 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
 }
+
+/* Dashboard surfaces stay visually open; keep their borders transparent while
+ * retaining the existing spacing, separators, and focus behavior. */
+@layer components {
+  .dashboard-layout .app-header,
+  .dashboard-layout .app-header-actions,
+  .dashboard-layout .sidebar-nav,
+  .dashboard-layout .sidebar-header,
+  .dashboard-layout .sidebar-footer,
+  .dashboard-layout .admin-panel-toggle,
+  .dashboard-layout .admin-panel-section,
+  .dashboard-layout .personal-panel-section,
+  .dashboard-layout .sidebar-submenu,
+  .dashboard-layout .sidebar-logo,
+  .dashboard-layout .version-pill,
+  .dashboard-layout .version-popover,
+  .dashboard-layout .header-balance-popover,
+  .dashboard-layout .card,
+  .dashboard-layout .stat-card,
+  .dashboard-layout .table-container,
+  .dashboard-layout .glass-card,
+  .dashboard-layout .card-glass,
+  .dashboard-layout .distribution-toggle,
+  .dashboard-layout .date-picker-trigger,
+  .dashboard-layout .date-picker-dropdown,
+  .dashboard-layout .date-picker-input,
+  .dashboard-layout .date-picker-divider,
+  .dashboard-layout .select-trigger,
+  .dashboard-layout .select-dropdown-portal {
+    border-color: transparent !important;
+  }
+
+  .dashboard-layout .app-header,
+  .dashboard-layout .sidebar-header,
+  .dashboard-layout .sidebar-footer {
+    box-shadow: 0 0.625rem 1.75rem rgb(15 23 42 / 0.08) !important;
+  }
+
+  .dashboard-layout .sidebar-logo {
+    box-shadow: 0 0.25rem 0.75rem rgb(15 23 42 / 0.08) !important;
+  }
+
+  .dashboard-layout .sidebar-footer {
+    box-shadow: 0 -0.625rem 1.75rem rgb(15 23 42 / 0.07) !important;
+  }
+
+  /* Select menus are teleported to body, so keep their dashboard border
+   * transparent while the dashboard shell is mounted. */
+  body:has(.dashboard-layout) .select-dropdown-portal,
+  body:has(.dashboard-layout) .select-dropdown-portal .select-search {
+    border-color: transparent !important;
+  }
+}
