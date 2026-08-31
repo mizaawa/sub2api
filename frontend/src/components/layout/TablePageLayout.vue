@@ -61,7 +61,7 @@ onUnmounted(() => {
 /* 表格滚动容器 - 增强版表体滚动方案 */
 .table-scroll-container {
   @apply flex h-full flex-col overflow-hidden rounded-2xl border shadow-sm;
-  border-color: var(--md-sys-color-outline);
+  border-color: transparent;
   background: var(--md-sys-color-surface);
 }
 
@@ -87,13 +87,13 @@ onUnmounted(() => {
 
 .table-scroll-container :deep(th) {
   @apply border-b px-5 py-4 text-left text-sm font-medium;
-  border-color: var(--md-sys-color-outline);
+  border-color: transparent;
   color: var(--md-sys-color-on-surface-variant);
 }
 
 .table-scroll-container :deep(td) {
   @apply border-b px-5 py-4 text-sm;
-  border-color: color-mix(in srgb, var(--md-sys-color-outline) 60%, transparent);
+  border-color: transparent;
   color: var(--md-sys-color-on-surface);
 }
 

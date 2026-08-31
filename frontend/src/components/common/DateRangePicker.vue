@@ -324,7 +324,7 @@ onUnmounted(() => {
 .date-picker-trigger {
   @apply flex items-center gap-2;
   @apply rounded-xl px-3 py-2 text-sm;
-  border: 1px solid var(--md-sys-color-outline);
+  border: 1px solid transparent;
   background: var(--md-sys-color-surface-container);
   color: var(--md-sys-color-on-surface);
   @apply transition-all duration-200;
@@ -333,12 +333,12 @@ onUnmounted(() => {
 }
 
 .date-picker-trigger:hover {
-  border-color: var(--md-sys-color-primary);
+  border-color: transparent;
   background: var(--md-sys-color-surface-container-high);
 }
 
 .date-picker-trigger-open {
-  border-color: var(--md-sys-color-primary);
+  border-color: transparent;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--md-sys-color-primary) 20%, transparent);
 }
 
@@ -357,7 +357,7 @@ onUnmounted(() => {
 .date-picker-dropdown {
   @apply absolute left-0 z-[100] mt-2;
   @apply rounded-2xl;
-  border: 1px solid var(--md-sys-color-outline);
+  border: 1px solid transparent;
   background: var(--md-sys-color-surface);
   color: var(--md-sys-color-on-surface);
   box-shadow: 0 1rem 2.5rem rgb(45 37 31 / 0.16);
@@ -392,7 +392,7 @@ onUnmounted(() => {
 }
 
 .date-picker-divider {
-  border-top: 1px solid var(--md-sys-color-outline);
+  border-top: 1px solid transparent;
 }
 
 .date-picker-custom {
@@ -410,14 +410,14 @@ onUnmounted(() => {
 
 .date-picker-input {
   @apply w-full rounded-lg px-2 py-1.5 text-sm;
-  border: 1px solid var(--md-sys-color-outline);
+  border: 1px solid transparent;
   background: var(--md-sys-color-surface-container);
   color: var(--md-sys-color-on-surface);
   @apply focus:outline-none;
 }
 
 .date-picker-input:focus {
-  border-color: var(--md-sys-color-primary);
+  border-color: transparent;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--md-sys-color-primary) 20%, transparent);
 }
 

@@ -54,7 +54,7 @@
           resolveRowClass(row, index),
           {
             'cursor-pointer': clickableRows,
-            'border-primary-300 bg-primary-50/40 dark:border-primary-700 dark:bg-primary-900/10': selectable && isRowSelected(row, index)
+            'bg-primary-50/40 dark:bg-primary-900/10': selectable && isRowSelected(row, index)
           }
         ]"
         @click="clickableRows && emit('rowClick', row)"
@@ -984,12 +984,29 @@ defineExpose({
 
 .data-mobile-card,
 .data-empty-panel {
-  border-color: var(--md-sys-color-outline);
+  border-color: transparent;
   background: var(--md-sys-color-surface);
   color: var(--md-sys-color-on-surface);
 }
 
 .data-empty-panel { border: 0; background: transparent; }
+
+/* Keep list structure open on desktop as well. The divide-y utilities add
+ * borders to table descendants, so clear their color without changing row
+ * sizing or the existing surface backgrounds. */
+.table-wrapper > table,
+.table-wrapper > table > thead,
+.table-wrapper > table > tbody,
+.table-wrapper > table > thead > tr,
+.table-wrapper > table > tbody > tr,
+.table-wrapper > table > thead > tr > th,
+.table-wrapper > table > tbody > tr > td {
+  border-color: transparent;
+}
+
+.data-mobile-card .border-t {
+  border-color: transparent;
+}
 
 /* 表头容器，确保在滚动时覆盖表体内容 */
 .table-wrapper .table-header {

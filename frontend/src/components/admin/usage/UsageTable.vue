@@ -723,7 +723,7 @@ const hideTokenTooltip = () => {
 <style scoped>
 .usage-table-frame {
   overflow: hidden;
-  border: 1px solid var(--md-sys-color-outline);
+  border: 1px solid transparent;
   border-radius: 1.25rem;
   background: var(--md-sys-color-surface);
 }

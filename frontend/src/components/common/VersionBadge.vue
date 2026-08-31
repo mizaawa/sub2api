@@ -924,14 +924,14 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .version-pill {
-  border: 1px solid var(--md-sys-color-outline);
+  border: 1px solid transparent;
   border-radius: 9999px;
   background: var(--md-sys-color-surface-container-high);
   line-height: 1.25rem;
 }
 
 .version-popover {
-  border-color: var(--md-sys-color-outline);
+  border-color: transparent;
   border-radius: 1.5rem;
   background: var(--md-sys-color-surface);
   color: var(--md-sys-color-on-surface);
@@ -949,7 +949,7 @@ onBeforeUnmount(() => {
 
 .version-popover :deep(.border-gray-100),
 .version-popover :deep(.border-gray-200) {
-  border-color: var(--md-sys-color-outline);
+  border-color: transparent;
 }
 </style>
 

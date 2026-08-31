@@ -242,7 +242,7 @@ const submitJump = () => {
 
 <style scoped>
 .pagination-shell {
-  border-color: var(--md-sys-color-outline);
+  border-color: transparent;
   border-radius: 0 0 1.25rem 1.25rem;
   background: var(--md-sys-color-surface-container);
   color: var(--md-sys-color-on-surface);
@@ -254,7 +254,7 @@ const submitJump = () => {
 
 .pagination-button,
 .pagination-page-idle {
-  border-color: var(--md-sys-color-outline);
+  border-color: transparent;
   background: var(--md-sys-color-surface);
   color: var(--md-sys-color-on-surface-variant);
   transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
@@ -262,13 +262,13 @@ const submitJump = () => {
 
 .pagination-button:hover:not(:disabled),
 .pagination-page-idle:hover {
-  border-color: var(--md-sys-color-primary);
+  border-color: transparent;
   background: var(--md-sys-color-surface-container-high);
   color: var(--md-sys-color-on-surface);
 }
 
 .pagination-page-active {
-  border-color: var(--md-sys-color-primary);
+  border-color: transparent;
   background: var(--md-sys-color-primary);
   color: var(--md-sys-color-on-primary);
 }

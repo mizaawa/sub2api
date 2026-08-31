@@ -126,16 +126,16 @@ const removeToast = (id: string) => {
 
 <style scoped>
 .toast-card {
-  border: 1px solid var(--md-sys-color-outline);
+  border: 1px solid transparent;
   background: var(--md-sys-color-surface-container-high);
   color: var(--md-sys-color-on-surface);
-  box-shadow: 0 1rem 2rem rgb(6 54 51 / 0.16);
+  box-shadow: 0 1rem 2rem rgb(15 23 42 / 0.12);
 }
 .toast-title, .toast-message { color: var(--md-sys-color-on-surface); }
 .toast-message-muted { color: var(--md-sys-color-on-surface-variant); }
 .toast-close { color: var(--md-sys-color-on-surface-variant); }
 .toast-close:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent); color: var(--md-sys-color-on-surface); }
-.toast-progress-track { background: color-mix(in srgb, var(--md-sys-color-outline) 35%, transparent); }
+.toast-progress-track { background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent); }
 .toast-tone-success { border-left: 4px solid #39c5bb; }
 .toast-tone-error { border-left: 4px solid #ef6f7b; }
 .toast-tone-warning { border-left: 4px solid #e9c46a; }

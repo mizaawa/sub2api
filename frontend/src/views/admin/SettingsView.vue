@@ -12629,9 +12629,9 @@ watch(
   @apply sticky z-20 -mx-1 rounded-2xl border p-2;
   margin-bottom: 0.25rem;
   top: 4.75rem;
-  border-color: var(--md-sys-color-outline);
+  border-color: transparent;
   background: var(--md-sys-color-surface-container-high);
-  box-shadow: 0 10px 24px rgb(15 118 110 / 0.08);
+  box-shadow: 0 10px 24px rgb(15 23 42 / 0.08);
 }
 
 .settings-tabs-scroll {
@@ -12726,7 +12726,7 @@ watch(
    because Vue's scoped-CSS compiler was dropping the `:global(.dark) ...`
    rules in the production build, leaving inactive tabs unreadable on dark. */
 .dark .settings-tabs-shell {
-  border-color: var(--md-sys-color-outline);
+  border-color: transparent;
   background: var(--md-sys-color-surface-container-high);
   box-shadow: none;
 }

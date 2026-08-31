@@ -261,10 +261,10 @@ onUnmounted(() => {
 <style scoped>
 .leaderboard-hero,
 .leaderboard-card {
-  border-color: color-mix(in srgb, var(--md-sys-color-outline) 80%, transparent);
+  border-color: transparent;
   background: var(--md-sys-color-surface);
   color: var(--md-sys-color-on-surface);
-  box-shadow: 0 12px 30px color-mix(in srgb, var(--md-sys-color-primary) 9%, transparent);
+  box-shadow: 0 12px 30px rgb(15 23 42 / 0.08);
 }
 
 .hero-content {
@@ -275,14 +275,14 @@ onUnmounted(() => {
 .hero-description, .muted { color: var(--md-sys-color-on-surface-variant); }
 
 .rank-summary {
-  border-color: color-mix(in srgb, var(--md-sys-color-primary) 36%, var(--md-sys-color-outline));
+  border-color: transparent;
   background: color-mix(in srgb, var(--md-sys-color-primary) 10%, var(--md-sys-color-surface));
 }
 
-.card-toolbar { border-color: color-mix(in srgb, var(--md-sys-color-outline) 70%, transparent); }
+.card-toolbar { border-color: transparent; }
 
 .countdown-badge {
-  border-color: color-mix(in srgb, var(--md-sys-color-primary) 40%, transparent);
+  border-color: transparent;
   background: color-mix(in srgb, var(--md-sys-color-primary) 12%, var(--md-sys-color-surface));
   color: var(--md-sys-color-primary);
 }
@@ -306,7 +306,7 @@ onUnmounted(() => {
 }
 
 .table-heading { background: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface-variant); }
-.table-row { border-top: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 55%, transparent); }
+.table-row { border-top: 1px solid transparent; }
 .table-row:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent); }
 .rank-column { width: 4.25rem; }
 .user-column { width: 34%; }

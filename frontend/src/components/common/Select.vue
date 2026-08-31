@@ -500,16 +500,16 @@ onUnmounted(() => {
   @apply flex w-full items-center justify-between gap-2;
   @apply rounded-xl px-4 py-2.5 text-sm;
   background: var(--md-sys-color-surface-container);
-  border-color: var(--md-sys-color-outline);
+  border-color: transparent;
   color: var(--md-sys-color-on-surface);
   @apply border transition-colors duration-200;
-  @apply focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30;
-  @apply hover:border-gray-300 dark:hover:border-dark-500;
+  @apply focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-500/30;
+  @apply hover:border-transparent dark:hover:border-transparent;
   @apply cursor-pointer;
 }
 
 .select-trigger-open {
-  @apply border-primary-500 ring-2 ring-primary-500/30;
+  @apply border-transparent ring-2 ring-primary-500/30;
 }
 
 .select-trigger-error {
@@ -541,7 +541,7 @@ onUnmounted(() => {
   @apply w-max min-w-[200px];
   background: var(--md-sys-color-surface);
   @apply rounded-xl;
-  border-color: var(--md-sys-color-outline);
+  border-color: transparent;
   color: var(--md-sys-color-on-surface);
   @apply border;
   @apply shadow-lg shadow-black/10 dark:shadow-black/30;
@@ -551,7 +551,7 @@ onUnmounted(() => {
 
 .select-dropdown-portal .select-search {
   @apply flex items-center gap-2 px-3 py-2;
-  border-color: var(--md-sys-color-outline);
+  border-color: transparent;
   @apply border-b;
 }
 

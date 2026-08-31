@@ -226,11 +226,11 @@
   .input {
     @apply w-full rounded-2xl px-4 py-3 text-sm;
     background: var(--md-sys-color-surface-container);
-    border: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 78%, transparent);
+    border: 1px solid transparent;
     @apply text-gray-900 dark:text-gray-100;
     @apply placeholder:text-gray-400 dark:placeholder:text-dark-400;
     @apply transition-all duration-200;
-    @apply focus:border-primary-500 focus:outline-none focus:ring-0;
+    @apply focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-500/30;
     @apply disabled:cursor-not-allowed disabled:bg-gray-100 dark:disabled:bg-dark-900;
   }
 
@@ -328,7 +328,7 @@
     align-items: center;
     gap: 0.125rem;
     padding: 0.1875rem;
-    border: 1px solid var(--md-sys-color-outline);
+    border: 1px solid transparent;
     border-radius: 0.75rem;
     background: var(--md-sys-color-surface-container);
   }
@@ -495,15 +495,15 @@
     @apply w-full;
     @apply max-h-[95vh] sm:max-h-[90vh];
     background: var(--md-sys-color-surface);
-    border: 1px solid var(--md-sys-color-outline);
+    border: 1px solid transparent;
     @apply overflow-hidden rounded-4xl shadow-card-hover;
     @apply flex flex-col;
     min-width: 0;
-    box-shadow: 0 1.5rem 3rem rgb(3 44 42 / 0.24), 0 0.35rem 1rem rgb(23 127 121 / 0.14);
+    box-shadow: 0 1.5rem 3rem rgb(15 23 42 / 0.16), 0 0.35rem 1rem rgb(15 23 42 / 0.08);
   }
 
   .modal-header {
-    border-bottom: 1px solid var(--md-sys-color-outline);
+    border-bottom: 1px solid transparent;
     @apply px-4 py-3;
     @apply sm:px-6 sm:py-4;
     @apply flex items-center justify-between;
@@ -533,8 +533,8 @@
     max-width: calc(100vw - 1rem);
     transform: translate(-50%, -50%);
     background: var(--md-sys-color-surface);
-    border: 1px solid var(--md-sys-color-outline);
-    box-shadow: 0 1.5rem 3rem rgb(3 44 42 / 0.24), 0 0.35rem 1rem rgb(23 127 121 / 0.14);
+    border: 1px solid transparent;
+    box-shadow: 0 1.5rem 3rem rgb(15 23 42 / 0.16), 0 0.35rem 1rem rgb(15 23 42 / 0.08);
   }
 
   @media (max-width: 640px) {
@@ -556,7 +556,7 @@
   }
 
   .modal-footer {
-    border-top: 1px solid var(--md-sys-color-outline);
+    border-top: 1px solid transparent;
     background: var(--md-sys-color-surface-container);
     @apply px-4 py-3;
     @apply sm:px-6 sm:py-4;
@@ -701,7 +701,8 @@
     padding: 6.3rem 0.75rem 5rem;
     border: 1px solid transparent;
     border-radius: 1.5rem;
-    background: transparent;
+    /* Keep the navigation surface visible while the outline stays removed. */
+    background: color-mix(in srgb, var(--md-sys-color-surface) 92%, transparent);
   }
 
   .sidebar-link {
