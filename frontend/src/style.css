@@ -942,6 +942,22 @@
 /* Dashboard surfaces stay visually open; keep their borders transparent while
  * retaining the existing spacing, separators, and focus behavior. */
 @layer components {
+  /* Authenticated sidebar pages use open surfaces. Clear neutral and primary
+   * utility borders in one place so page-specific lists and controls cannot
+   * reintroduce the teal outline. Semantic status borders and spinners stay
+   * visible, while focus rings continue to provide keyboard feedback. */
+  .app-shell [class~='border']:not(.animate-spin):not(.rank-gold):not(.rank-silver):not(.rank-bronze):not([class*='border-red-']):not([class*='border-rose-']):not([class*='border-amber-']):not([class*='border-yellow-']):not([class*='border-orange-']):not([class*='border-green-']):not([class*='border-emerald-']):not([class*='border-blue-']):not([class*='border-sky-']):not([class*='border-indigo-']):not([class*='border-violet-']):not([class*='border-purple-']):not([class*='border-fuchsia-']):not([class*='border-pink-']):not([class*='border-lime-']),
+  .app-shell [class*='border-']:not(.animate-spin):not(.rank-gold):not(.rank-silver):not(.rank-bronze):not([class*='border-red-']):not([class*='border-rose-']):not([class*='border-amber-']):not([class*='border-yellow-']):not([class*='border-orange-']):not([class*='border-green-']):not([class*='border-emerald-']):not([class*='border-blue-']):not([class*='border-sky-']):not([class*='border-indigo-']):not([class*='border-violet-']):not([class*='border-purple-']):not([class*='border-fuchsia-']):not([class*='border-pink-']):not([class*='border-lime-']),
+  body:has(.app-shell) [class~='border']:not(.animate-spin):not(.rank-gold):not(.rank-silver):not(.rank-bronze):not([class*='border-red-']):not([class*='border-rose-']):not([class*='border-amber-']):not([class*='border-yellow-']):not([class*='border-orange-']):not([class*='border-green-']):not([class*='border-emerald-']):not([class*='border-blue-']):not([class*='border-sky-']):not([class*='border-indigo-']):not([class*='border-violet-']):not([class*='border-purple-']):not([class*='border-fuchsia-']):not([class*='border-pink-']):not([class*='border-lime-']),
+  body:has(.app-shell) [class*='border-']:not(.animate-spin):not(.rank-gold):not(.rank-silver):not(.rank-bronze):not([class*='border-red-']):not([class*='border-rose-']):not([class*='border-amber-']):not([class*='border-yellow-']):not([class*='border-orange-']):not([class*='border-green-']):not([class*='border-emerald-']):not([class*='border-blue-']):not([class*='border-sky-']):not([class*='border-indigo-']):not([class*='border-violet-']):not([class*='border-purple-']):not([class*='border-fuchsia-']):not([class*='border-pink-']):not([class*='border-lime-']) {
+    border-color: transparent !important;
+  }
+
+  .app-shell .divide-y > :not([hidden]) ~ :not([hidden]),
+  body:has(.app-shell) .divide-y > :not([hidden]) ~ :not([hidden]) {
+    border-color: transparent !important;
+  }
+
   .dashboard-layout .app-header,
   .dashboard-layout .app-header-actions,
   .dashboard-layout .version-pill,
