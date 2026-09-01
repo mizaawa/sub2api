@@ -98,20 +98,24 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 		if cleanPath == "" {
 			cleanPath = "index.html"
 		}
+		staticPath := cleanPath
+		if strings.HasSuffix(staticPath, "/") {
+			staticPath += "index.html"
+		}
 
 		// For index.html or SPA routes, serve with injected settings
-		if cleanPath == "index.html" || !s.fileExists(cleanPath) {
+		if cleanPath == "index.html" || !s.fileExists(staticPath) {
 			s.serveIndexHTML(c)
 			return
 		}
 
 		// Try local override first
-		if s.tryServeOverride(c, cleanPath) {
+		if s.tryServeOverride(c, staticPath) {
 			return
 		}
 
 		// Serve static files normally (hashed assets get long-lived cache headers)
-		applyStaticAssetCacheHeaders(c.Writer.Header(), cleanPath)
+		applyStaticAssetCacheHeaders(c.Writer.Header(), staticPath)
 		s.fileServer.ServeHTTP(c.Writer, c.Request)
 		c.Abort()
 	}
@@ -320,14 +324,18 @@ func ServeEmbeddedFrontend() gin.HandlerFunc {
 		if cleanPath == "" {
 			cleanPath = "index.html"
 		}
+		staticPath := cleanPath
+		if strings.HasSuffix(staticPath, "/") {
+			staticPath += "index.html"
+		}
 
-		if file, err := distFS.Open(cleanPath); err == nil {
+		if file, err := distFS.Open(staticPath); err == nil {
 			_ = file.Close()
 			// Try local override first
-			if tryServeOverrideFile(c, overrideDir, cleanPath) {
+			if tryServeOverrideFile(c, overrideDir, staticPath) {
 				return
 			}
-			applyStaticAssetCacheHeaders(c.Writer.Header(), cleanPath)
+			applyStaticAssetCacheHeaders(c.Writer.Header(), staticPath)
 			fileServer.ServeHTTP(c.Writer, c.Request)
 			c.Abort()
 			return
