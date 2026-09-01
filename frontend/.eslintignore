@@ -9,6 +9,9 @@ node_modules/
 dist/
 ../backend/internal/web/dist/
 
+# Embedded third-party production bundle (already built and minified)
+public/image-playground-app/
+
 # 忽略缓存
 .cache/
 .vite/
