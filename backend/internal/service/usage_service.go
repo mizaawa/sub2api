@@ -89,6 +89,15 @@ func NewUsageService(usageRepo UsageLogRepository, userRepo UserRepository, entC
 
 // Create 创建使用日志
 func (s *UsageService) Create(ctx context.Context, req CreateUsageLogRequest) (*UsageLog, error) {
+	// This legacy creation path also deducts balance directly, so normalize the
+	// request before both persistence and deduction to keep the two ledgers equal.
+	req.InputCost = QuantizeUsageBillingAmount(req.InputCost)
+	req.OutputCost = QuantizeUsageBillingAmount(req.OutputCost)
+	req.CacheCreationCost = QuantizeUsageBillingAmount(req.CacheCreationCost)
+	req.CacheReadCost = QuantizeUsageBillingAmount(req.CacheReadCost)
+	req.TotalCost = QuantizeUsageBillingAmount(req.TotalCost)
+	req.ActualCost = QuantizeUsageBillingAmount(req.ActualCost)
+
 	// 使用数据库事务保证「使用日志插入」与「扣费」的原子性，避免重复扣费或漏扣风险。
 	tx, err := s.entClient.Tx(ctx)
 	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
@@ -501,6 +510,23 @@ func (s *UsageService) GetBatchAPIKeyUsageStats(ctx context.Context, apiKeyIDs [
 		return nil, fmt.Errorf("get batch api key usage stats: %w", err)
 	}
 	return stats, nil
+}
+
+// GetBatchAPIKeyUsageStatsWithTimezone is the user-facing variant of batch
+// API key statistics. Repositories that support it calculate calendar-day
+// boundaries in the browser's timezone so the result matches /usage/stats.
+func (s *UsageService) GetBatchAPIKeyUsageStatsWithTimezone(ctx context.Context, apiKeyIDs []int64, startTime, endTime time.Time, userTZ string) (map[int64]*usagestats.BatchAPIKeyUsageStats, error) {
+	type timezoneAwareBatchAPIKeyStats interface {
+		GetBatchAPIKeyUsageStatsWithTimezone(context.Context, []int64, time.Time, time.Time, string) (map[int64]*usagestats.BatchAPIKeyUsageStats, error)
+	}
+	if repo, ok := s.usageRepo.(timezoneAwareBatchAPIKeyStats); ok {
+		stats, err := repo.GetBatchAPIKeyUsageStatsWithTimezone(ctx, apiKeyIDs, startTime, endTime, userTZ)
+		if err != nil {
+			return nil, fmt.Errorf("get batch api key usage stats with timezone: %w", err)
+		}
+		return stats, nil
+	}
+	return s.GetBatchAPIKeyUsageStats(ctx, apiKeyIDs, startTime, endTime)
 }
 
 // ListWithFilters lists usage logs with admin filters.

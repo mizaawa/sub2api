@@ -139,6 +139,37 @@ func TestNormalizeQuantizesEveryMonetaryField(t *testing.T) {
 	}
 }
 
+func TestUsageLogNormalizeMonetaryFields(t *testing.T) {
+	accountStatsCost := 0.0000781234567
+	log := &UsageLog{
+		ImageInputCost:    0.100000009,
+		ImageOutputCost:   0.200000005,
+		InputCost:         0.000078125,
+		OutputCost:        0.000078126,
+		CacheCreationCost: 0.000078124,
+		CacheReadCost:     0.0000781234567,
+		TotalCost:         0.300000014,
+		ActualCost:        0.375000015,
+		AccountStatsCost:  &accountStatsCost,
+	}
+
+	log.NormalizeMonetaryFields()
+
+	for name, got := range map[string]float64{
+		"ImageInputCost":    log.ImageInputCost,
+		"ImageOutputCost":   log.ImageOutputCost,
+		"InputCost":         log.InputCost,
+		"OutputCost":        log.OutputCost,
+		"CacheCreationCost": log.CacheCreationCost,
+		"CacheReadCost":     log.CacheReadCost,
+		"TotalCost":         log.TotalCost,
+		"ActualCost":        log.ActualCost,
+		"AccountStatsCost":  *log.AccountStatsCost,
+	} {
+		require.LessOrEqual(t, decimalPlaces(got), int32(UsageBillingMonetaryScale), name)
+	}
+}
+
 // 指纹是请求幂等键，必须仍由原始金额派生：
 // 若量化发生在指纹之前，升级前后同一 request_id 的重试会算出不同指纹，
 // 被误判为 fingerprint conflict。

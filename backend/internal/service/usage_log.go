@@ -208,6 +208,28 @@ type UsageLog struct {
 	Subscription *UserSubscription
 }
 
+// NormalizeMonetaryFields rounds persisted usage amounts to the same
+// NUMERIC(20,8) scale used by balance and quota accounting. Keeping this at
+// the usage-log boundary makes all writers (gateway, batch settlement, and
+// legacy API callers) use the exact amount that was charged.
+func (u *UsageLog) NormalizeMonetaryFields() {
+	if u == nil {
+		return
+	}
+	u.ImageInputCost = QuantizeUsageBillingAmount(u.ImageInputCost)
+	u.ImageOutputCost = QuantizeUsageBillingAmount(u.ImageOutputCost)
+	u.InputCost = QuantizeUsageBillingAmount(u.InputCost)
+	u.OutputCost = QuantizeUsageBillingAmount(u.OutputCost)
+	u.CacheCreationCost = QuantizeUsageBillingAmount(u.CacheCreationCost)
+	u.CacheReadCost = QuantizeUsageBillingAmount(u.CacheReadCost)
+	u.TotalCost = QuantizeUsageBillingAmount(u.TotalCost)
+	u.ActualCost = QuantizeUsageBillingAmount(u.ActualCost)
+	if u.AccountStatsCost != nil {
+		value := QuantizeUsageBillingAmount(*u.AccountStatsCost)
+		u.AccountStatsCost = &value
+	}
+}
+
 func (u *UsageLog) TotalTokens() int {
 	if u == nil {
 		return 0

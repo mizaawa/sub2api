@@ -550,20 +550,38 @@ func (r *usageLogRepository) GetBatchUserUsageStats(ctx context.Context, userIDs
 type BatchAPIKeyUsageStats = usagestats.BatchAPIKeyUsageStats
 
 // GetBatchAPIKeyUsageStats gets today and total actual_cost for multiple API keys within a time range.
-// If startTime is zero, defaults to 30 days ago.
+// If both bounds are zero, defaults to the same 30 natural-day window shown
+// on the user usage page (today plus the preceding 29 calendar days).
 func (r *usageLogRepository) GetBatchAPIKeyUsageStats(ctx context.Context, apiKeyIDs []int64, startTime, endTime time.Time) (map[int64]*BatchAPIKeyUsageStats, error) {
+	return r.getBatchAPIKeyUsageStats(ctx, apiKeyIDs, startTime, endTime, "")
+}
+
+// GetBatchAPIKeyUsageStatsWithTimezone uses the supplied IANA timezone for
+// default date boundaries and the "today" bucket. User-facing API key
+// statistics must use the same timezone as /usage/stats, while admin callers
+// keep the server-timezone behavior of GetBatchAPIKeyUsageStats.
+func (r *usageLogRepository) GetBatchAPIKeyUsageStatsWithTimezone(ctx context.Context, apiKeyIDs []int64, startTime, endTime time.Time, userTZ string) (map[int64]*BatchAPIKeyUsageStats, error) {
+	return r.getBatchAPIKeyUsageStats(ctx, apiKeyIDs, startTime, endTime, userTZ)
+}
+
+func (r *usageLogRepository) getBatchAPIKeyUsageStats(ctx context.Context, apiKeyIDs []int64, startTime, endTime time.Time, userTZ string) (map[int64]*BatchAPIKeyUsageStats, error) {
 	result := make(map[int64]*BatchAPIKeyUsageStats)
 	normalizedAPIKeyIDs := normalizePositiveInt64IDs(apiKeyIDs)
 	if len(normalizedAPIKeyIDs) == 0 {
 		return result, nil
 	}
 
-	// 默认最近 30 天
-	if startTime.IsZero() {
-		startTime = time.Now().AddDate(0, 0, -30)
-	}
-	if endTime.IsZero() {
-		endTime = time.Now()
+	now := timezone.NowInUserLocation(userTZ)
+	if startTime.IsZero() && endTime.IsZero() {
+		startTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -29), userTZ)
+		endTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, 1), userTZ)
+	} else {
+		if startTime.IsZero() {
+			startTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -29), userTZ)
+		}
+		if endTime.IsZero() {
+			endTime = now
+		}
 	}
 
 	for _, id := range normalizedAPIKeyIDs {
@@ -580,7 +598,7 @@ func (r *usageLogRepository) GetBatchAPIKeyUsageStats(ctx context.Context, apiKe
 		  AND created_at >= LEAST($2, $4)
 		GROUP BY api_key_id
 	`
-	today := timezone.Today()
+	today := timezone.StartOfDayInUserLocation(now, userTZ)
 	rows, err := r.sql.QueryContext(ctx, query, pq.Array(normalizedAPIKeyIDs), startTime, endTime, today)
 	if err != nil {
 		return nil, err

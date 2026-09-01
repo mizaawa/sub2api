@@ -755,6 +755,7 @@ func parseBoolQueryWithDefault(c *gin.Context, key string, fallback bool) (bool,
 // BatchAPIKeysUsageRequest represents the request for batch API keys usage
 type BatchAPIKeysUsageRequest struct {
 	APIKeyIDs []int64 `json:"api_key_ids" binding:"required"`
+	Timezone  string  `json:"timezone"`
 }
 
 // DashboardAPIKeysUsage handles getting usage stats for user's own API keys
@@ -794,7 +795,7 @@ func (h *UsageHandler) DashboardAPIKeysUsage(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.usageService.GetBatchAPIKeyUsageStats(c.Request.Context(), validAPIKeyIDs, time.Time{}, time.Time{})
+	stats, err := h.usageService.GetBatchAPIKeyUsageStatsWithTimezone(c.Request.Context(), validAPIKeyIDs, time.Time{}, time.Time{}, strings.TrimSpace(req.Timezone))
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

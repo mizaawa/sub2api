@@ -1223,6 +1223,9 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 }
 
 func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
+	// Normalize at the repository boundary as a final guard for every writer,
+	// including historical/administrative paths that bypass gateway billing.
+	log.NormalizeMonetaryFields()
 	createdAt := log.CreatedAt
 	if createdAt.IsZero() {
 		createdAt = time.Now()

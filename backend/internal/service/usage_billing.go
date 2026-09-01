@@ -44,6 +44,23 @@ type UsageBillingCommand struct {
 	AccountQuotaCost    float64
 }
 
+// NormalizeMonetaryFields rounds every billable component to the database
+// accounting scale. The normalized values are reused by balance, quota,
+// cache, notifications, and usage-log persistence so all ledgers agree.
+func (c *CostBreakdown) NormalizeMonetaryFields() {
+	if c == nil {
+		return
+	}
+	c.InputCost = QuantizeUsageBillingAmount(c.InputCost)
+	c.ImageInputCost = QuantizeUsageBillingAmount(c.ImageInputCost)
+	c.OutputCost = QuantizeUsageBillingAmount(c.OutputCost)
+	c.ImageOutputCost = QuantizeUsageBillingAmount(c.ImageOutputCost)
+	c.CacheCreationCost = QuantizeUsageBillingAmount(c.CacheCreationCost)
+	c.CacheReadCost = QuantizeUsageBillingAmount(c.CacheReadCost)
+	c.TotalCost = QuantizeUsageBillingAmount(c.TotalCost)
+	c.ActualCost = QuantizeUsageBillingAmount(c.ActualCost)
+}
+
 func (c *UsageBillingCommand) Normalize() {
 	if c == nil {
 		return
@@ -191,6 +208,8 @@ func (c *BatchImageBalanceHoldCommand) Normalize() {
 	if strings.TrimSpace(c.RequestFingerprint) == "" {
 		c.RequestFingerprint = buildBatchImageBalanceHoldFingerprint(c)
 	}
+	c.HoldAmount = QuantizeUsageBillingAmount(c.HoldAmount)
+	c.ActualAmount = QuantizeUsageBillingAmount(c.ActualAmount)
 }
 
 func buildBatchImageBalanceHoldFingerprint(c *BatchImageBalanceHoldCommand) string {

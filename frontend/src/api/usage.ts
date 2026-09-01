@@ -342,10 +342,17 @@ export async function getDashboardApiKeysUsage(
     signal?: AbortSignal
   }
 ): Promise<BatchApiKeysUsageResponse> {
+  let timezone = 'UTC'
+  try {
+    timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || timezone
+  } catch {
+    // Keep UTC when the runtime does not expose an IANA timezone.
+  }
   const { data } = await apiClient.post<BatchApiKeysUsageResponse>(
     '/usage/dashboard/api-keys-usage',
     {
-      api_key_ids: apiKeyIds
+      api_key_ids: apiKeyIds,
+      timezone,
     },
     {
       signal: options?.signal
