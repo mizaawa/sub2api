@@ -7,6 +7,13 @@ import { describe, expect, it } from 'vitest'
 const componentPath = resolve(dirname(fileURLToPath(import.meta.url)), '../ImagePlaygroundView.vue')
 const componentSource = readFileSync(componentPath, 'utf8')
 const standaloneIndexPath = resolve(dirname(componentPath), '../../../public/image-playground/index.html')
+const standaloneIndex = readFileSync(standaloneIndexPath, 'utf8')
+const standaloneScriptPath = resolve(
+  dirname(standaloneIndexPath),
+  'assets',
+  standaloneIndex.match(/src="\.\/assets\/(index-[^"]+\.js)"/)?.[1] ?? '',
+)
+const standaloneScript = readFileSync(standaloneScriptPath, 'utf8')
 
 describe('Image playground launcher', () => {
   it('opens the standalone project instead of embedding a local workbench', () => {
@@ -19,12 +26,23 @@ describe('Image playground launcher', () => {
     expect(componentSource).toContain("const STANDALONE_CONFIG_PREFIX = 'sub2api-image-playground:'")
     expect(componentSource).toContain('window.name = `${STANDALONE_CONFIG_PREFIX}${JSON.stringify(settings)}`')
     expect(componentSource).toContain('window.location.replace(STANDALONE_IMAGE_PLAYGROUND_PATH)')
+    expect(componentSource).toContain('userGroupsAPI.getAvailable()')
+    expect(componentSource).toContain('const keyByGroup = new Map<number, ApiKey>()')
+  })
+
+  it('imports window configuration and clears the credential carrier in the standalone build', () => {
+    expect(standaloneIndex).toContain('assets/index-')
+    expect(standaloneScript).toContain('sub2api-image-playground:')
+    expect(standaloneScript).toContain('Failed to import Sub2API window configuration')
+    expect(standaloneScript).toContain('window.name=""')
   })
 
   it('passes the selected Sub2API async profile to the standalone project', () => {
     expect(componentSource).toContain("provider: 'sb2api-async'")
     expect(componentSource).toContain("baseUrl: buildGatewayUrl('/v1')")
     expect(componentSource).toContain('apiKey: candidate.key')
+    expect(componentSource).toContain('modelOptions: modelsByKeyId.value[candidate.id]')
+    expect(componentSource).toContain('id: `sub2api-group-${candidate.group_id')
     expect(componentSource).toContain('function buildStandaloneSettings')
   })
 

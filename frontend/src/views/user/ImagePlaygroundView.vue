@@ -38,6 +38,7 @@ import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import { keysAPI } from '@/api/keys'
+import { userGroupsAPI } from '@/api/groups'
 import { buildGatewayUrl } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import type { ApiKey } from '@/types'
@@ -55,6 +56,7 @@ const authStore = useAuthStore()
 const imageKeys = ref<ApiKey[]>([])
 const selectedKeyId = ref<number | null>(null)
 const models = ref<GatewayModel[]>([])
+const modelsByKeyId = ref<Record<number, string[]>>({})
 const selectedModel = ref<string | null>(null)
 const loadingKeys = ref(true)
 const loadingModels = ref(false)
@@ -78,6 +80,13 @@ function defaultModelForKey(key: ApiKey): string {
   return key.group?.platform === 'grok' ? 'grok-imagine' : 'gpt-image-2'
 }
 
+function keyHasRemainingQuota(key: ApiKey): boolean {
+  const quota = Number(key.quota)
+  const used = Number(key.quota_used)
+  const hasLimit = Number.isFinite(quota) && quota > 0
+  return !hasLimit || !Number.isFinite(used) || used < quota
+}
+
 function chooseDefaultModel(key: ApiKey, available: GatewayModel[]): string {
   const ids = available.map((model) => model.id || '').filter(Boolean)
   const preferred = key.group?.platform === 'grok'
@@ -92,19 +101,33 @@ async function loadKeys(): Promise<void> {
   try {
     const keys: ApiKey[] = []
     let page = 1
+    const availableGroups = await userGroupsAPI.getAvailable()
+    const groupsById = new Map(availableGroups.map((group) => [group.id, group]))
     while (true) {
       const response = await keysAPI.list(page, 100, {
         status: 'active',
         sort_by: 'created_at',
         sort_order: 'desc',
       })
-      keys.push(...(response.items || []).filter(keyAllowsImageGeneration))
+      keys.push(...(response.items || []).map((key) => ({
+        ...key,
+        group: key.group_id != null ? groupsById.get(key.group_id) : undefined,
+      })).filter((key) => key.group != null && keyAllowsImageGeneration(key)))
       if (page >= response.pages || !response.items?.length) break
       page += 1
     }
-    imageKeys.value = keys
-    if (!keys.some((key) => key.id === selectedKeyId.value)) {
-      selectedKeyId.value = keys[0]?.id ?? null
+    // A group can have several user keys. Prefer a key with remaining quota,
+    // then keep the newest active key as the billing identity for that group.
+    const keyByGroup = new Map<number, ApiKey>()
+    for (const key of keys) {
+      const groupId = key.group_id ?? key.group?.id
+      if (groupId == null) continue
+      const existing = keyByGroup.get(groupId)
+      if (!existing || (!keyHasRemainingQuota(existing) && keyHasRemainingQuota(key))) keyByGroup.set(groupId, key)
+    }
+    imageKeys.value = [...keyByGroup.values()]
+    if (!imageKeys.value.some((key) => key.id === selectedKeyId.value)) {
+      selectedKeyId.value = imageKeys.value[0]?.id ?? null
     }
     if (selectedKey.value) await loadModels()
   } catch (error) {
@@ -127,22 +150,33 @@ async function loadModels(): Promise<void> {
 
   loadingModels.value = true
   try {
-    const response = await fetch(buildGatewayUrl('/v1/models'), {
-      headers: { Authorization: `Bearer ${key.key}` },
-    })
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const body = await response.json() as { data?: GatewayModel[] }
-    const available = (body.data || []).filter((model) => {
-      const id = String(model.id || '').toLowerCase()
-      if (key.group?.platform === 'grok') {
-        return id.startsWith('grok-imagine') && !id.includes('video')
+    const entries = await Promise.all(imageKeys.value.map(async (candidate) => {
+      try {
+        const response = await fetch(buildGatewayUrl('/v1/models'), {
+          headers: { Authorization: `Bearer ${candidate.key}` },
+        })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const body = await response.json() as { data?: GatewayModel[] }
+        const available = (body.data || []).filter((model) => {
+          const id = String(model.id || '').toLowerCase()
+          if (candidate.group?.platform === 'grok') {
+            return id.startsWith('grok-imagine') && !id.includes('video')
+          }
+          if (candidate.group?.platform === 'openai') {
+            return id.includes('image') || id.includes('dall-e')
+          }
+          return (id.includes('image') || id.includes('imagine') || id.includes('dall-e')) && !id.includes('video')
+        })
+        const ids = [...new Set(available.map((model) => model.id).filter((id): id is string => Boolean(id)))]
+        return [candidate.id, ids.length ? ids : [defaultModelForKey(candidate)]] as const
+      } catch (error) {
+        console.warn(`Failed to load models for image group ${candidate.group?.name || candidate.group_id}:`, error)
+        return [candidate.id, [defaultModelForKey(candidate)]] as const
       }
-      if (key.group?.platform === 'openai') {
-        return id.includes('image') || id.includes('dall-e')
-      }
-      return (id.includes('image') || id.includes('imagine') || id.includes('dall-e')) && !id.includes('video')
-    })
-    models.value = available.length ? available : [{ id: defaultModelForKey(key) }]
+    }))
+    modelsByKeyId.value = Object.fromEntries(entries)
+    const selectedAvailable = modelsByKeyId.value[key.id] || [defaultModelForKey(key)]
+    models.value = selectedAvailable.map((id) => ({ id }))
     selectedModel.value = chooseDefaultModel(key, models.value)
   } catch (error) {
     console.warn('Failed to load image playground models:', error)
@@ -156,12 +190,15 @@ async function loadModels(): Promise<void> {
 
 function buildStandaloneSettings(key: ApiKey, model: string): Record<string, unknown> {
   const profiles = imageKeys.value.map((candidate) => ({
-    id: candidate.id === key.id ? 'sub2api-integrated' : `sub2api-integrated-${candidate.id}`,
-    name: `${candidate.group?.name || 'Sub2API'} · ${candidate.name}`,
+    id: `sub2api-group-${candidate.group_id ?? candidate.group?.id ?? candidate.id}`,
+    name: candidate.group?.name || `Sub2API 分组 ${candidate.group_id ?? candidate.id}`,
+    description: `Sub2API 分组 · ${candidate.name}`,
+    groupId: candidate.group_id ?? candidate.group?.id,
     provider: 'sb2api-async',
     baseUrl: buildGatewayUrl('/v1'),
     apiKey: candidate.key,
     model: candidate.id === key.id ? model : defaultModelForKey(candidate),
+    modelOptions: modelsByKeyId.value[candidate.id] || [defaultModelForKey(candidate)],
     timeout: 600,
     apiMode: 'images',
     transparentBackgroundMethod: 'api',
@@ -170,7 +207,7 @@ function buildStandaloneSettings(key: ApiKey, model: string): Record<string, unk
   return {
     customProviders: [],
     profiles,
-    activeProfileId: 'sub2api-integrated',
+    activeProfileId: `sub2api-group-${key.group_id ?? key.group?.id ?? key.id}`,
   }
 }
 
