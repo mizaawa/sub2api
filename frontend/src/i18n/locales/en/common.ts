@@ -211,6 +211,7 @@ export default {
     frozenBalance: 'Frozen balance',
     loading: 'Loading image playground...',
     loadingModels: 'Loading models...',
+    opening: 'Opening the standalone image playground...',
     refresh: 'Refresh groups, models, and balance',
     noAccessTitle: 'No image-enabled group is available',
     noAccessDescription: 'Create an API key for an OpenAI, Grok, or composite group with image generation enabled.',

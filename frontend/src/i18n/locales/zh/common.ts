@@ -211,6 +211,7 @@ export default {
     frozenBalance: '冻结金额',
     loading: '正在加载图片创作台...',
     loadingModels: '正在加载模型...',
+    opening: '正在打开独立图片创作台...',
     refresh: '刷新分组、模型和余额',
     noAccessTitle: '暂无可用的生图分组',
     noAccessDescription: '需要一个已启用生图权限的 OpenAI、Grok 或组合分组 API 密钥。',
