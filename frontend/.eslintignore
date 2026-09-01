@@ -9,8 +9,8 @@ node_modules/
 dist/
 ../backend/internal/web/dist/
 
-# Embedded third-party production bundle (already built and minified)
-public/image-playground-app/
+# Embedded GPT Image Playground production bundle (already built and minified)
+public/image-playground/
 
 # 忽略缓存
 .cache/

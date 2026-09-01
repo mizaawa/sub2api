@@ -47,8 +47,8 @@ interface GatewayModel {
   display_name?: string
 }
 
-const DEFAULT_IMAGE_PLAYGROUND_URL = 'https://api.relaycat.top/image-playground/'
-const imagePlaygroundUrl = String(import.meta.env.VITE_IMAGE_PLAYGROUND_URL || DEFAULT_IMAGE_PLAYGROUND_URL).trim()
+const STANDALONE_IMAGE_PLAYGROUND_PATH = '/image-playground/'
+const STANDALONE_CONFIG_PREFIX = 'sub2api-image-playground:'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -154,31 +154,35 @@ async function loadModels(): Promise<void> {
   }
 }
 
-function buildStandaloneUrl(key: ApiKey, model: string): string {
-  const target = new URL(imagePlaygroundUrl, window.location.origin)
-  const settings = {
+function buildStandaloneSettings(key: ApiKey, model: string): Record<string, unknown> {
+  const profiles = imageKeys.value.map((candidate) => ({
+    id: candidate.id === key.id ? 'sub2api-integrated' : `sub2api-integrated-${candidate.id}`,
+    name: `${candidate.group?.name || 'Sub2API'} · ${candidate.name}`,
+    provider: 'sb2api-async',
+    baseUrl: buildGatewayUrl('/v1'),
+    apiKey: candidate.key,
+    model: candidate.id === key.id ? model : defaultModelForKey(candidate),
+    timeout: 600,
+    apiMode: 'images',
+    transparentBackgroundMethod: 'api',
+  }))
+
+  return {
     customProviders: [],
-    profiles: [{
-      id: 'sub2api-integrated',
-      name: `${key.group?.name || 'Sub2API'} · ${key.name}`,
-      provider: 'sb2api-async',
-      baseUrl: buildGatewayUrl('/v1'),
-      apiKey: key.key,
-      model,
-      timeout: 600,
-      apiMode: 'images',
-      transparentBackgroundMethod: 'api',
-    }],
+    profiles,
+    activeProfileId: 'sub2api-integrated',
   }
-  target.searchParams.set('settings', JSON.stringify(settings))
-  return target.toString()
 }
 
 function redirectToStandalone(): void {
   if (redirecting.value || !selectedKey.value || !selectedModel.value) return
   try {
     redirecting.value = true
-    window.location.replace(buildStandaloneUrl(selectedKey.value, selectedModel.value))
+    const settings = buildStandaloneSettings(selectedKey.value, selectedModel.value)
+    // The standalone build reads this once on startup and clears window.name.
+    // Keeping credentials out of the URL also avoids leaking them via history or referrers.
+    window.name = `${STANDALONE_CONFIG_PREFIX}${JSON.stringify(settings)}`
+    window.location.replace(STANDALONE_IMAGE_PLAYGROUND_PATH)
   } catch (error) {
     console.error('Failed to open standalone image playground:', error)
     redirecting.value = false
