@@ -154,6 +154,7 @@ export default {
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
+    imagePlayground: 'View Tool',
     batchImage: 'Batch Images',
     usage: 'Usage',
     redeem: 'Redeem',
@@ -200,6 +201,24 @@ export default {
     contentModeration: 'Content Moderation',
     promptAudit: 'Prompt Audit',
     auditLogs: 'Audit Logs',
+  },
+
+  imagePlayground: {
+    title: 'Image Playground',
+    keyLabel: 'Image group and key',
+    modelLabel: 'Model',
+    availableBalance: 'Available balance',
+    frozenBalance: 'Frozen balance',
+    loading: 'Loading image playground...',
+    loadingModels: 'Loading models...',
+    refresh: 'Refresh groups, models, and balance',
+    noAccessTitle: 'No image-enabled group is available',
+    noAccessDescription: 'Create an API key for an OpenAI, Grok, or composite group with image generation enabled.',
+    manageKeys: 'Manage API keys',
+    loadFailed: 'Failed to load image configuration',
+    modelsFailed: 'The model list could not be loaded. A default model is being used.',
+    keyOption: '{group} · {key}',
+    playgroundTitle: 'GPT Image Playground',
   },
 
   // Auth

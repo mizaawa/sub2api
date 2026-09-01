@@ -307,6 +307,37 @@ const KeyIcon = {
     )
 }
 
+// View-tool icon supplied by the image playground design.  Keep the artwork
+// transparent and inherit the sidebar link colour so active/hover states stay
+// consistent with the rest of the navigation.
+const ViewToolIcon = {
+  render: () =>
+    h(
+      'svg',
+      {
+        fill: 'none',
+        viewBox: '0 0 48 48',
+        stroke: 'currentColor',
+        'stroke-width': '4',
+        'stroke-linejoin': 'round',
+        opacity: '0.72',
+      },
+      [
+        h('path', {
+          d: 'M34 6H14C9.58172 6 6 9.58172 6 14V34C6 38.4183 9.58172 42 14 42H34C38.4183 42 42 38.4183 42 34V14C42 9.58172 38.4183 6 34 6Z',
+        }),
+        h('path', {
+          d: 'M24 32C28.4183 32 32 28.4183 32 24C32 19.5817 28.4183 16 24 16C19.5817 16 16 19.5817 16 24C16 28.4183 19.5817 32 24 32Z',
+        }),
+        h('path', {
+          d: 'M35 15C36.1046 15 37 14.1046 37 13C37 11.8954 36.1046 11 35 11C33.8954 11 33 11.8954 33 13C33 14.1046 33.8954 15 35 15Z',
+          fill: 'currentColor',
+          stroke: 'none',
+        }),
+      ],
+    ),
+}
+
 const BatchImageIcon = {
   render: () =>
     h(
@@ -691,7 +722,7 @@ const flagBatchImageAccess = () => canUseBatchImage.value
 // buildSelfNavItems 构造用户自己的导航项（用户端主菜单和管理员的"我的账户"子菜单共享这组声明）。
 // withDashboard=true 时包含仪表盘（用户端），false 时不含（管理员的个人区已经有独立仪表盘入口）。
 //
-// 条目顺序：密钥 → 用量 → 可用渠道 → 渠道状态 → 订阅/支付 → 兑换/资料。
+// 条目顺序：密钥 → 视图工具 → 批量生图 → 用量 → 可用渠道 → 渠道状态 → 订阅/支付 → 兑换/资料。
 // 可用渠道紧挨渠道状态之上，让用户"先看自己能用什么、再看对应状态"。
 function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   const items: NavItem[] = []
@@ -700,6 +731,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   }
   items.push(
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
+    { path: '/image-playground', label: t('nav.imagePlayground'), icon: ViewToolIcon },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },

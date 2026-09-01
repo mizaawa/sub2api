@@ -216,6 +216,17 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/image-playground',
+    name: 'ImagePlayground',
+    component: () => import('@/views/user/ImagePlaygroundView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Image Playground',
+      titleKey: 'nav.imagePlayground',
+    }
+  },
+  {
     path: '/batch-image',
     name: 'BatchImageGuide',
     alias: '/docs/batch-image',

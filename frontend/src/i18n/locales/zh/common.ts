@@ -155,6 +155,7 @@ export default {
     dashboard: '仪表盘',
     announcements: '公告',
     apiKeys: 'API 密钥',
+    imagePlayground: '视图工具',
     batchImage: '批量生图',
     usage: '使用记录',
     redeem: '兑换',
@@ -200,6 +201,24 @@ export default {
     contentModeration: '内容审核',
     promptAudit: '提示词审计',
     auditLogs: '操作日志',
+  },
+
+  imagePlayground: {
+    title: '图片创作台',
+    keyLabel: '生图分组与密钥',
+    modelLabel: '模型',
+    availableBalance: '可用余额',
+    frozenBalance: '冻结金额',
+    loading: '正在加载图片创作台...',
+    loadingModels: '正在加载模型...',
+    refresh: '刷新分组、模型和余额',
+    noAccessTitle: '暂无可用的生图分组',
+    noAccessDescription: '需要一个已启用生图权限的 OpenAI、Grok 或组合分组 API 密钥。',
+    manageKeys: '管理 API 密钥',
+    loadFailed: '加载生图配置失败',
+    modelsFailed: '模型列表加载失败，已使用默认模型。',
+    keyOption: '{group} · {key}',
+    playgroundTitle: 'GPT Image Playground',
   },
 
   // Auth
