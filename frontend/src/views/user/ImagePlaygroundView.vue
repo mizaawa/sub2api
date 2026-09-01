@@ -75,7 +75,7 @@
           <h2 class="text-base font-semibold text-gray-900">{{ t('imagePlayground.noAccessTitle') }}</h2>
           <p class="mt-1 max-w-lg text-sm text-gray-500">{{ t('imagePlayground.noAccessDescription') }}</p>
         </div>
-        <RouterLink to="/keys" class="btn btn-primary">
+        <RouterLink :to="{ path: '/keys', query: { returnTo: '/image-playground' } }" class="btn btn-primary">
           {{ t('imagePlayground.manageKeys') }}
         </RouterLink>
       </div>

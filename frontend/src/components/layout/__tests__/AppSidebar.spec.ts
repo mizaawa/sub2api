@@ -72,6 +72,15 @@ describe('AppSidebar grouped navigation', () => {
   })
 })
 
+describe('AppSidebar image playground navigation', () => {
+  it('opens the view tool in a separate browsing context', () => {
+    expect(componentSource).toContain("openInNewWindow: true")
+    expect(componentSource).toContain(":target=\"item.openInNewWindow ? '_blank' : undefined\"")
+    expect(componentSource).toContain(":rel=\"item.openInNewWindow ? 'noopener noreferrer' : undefined\"")
+    expect(componentSource).toContain("resolveNavHref(item.path)")
+  })
+})
+
 describe('AppSidebar console appearance', () => {
   it('removes the console theme toggle without changing the saved Home preference', () => {
     expect(componentSource).not.toContain('@click="toggleTheme"')

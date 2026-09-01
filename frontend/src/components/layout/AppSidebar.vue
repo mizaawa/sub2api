@@ -102,9 +102,13 @@
               </div>
             </template>
             <!-- Normal item (no children) -->
-            <router-link
+            <component
+              :is="item.openInNewWindow ? 'a' : 'router-link'"
               v-else
-              :to="item.path"
+              :to="item.openInNewWindow ? undefined : item.path"
+              :href="item.openInNewWindow ? resolveNavHref(item.path) : undefined"
+              :target="item.openInNewWindow ? '_blank' : undefined"
+              :rel="item.openInNewWindow ? 'noopener noreferrer' : undefined"
               class="sidebar-link mb-1"
               :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
               :title="sidebarCollapsed ? item.label : undefined"
@@ -122,7 +126,7 @@
               <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
               <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
               <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
-            </router-link>
+            </component>
           </template>
         </div>
 
@@ -134,10 +138,14 @@
             </span>
           </div>
 
-          <router-link
+          <component
+            :is="item.openInNewWindow ? 'a' : 'router-link'"
             v-for="item in personalNavItems"
             :key="item.path"
-            :to="item.path"
+            :to="item.openInNewWindow ? undefined : item.path"
+            :href="item.openInNewWindow ? resolveNavHref(item.path) : undefined"
+            :target="item.openInNewWindow ? '_blank' : undefined"
+            :rel="item.openInNewWindow ? 'noopener noreferrer' : undefined"
             class="sidebar-link mb-1"
             :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
             :title="sidebarCollapsed ? item.label : undefined"
@@ -147,17 +155,21 @@
             <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
             <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
             <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
-          </router-link>
+          </component>
         </div>
       </template>
 
       <!-- Regular User View -->
       <template v-else-if="!appStore.backendModeEnabled">
         <div class="sidebar-section">
-          <router-link
+          <component
+            :is="item.openInNewWindow ? 'a' : 'router-link'"
             v-for="item in userNavItems"
             :key="item.path"
-            :to="item.path"
+            :to="item.openInNewWindow ? undefined : item.path"
+            :href="item.openInNewWindow ? resolveNavHref(item.path) : undefined"
+            :target="item.openInNewWindow ? '_blank' : undefined"
+            :rel="item.openInNewWindow ? 'noopener noreferrer' : undefined"
             class="sidebar-link mb-1"
             :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
             :title="sidebarCollapsed ? item.label : undefined"
@@ -167,7 +179,7 @@
             <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
             <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
             <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
-          </router-link>
+          </component>
         </div>
       </template>
     </nav>
@@ -218,6 +230,7 @@ interface NavItem {
   icon: unknown
   iconSvg?: string
   hideInSimpleMode?: boolean
+  openInNewWindow?: boolean
   children?: NavItem[]
   /**
    * When true, the parent item only toggles the expand/collapse state and
@@ -731,7 +744,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   }
   items.push(
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
-    { path: '/image-playground', label: t('nav.imagePlayground'), icon: ViewToolIcon },
+    { path: '/image-playground', label: t('nav.imagePlayground'), icon: ViewToolIcon, openInNewWindow: true },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },
@@ -901,6 +914,10 @@ function handleMenuItemClick(itemPath: string) {
 
 function isActive(path: string): boolean {
   return route.path === path || route.path.startsWith(path + '/')
+}
+
+function resolveNavHref(path: string): string {
+  return router.resolve(path).href
 }
 
 function isGroupActive(item: NavItem): boolean {

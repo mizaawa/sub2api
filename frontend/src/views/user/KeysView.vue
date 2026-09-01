@@ -1124,14 +1124,17 @@
 </template>
 
 <script setup lang="ts">
-	import { ref, reactive, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
-	import { useI18n } from 'vue-i18n'
-	import { useAppStore } from '@/stores/app'
-	import { useOnboardingStore } from '@/stores/onboarding'
-	import { useClipboard } from '@/composables/useClipboard'
+import { ref, reactive, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
+import { useAppStore } from '@/stores/app'
+import { useOnboardingStore } from '@/stores/onboarding'
+import { useClipboard } from '@/composables/useClipboard'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
@@ -1723,6 +1726,7 @@ const handleSubmit = async () => {
     rate_limit_7d: formData.value.rate_limit_7d && formData.value.rate_limit_7d > 0 ? formData.value.rate_limit_7d : 0,
   } : { rate_limit_5h: 0, rate_limit_1d: 0, rate_limit_7d: 0 }
 
+  const isCreating = !showEditModal.value
   submitting.value = true
   try {
     if (showEditModal.value && selectedKey.value) {
@@ -1761,6 +1765,10 @@ const handleSubmit = async () => {
       }
     }
     closeModals()
+    if (isCreating && route.query.returnTo === '/image-playground') {
+      await router.replace('/image-playground')
+      return
+    }
     loadApiKeys()
   } catch (error: any) {
     const errorMsg = error.response?.data?.detail || t('keys.failedToSave')

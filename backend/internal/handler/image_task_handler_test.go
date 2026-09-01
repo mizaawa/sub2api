@@ -106,6 +106,46 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 	require.Contains(t, pollWriter.Body.String(), "https://example.test/image.png")
 }
 
+func TestAsyncImageHandlerSubmitUsesResolvedCompositeTarget(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := &asyncImageMemoryStore{tasks: make(map[string]*service.ImageTaskRecord)}
+	tasks := service.NewImageTaskServiceWithUploader(store, nil, time.Hour, time.Minute)
+	platformSeen := make(chan string, 1)
+	h := &AsyncImageHandler{tasks: tasks}
+	h.execute = func(platform string, c *gin.Context) {
+		platformSeen <- platform
+		c.JSON(http.StatusOK, gin.H{"data": []gin.H{{"url": "https://example.test/image.png"}}})
+	}
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		groupID := int64(3)
+		apiKey := &service.APIKey{
+			ID:      9,
+			UserID:  7,
+			GroupID: &groupID,
+			Group:   &service.Group{ID: groupID, Platform: service.PlatformComposite, AllowImageGeneration: true},
+		}
+		c.Set(string(middleware2.ContextKeyAPIKey), apiKey)
+		c.Request = c.Request.WithContext(service.WithResolvedTargetPlatform(c.Request.Context(), service.PlatformOpenAI))
+		c.Next()
+	})
+	router.POST("/v1/images/generations/async", h.Submit)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations/async", strings.NewReader(`{"model":"image-alias","prompt":"cat"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusAccepted, w.Code)
+
+	select {
+	case platform := <-platformSeen:
+		require.Equal(t, service.PlatformOpenAI, platform)
+	case <-time.After(time.Second):
+		t.Fatal("async image task did not execute")
+	}
+}
+
 // When object storage is not configured the feature is fully disabled: the
 // endpoints must return 404 without creating a task or writing to Redis.
 func TestAsyncImageHandlerDisabledReturns404(t *testing.T) {

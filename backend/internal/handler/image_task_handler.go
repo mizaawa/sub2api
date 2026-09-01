@@ -62,6 +62,12 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 	if apiKey.Group != nil {
 		platform = apiKey.Group.Platform
 	}
+	// Composite groups are resolved by route middleware before this handler.
+	// Use that concrete target so async tasks share synchronous image routing
+	// and its billing/quota accounting path.
+	if resolvedPlatform, resolved := service.ResolvedTargetPlatformFromContext(c.Request.Context()); resolved {
+		platform = resolvedPlatform
+	}
 	if platform != service.PlatformOpenAI && platform != service.PlatformGrok {
 		imageTaskJSONError(c, http.StatusNotFound, "not_found_error", "Images API is not supported for this platform")
 		return
