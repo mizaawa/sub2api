@@ -36,6 +36,12 @@ export default {
           enabled: '启用排行榜',
           enabledHint: '关闭后隐藏侧边栏并禁用接口，不执行排行榜查询。',
         },
+        imagePlayground: {
+          title: '生图工作台',
+          description: '向用户开放独立的图片生成工作台，仅使用已授权的生图 API 密钥。默认关闭。',
+          enabled: '启用生图工作台',
+          enabledHint: '关闭后用户侧边栏入口隐藏，/image-playground 路径也会被拦截。',
+        },
         modelPlaza: {
           title: '模型广场',
           description: '以分组为单位向访客展示可用模型与价格的公开页面。默认关闭。',

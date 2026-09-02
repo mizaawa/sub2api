@@ -109,6 +109,11 @@ export const FeatureFlags = {
     mode: 'opt-in',
     label: 'Leaderboard',
   }),
+  imagePlayground: defineFlag({
+    key: 'image_playground_enabled',
+    mode: 'opt-in',
+    label: 'Image Playground',
+  }),
   modelPlaza: defineFlag({
     key: 'model_plaza_enabled',
     mode: 'opt-in',

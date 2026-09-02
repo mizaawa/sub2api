@@ -650,11 +650,11 @@ func TestFrontendServer_Middleware(t *testing.T) {
 
 		// Request for existing static file
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/logo.png", nil)
+		req := httptest.NewRequest(http.MethodGet, "/logo.svg", nil)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Header().Get("Content-Type"), "image/png")
+		assert.Contains(t, w.Header().Get("Content-Type"), "image/svg+xml")
 		assert.Empty(t, w.Header().Get("Cache-Control"))
 
 		entries, err := fs.ReadDir(server.distFS, "assets")
@@ -679,7 +679,7 @@ func TestFrontendServer_Middleware(t *testing.T) {
 
 	t.Run("serves_nested_directory_index", func(t *testing.T) {
 		provider := &mockSettingsProvider{
-			settings: map[string]string{"test": "value"},
+			settings: map[string]any{"test": "value", "image_playground_enabled": true},
 		}
 
 		server, err := NewFrontendServer(provider)
@@ -696,6 +696,25 @@ func TestFrontendServer_Middleware(t *testing.T) {
 		assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
 		assert.Contains(t, w.Body.String(), "GPT Image Playground")
 		assert.NotContains(t, w.Body.String(), "<div id=\"app\">")
+	})
+
+	t.Run("blocks_image_playground_when_feature_disabled", func(t *testing.T) {
+		provider := &mockSettingsProvider{
+			settings: map[string]any{"image_playground_enabled": false},
+		}
+
+		server, err := NewFrontendServer(provider)
+		require.NoError(t, err)
+
+		router := gin.New()
+		router.Use(server.Middleware())
+
+		for _, path := range []string{"/image-playground", "/image-playground/", "/image-playground/assets/index.js"} {
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			router.ServeHTTP(w, req)
+			assert.Equal(t, http.StatusNotFound, w.Code, "path=%s", path)
+		}
 	})
 }
 
@@ -756,11 +775,11 @@ func TestServeEmbeddedFrontend(t *testing.T) {
 		router.Use(middleware)
 
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/logo.png", nil)
+		req := httptest.NewRequest(http.MethodGet, "/logo.svg", nil)
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Header().Get("Content-Type"), "image/png")
+		assert.Contains(t, w.Header().Get("Content-Type"), "image/svg+xml")
 	})
 
 	t.Run("serves_index_html_for_root", func(t *testing.T) {

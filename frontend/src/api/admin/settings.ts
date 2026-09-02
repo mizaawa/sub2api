@@ -675,6 +675,7 @@ export interface SystemSettings {
   // Available Channels feature switch
   available_channels_enabled: boolean;
   leaderboard_enabled: boolean;
+  image_playground_enabled: boolean;
 
   // Model Plaza feature switches + description
   model_plaza_enabled: boolean;
@@ -972,6 +973,7 @@ export interface UpdateSettingsRequest {
   // Available Channels feature switch
   available_channels_enabled?: boolean;
   leaderboard_enabled?: boolean;
+  image_playground_enabled?: boolean;
 
   // Model Plaza feature switches + description
   model_plaza_enabled?: boolean;

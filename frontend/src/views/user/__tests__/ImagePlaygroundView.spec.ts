@@ -27,7 +27,8 @@ describe('Image playground launcher', () => {
     expect(componentSource).toContain('window.name = `${STANDALONE_CONFIG_PREFIX}${JSON.stringify(settings)}`')
     expect(componentSource).toContain('window.location.replace(STANDALONE_IMAGE_PLAYGROUND_PATH)')
     expect(componentSource).toContain('userGroupsAPI.getAvailable()')
-    expect(componentSource).toContain('const keyByGroup = new Map<number, ApiKey>()')
+    expect(componentSource).toContain("const IMAGE_PLAYGROUND_API_BASE_URL = 'https://api.zayuapi.com/v1'")
+    expect(componentSource).toContain('imagePlaygroundEnabled')
   })
 
   it('imports window configuration and clears the credential carrier in the standalone build', () => {
@@ -39,10 +40,11 @@ describe('Image playground launcher', () => {
 
   it('passes the selected Sub2API async profile to the standalone project', () => {
     expect(componentSource).toContain("provider: 'sb2api-async'")
-    expect(componentSource).toContain("baseUrl: buildGatewayUrl('/v1')")
+    expect(componentSource).toContain("baseUrl: IMAGE_PLAYGROUND_API_BASE_URL")
     expect(componentSource).toContain('apiKey: candidate.key')
     expect(componentSource).toContain('modelOptions: modelsByKeyId.value[candidate.id]')
-    expect(componentSource).toContain('id: `sub2api-group-${candidate.group_id')
+    expect(componentSource).toContain('id: `sub2api-key-${candidate.id}`')
+    expect(componentSource).toContain('name: candidate.name')
     expect(componentSource).toContain('function buildStandaloneSettings')
   })
 

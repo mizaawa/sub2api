@@ -36,6 +36,12 @@ export default {
           enabled: 'Enable Leaderboard',
           enabledHint: 'When off, the sidebar item and endpoint are disabled and no ranking query is run.',
         },
+        imagePlayground: {
+          title: 'Image Playground',
+          description: 'Expose the standalone image generation workbench using authorized image-enabled API keys. Disabled by default.',
+          enabled: 'Enable Image Playground',
+          enabledHint: 'When off, the user sidebar entry is hidden and /image-playground is blocked.',
+        },
         modelPlaza: {
           title: 'Model Plaza',
           description: 'A public page showcasing available models and pricing by group. Disabled by default.',

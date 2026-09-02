@@ -407,6 +407,10 @@ const (
 	// It is additive and defaults to false for backward-compatible upgrades.
 	SettingKeyLeaderboardEnabled = "leaderboard_enabled"
 
+	// SettingKeyImagePlaygroundEnabled controls the standalone image playground.
+	// It defaults to false and gates both the user navigation entry and route.
+	SettingKeyImagePlaygroundEnabled = "image_playground_enabled"
+
 	// SettingKeyModelPlazaEnabled is a DB-backed soft switch for the Model Plaza page
 	// (public group/model pricing showcase). When false: the plaza endpoint returns 404
 	// and the header entry is hidden. Defaults to false (opt-in feature).

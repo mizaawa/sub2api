@@ -212,6 +212,7 @@ export default {
     loading: 'Loading image playground...',
     loadingModels: 'Loading models...',
     opening: 'Opening the standalone image playground...',
+    disabled: 'Image Playground is currently disabled',
     refresh: 'Refresh groups, models, and balance',
     noAccessTitle: 'No image-enabled group is available',
     noAccessDescription: 'Create an API key for an OpenAI, Grok, or composite group with image generation enabled.',

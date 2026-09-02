@@ -51,6 +51,9 @@ declare module 'vue-router' {
     /** 是否要求排行榜功能开关已启用 */
     requiresLeaderboard?: boolean
 
+    /** 是否要求生图工作台功能开关已启用 */
+    requiresImagePlayground?: boolean
+
     /**
      * 是否要求风控中心功能开关已启用
      * @default false

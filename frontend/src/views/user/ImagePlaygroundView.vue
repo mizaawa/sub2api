@@ -1,6 +1,11 @@
 <template>
   <main class="image-playground-launcher">
-    <div v-if="loadingKeys" class="launcher-state" aria-live="polite">
+    <div v-if="!imagePlaygroundEnabled" class="launcher-state" role="status">
+      <Icon name="lock" size="xl" class="text-gray-400" />
+      <p>{{ t('imagePlayground.disabled') }}</p>
+    </div>
+
+    <div v-else-if="loadingKeys" class="launcher-state" aria-live="polite">
       <LoadingSpinner />
       <p>{{ t('imagePlayground.loading') }}</p>
     </div>
@@ -39,8 +44,9 @@ import Icon from '@/components/icons/Icon.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import { keysAPI } from '@/api/keys'
 import { userGroupsAPI } from '@/api/groups'
-import { buildGatewayUrl } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
+import { useAppStore } from '@/stores/app'
+import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 import type { ApiKey } from '@/types'
 
 interface GatewayModel {
@@ -50,9 +56,11 @@ interface GatewayModel {
 
 const STANDALONE_IMAGE_PLAYGROUND_PATH = '/image-playground/'
 const STANDALONE_CONFIG_PREFIX = 'sub2api-image-playground:'
+const IMAGE_PLAYGROUND_API_BASE_URL = 'https://api.zayuapi.com/v1'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
+const appStore = useAppStore()
 const imageKeys = ref<ApiKey[]>([])
 const selectedKeyId = ref<number | null>(null)
 const models = ref<GatewayModel[]>([])
@@ -68,12 +76,11 @@ let balanceRefreshTimer: number | undefined
 const selectedKey = computed(() =>
   imageKeys.value.find((key) => key.id === selectedKeyId.value) ?? null,
 )
+const imagePlaygroundEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.imagePlayground))
 
 function keyAllowsImageGeneration(key: ApiKey): boolean {
-  const platform = key.group?.platform
   return key.status === 'active'
     && key.group?.allow_image_generation === true
-    && (platform === 'openai' || platform === 'grok' || platform === 'composite')
 }
 
 function defaultModelForKey(key: ApiKey): string {
@@ -116,16 +123,10 @@ async function loadKeys(): Promise<void> {
       if (page >= response.pages || !response.items?.length) break
       page += 1
     }
-    // A group can have several user keys. Prefer a key with remaining quota,
-    // then keep the newest active key as the billing identity for that group.
-    const keyByGroup = new Map<number, ApiKey>()
-    for (const key of keys) {
-      const groupId = key.group_id ?? key.group?.id
-      if (groupId == null) continue
-      const existing = keyByGroup.get(groupId)
-      if (!existing || (!keyHasRemainingQuota(existing) && keyHasRemainingQuota(key))) keyByGroup.set(groupId, key)
-    }
-    imageKeys.value = [...keyByGroup.values()]
+    // Keep every active image-enabled key available to the standalone profile
+    // selector. The backend remains authoritative for quota and billing.
+    imageKeys.value = keys
+      .sort((a, b) => Number(keyHasRemainingQuota(b)) - Number(keyHasRemainingQuota(a)))
     if (!imageKeys.value.some((key) => key.id === selectedKeyId.value)) {
       selectedKeyId.value = imageKeys.value[0]?.id ?? null
     }
@@ -152,7 +153,7 @@ async function loadModels(): Promise<void> {
   try {
     const entries = await Promise.all(imageKeys.value.map(async (candidate) => {
       try {
-        const response = await fetch(buildGatewayUrl('/v1/models'), {
+        const response = await fetch(`${IMAGE_PLAYGROUND_API_BASE_URL}/models`, {
           headers: { Authorization: `Bearer ${candidate.key}` },
         })
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
@@ -190,15 +191,16 @@ async function loadModels(): Promise<void> {
 
 function buildStandaloneSettings(key: ApiKey, model: string): Record<string, unknown> {
   const profiles = imageKeys.value.map((candidate) => ({
-    id: `sub2api-group-${candidate.group_id ?? candidate.group?.id ?? candidate.id}`,
-    name: candidate.group?.name || `Sub2API 分组 ${candidate.group_id ?? candidate.id}`,
-    description: `Sub2API 分组 · ${candidate.name}`,
+    id: `sub2api-key-${candidate.id}`,
+    name: candidate.name || `Sub2API API Key ${candidate.id}`,
+    description: `Sub2API 分组 · ${candidate.group?.name || candidate.group_id || 'Image'}`,
     groupId: candidate.group_id ?? candidate.group?.id,
     provider: 'sb2api-async',
-    baseUrl: buildGatewayUrl('/v1'),
+    baseUrl: IMAGE_PLAYGROUND_API_BASE_URL,
     apiKey: candidate.key,
     model: candidate.id === key.id ? model : defaultModelForKey(candidate),
     modelOptions: modelsByKeyId.value[candidate.id] || [defaultModelForKey(candidate)],
+    isDefault: candidate.id === key.id,
     timeout: 600,
     apiMode: 'images',
     transparentBackgroundMethod: 'api',
@@ -207,7 +209,7 @@ function buildStandaloneSettings(key: ApiKey, model: string): Record<string, unk
   return {
     customProviders: [],
     profiles,
-    activeProfileId: `sub2api-group-${key.group_id ?? key.group?.id ?? key.id}`,
+    activeProfileId: `sub2api-key-${key.id}`,
   }
 }
 
@@ -238,6 +240,11 @@ async function refreshAll(): Promise<void> {
 }
 
 onMounted(async () => {
+  await appStore.fetchPublicSettings()
+  if (!imagePlaygroundEnabled.value) {
+    loadingKeys.value = false
+    return
+  }
   await Promise.all([loadKeys(), authStore.refreshUser().catch(() => undefined)])
   balanceRefreshTimer = window.setInterval(() => {
     void authStore.refreshUser().catch(() => undefined)

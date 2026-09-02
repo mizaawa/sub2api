@@ -88,6 +88,20 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 
+		// The standalone image playground is an opt-in feature. Gate the HTML
+		// entry and every nested asset here so a disabled deployment cannot load
+		// the independent bundle by guessing its static URL.
+		if isImagePlaygroundPath(path) {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+			settings, err := s.settings.GetPublicSettingsForInjection(ctx)
+			cancel()
+			if err != nil || !imagePlaygroundEnabled(settings) {
+				c.Status(http.StatusNotFound)
+				c.Abort()
+				return
+			}
+		}
+
 		// Skip API routes
 		if shouldBypassEmbeddedFrontend(path) {
 			c.Next()
@@ -119,6 +133,24 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 		s.fileServer.ServeHTTP(c.Writer, c.Request)
 		c.Abort()
 	}
+}
+
+func isImagePlaygroundPath(path string) bool {
+	return path == "/image-playground" || strings.HasPrefix(path, "/image-playground/")
+}
+
+func imagePlaygroundEnabled(settings any) bool {
+	encoded, err := json.Marshal(settings)
+	if err != nil {
+		return false
+	}
+	var payload struct {
+		ImagePlaygroundEnabled bool `json:"image_playground_enabled"`
+	}
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		return false
+	}
+	return payload.ImagePlaygroundEnabled
 }
 
 func (s *FrontendServer) fileExists(path string) bool {
