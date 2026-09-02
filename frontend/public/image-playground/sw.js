@@ -1,58 +1,13 @@
-const CACHE_NAME = 'gpt-image-playground-v0.7.8'
-const APP_SHELL = ['./', './index.html', './manifest.webmanifest', './pwa-icon.svg']
-const APP_SHELL_URLS = new Set(APP_SHELL.map((path) => new URL(path, self.registration.scope).href))
-const ASSETS_PATH = new URL('./assets/', self.registration.scope).pathname
-
+// 迁移旧版本的 Service Worker。独立生图页必须每次经过服务端功能开关，
+// 不再提供离线回退，避免已缓存页面绕过权限和功能门禁。
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)),
-  )
-  self.skipWaiting()
+  event.waitUntil(self.skipWaiting())
 })
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))),
-    ),
-  )
-  self.clients.claim()
-})
-
-self.addEventListener('fetch', (event) => {
-  const { request } = event
-
-  if (request.method !== 'GET') return
-
-  const url = new URL(request.url)
-  if (url.origin !== self.location.origin) return
-
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone()
-          caches.open(CACHE_NAME).then((cache) => cache.put('./index.html', copy))
-          return response
-        })
-        .catch(() => caches.match('./index.html')),
-    )
-    return
-  }
-
-  if (!APP_SHELL_URLS.has(url.href) && !url.pathname.startsWith(ASSETS_PATH)) return
-
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached
-
-      return fetch(request).then((response) => {
-        if (response.ok) {
-          const copy = response.clone()
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy))
-        }
-        return response
-      })
-    }),
+    caches.keys()
+      .then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+      .then(() => self.registration.unregister()),
   )
 })

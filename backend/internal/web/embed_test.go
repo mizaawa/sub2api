@@ -694,7 +694,9 @@ func TestFrontendServer_Middleware(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
-		assert.Contains(t, w.Body.String(), "GPT Image Playground")
+		assert.Equal(t, imagePlaygroundCacheControl, w.Header().Get("Cache-Control"))
+		assert.Equal(t, "no-cache", w.Header().Get("Pragma"))
+		assert.Contains(t, w.Body.String(), "小杂鱼の生图")
 		assert.NotContains(t, w.Body.String(), "<div id=\"app\">")
 	})
 
@@ -715,6 +717,20 @@ func TestFrontendServer_Middleware(t *testing.T) {
 			router.ServeHTTP(w, req)
 			assert.Equal(t, http.StatusNotFound, w.Code, "path=%s", path)
 		}
+	})
+
+	t.Run("blocks_image_playground_without_settings_provider", func(t *testing.T) {
+		server, err := NewFrontendServer(nil)
+		require.NoError(t, err)
+
+		router := gin.New()
+		router.Use(server.Middleware())
+
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/image-playground/", nil)
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 }
 
@@ -797,7 +813,7 @@ func TestServeEmbeddedFrontend(t *testing.T) {
 		assert.Contains(t, w.Body.String(), "<!doctype html>")
 	})
 
-	t.Run("serves_nested_directory_index", func(t *testing.T) {
+	t.Run("blocks_image_playground_without_settings_provider", func(t *testing.T) {
 		middleware := ServeEmbeddedFrontend()
 
 		router := gin.New()
@@ -807,10 +823,7 @@ func TestServeEmbeddedFrontend(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/image-playground/", nil)
 		router.ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
-		assert.Contains(t, w.Body.String(), "GPT Image Playground")
-		assert.NotContains(t, w.Body.String(), "<div id=\"app\">")
+		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 
 	t.Run("serves_index_html_for_spa_routes", func(t *testing.T) {

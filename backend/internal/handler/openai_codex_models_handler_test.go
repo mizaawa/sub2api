@@ -16,6 +16,7 @@ import (
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
 )
 
 type codexModelsFailoverAccountRepo struct {
@@ -129,6 +130,7 @@ func TestCodexModelsFailsOverFromRetryableUpstreamStatus(t *testing.T) {
 			handler, upstream, groupID := newCodexModelsFailoverTestHandler(status)
 			recorder := performCodexModelsRequest(t, handler, groupID)
 
+			require.Equal(t, "no-store", recorder.Header().Get("Cache-Control"))
 			if got, want := upstream.calls(), []int64{1, 2}; !equalInt64Slices(got, want) {
 				t.Fatalf("upstream account calls: got %v, want %v", got, want)
 			}

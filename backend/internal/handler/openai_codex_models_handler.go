@@ -22,6 +22,10 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 	if c.Request.Context().Err() != nil {
 		return
 	}
+	// The manifest is selected from the authenticated API key/group and may
+	// contain account-specific model availability. Never let a browser, CDN, or
+	// shared proxy replay one user's catalogue for another request.
+	c.Header("Cache-Control", "no-store")
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok || apiKey.Group == nil {
 		h.errorResponse(c, http.StatusUnauthorized, "invalid_request_error", "API key group is required")

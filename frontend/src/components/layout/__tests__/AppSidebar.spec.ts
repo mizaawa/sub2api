@@ -73,11 +73,11 @@ describe('AppSidebar grouped navigation', () => {
 })
 
 describe('AppSidebar image playground navigation', () => {
-  it('opens the view tool in a separate browsing context', () => {
-    expect(componentSource).toContain("openInNewWindow: true")
+  it('keeps the view tool in the launcher tab so the key bootstrap is preserved', () => {
+    expect(componentSource).toContain("path: '/image-playground', label: t('nav.imagePlayground'), icon: ViewToolIcon, featureFlag: flagImagePlayground")
+    expect(componentSource).not.toContain("path: '/image-playground', label: t('nav.imagePlayground'), icon: ViewToolIcon, openInNewWindow: true")
     expect(componentSource).toContain(":target=\"item.openInNewWindow ? '_blank' : undefined\"")
     expect(componentSource).toContain(":rel=\"item.openInNewWindow ? 'noopener noreferrer' : undefined\"")
-    expect(componentSource).toContain("resolveNavHref(item.path)")
   })
 })
 

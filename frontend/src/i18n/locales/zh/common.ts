@@ -220,7 +220,7 @@ export default {
     loadFailed: '加载生图配置失败',
     modelsFailed: '模型列表加载失败，已使用默认模型。',
     keyOption: '{group} · {key}',
-    playgroundTitle: 'GPT Image Playground',
+    playgroundTitle: '小杂鱼の生图',
   },
 
   // Auth

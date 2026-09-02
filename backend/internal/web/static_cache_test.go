@@ -52,6 +52,14 @@ func TestApplyStaticAssetCacheHeaders(t *testing.T) {
 		assert.Equal(t, staticAssetsCacheControl, header.Get("Cache-Control"))
 	})
 
+	t.Run("disables_cache_for_image_playground_assets", func(t *testing.T) {
+		t.Parallel()
+		header := make(http.Header)
+		applyStaticAssetCacheHeaders(header, "image-playground/assets/index-AbCd1234.js")
+		assert.Equal(t, imagePlaygroundCacheControl, header.Get("Cache-Control"))
+		assert.Equal(t, "no-cache", header.Get("Pragma"))
+	})
+
 	for _, path := range []string{"assets/index.js", "logo.png", "favicon.ico", "index.html"} {
 		path := path
 		t.Run("skips_"+path, func(t *testing.T) {

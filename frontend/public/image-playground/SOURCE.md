@@ -1,10 +1,11 @@
-# GPT Image Playground
+# 小杂鱼の生图
 
 This directory contains the production build of [CookSleep/gpt_image_playground](https://github.com/CookSleep/gpt_image_playground), embedded under the MIT license.
 
 - Source commit: `dca69294c0ae17cb4d1c2d17722b6a013a61971b`
-- Integration provider: `sb2api-async`
-- Build flags: `VITE_SHOW_PRESET_CONFIG_ONLY=true`
-- The launcher supplies one preconfigured profile per available image-enabled Sub2API group through the standalone window name. Each profile contains the group's active user key, gateway Base URL, and the model catalogue returned by `/v1/models`.
-- The standalone settings screen exposes group and model selection while hiding manual Provider, Base URL, and API Key entry. Generation still uses `images/generations/async`, so Sub2API remains authoritative for balance checks, quota checks, routing, and billing.
-- Credentials are not placed in the URL; the app clears `window.name` after importing it.
+- Integration provider: `sb2api-async` (displayed as `OpenAI 兼容接口`)
+- Build flags: `VITE_SHOW_PRESET_CONFIG_ONLY=true` and the managed gallery-only build.
+- The launcher supplies profiles for active, user-owned API keys whose groups allow image generation. Profile names are the API Key creation names.
+- The standalone settings screen has no Agent or habitual-preference tabs, no profile creation/deletion, and no editable provider, URL, or key fields. The fixed endpoint is `https://api.zayuapi.com/v1`.
+- Model refresh requests use only the currently selected key and the fixed endpoint. Generation still uses `images/generations/async`, so Sub2API remains authoritative for balance checks, quota checks, routing, and billing.
+- Credentials are carried once through same-origin `sessionStorage`, consumed at startup, and never placed in the URL or `window.name`. Settings remain browser-local; no cloud configuration record is written.

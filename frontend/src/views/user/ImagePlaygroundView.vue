@@ -54,9 +54,18 @@ interface GatewayModel {
   display_name?: string
 }
 
+interface LoadContext {
+  generation: number
+  userId: number
+  tokenPresent: boolean
+  controller: AbortController
+}
+
 const STANDALONE_IMAGE_PLAYGROUND_PATH = '/image-playground/'
 const STANDALONE_CONFIG_PREFIX = 'sub2api-image-playground:'
+const STANDALONE_CONFIG_STORAGE_KEY = 'sub2api-image-playground:bootstrap'
 const IMAGE_PLAYGROUND_API_BASE_URL = 'https://api.zayuapi.com/v1'
+const STANDALONE_SERVICE_WORKER_PATH = '/image-playground/'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -72,6 +81,8 @@ const refreshing = ref(false)
 const loadError = ref(false)
 const redirecting = ref(false)
 let balanceRefreshTimer: number | undefined
+let loadGeneration = 0
+let activeLoadController: AbortController | null = null
 
 const selectedKey = computed(() =>
   imageKeys.value.find((key) => key.id === selectedKeyId.value) ?? null,
@@ -80,7 +91,65 @@ const imagePlaygroundEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.
 
 function keyAllowsImageGeneration(key: ApiKey): boolean {
   return key.status === 'active'
-    && key.group?.allow_image_generation === true
+    && (key.group_id == null || key.group?.allow_image_generation === true)
+}
+
+function currentUserId(): number | null {
+  const id = Number(authStore.user?.id)
+  return Number.isSafeInteger(id) && id > 0 ? id : null
+}
+
+function beginLoad(): LoadContext | null {
+  activeLoadController?.abort()
+  const userId = currentUserId()
+  if (!userId) return null
+  const controller = new AbortController()
+  activeLoadController = controller
+  loadGeneration += 1
+  return {
+    generation: loadGeneration,
+    userId,
+    tokenPresent: Boolean(authStore.token),
+    controller,
+  }
+}
+
+function isCurrentLoad(context: LoadContext): boolean {
+  return context.generation === loadGeneration
+    && !context.controller.signal.aborted
+    && currentUserId() === context.userId
+    && Boolean(authStore.token) === context.tokenPresent
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
+
+async function invalidateStandaloneServiceWorker(): Promise<void> {
+  try {
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations()
+      await Promise.all(registrations
+        .filter((registration) => {
+          try {
+            return new URL(registration.scope).pathname.startsWith(STANDALONE_SERVICE_WORKER_PATH)
+          } catch {
+            return false
+          }
+        })
+        .map((registration) => registration.unregister()))
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys()
+      await Promise.all(keys
+        .filter((key) => /^(gpt-image-playground|zayu-image-playground)/i.test(key))
+        .map((key) => caches.delete(key)))
+    }
+  } catch (error) {
+    // Cache and Service Worker APIs may be unavailable in private browsing;
+    // the server-side feature gate remains authoritative in that case.
+    console.warn('Failed to invalidate the standalone image playground cache:', error)
+  }
 }
 
 function defaultModelForKey(key: ApiKey): string {
@@ -102,46 +171,60 @@ function chooseDefaultModel(key: ApiKey, available: GatewayModel[]): string {
   return preferred.find((model) => ids.includes(model)) || ids[0] || defaultModelForKey(key)
 }
 
-async function loadKeys(): Promise<void> {
+async function loadKeys(context: LoadContext | null = beginLoad()): Promise<void> {
+  if (!context) {
+    loadingKeys.value = false
+    imageKeys.value = []
+    selectedKeyId.value = null
+    loadError.value = true
+    return
+  }
   loadingKeys.value = true
   loadError.value = false
   try {
     const keys: ApiKey[] = []
     let page = 1
-    const availableGroups = await userGroupsAPI.getAvailable()
+    const availableGroups = await userGroupsAPI.getAvailable({ signal: context.controller.signal })
+    if (!isCurrentLoad(context)) return
     const groupsById = new Map(availableGroups.map((group) => [group.id, group]))
     while (true) {
       const response = await keysAPI.list(page, 100, {
         status: 'active',
         sort_by: 'created_at',
         sort_order: 'desc',
-      })
+      }, { signal: context.controller.signal })
+      if (!isCurrentLoad(context)) return
       keys.push(...(response.items || []).map((key) => ({
         ...key,
         group: key.group_id != null ? groupsById.get(key.group_id) : undefined,
-      })).filter((key) => key.group != null && keyAllowsImageGeneration(key)))
+      })).filter((key) => keyAllowsImageGeneration(key)))
       if (page >= response.pages || !response.items?.length) break
       page += 1
     }
+    if (!isCurrentLoad(context)) return
     // Keep every active image-enabled key available to the standalone profile
-    // selector. The backend remains authoritative for quota and billing.
+    // selector. The backend remains authoritative for ownership, quota, and billing.
     imageKeys.value = keys
       .sort((a, b) => Number(keyHasRemainingQuota(b)) - Number(keyHasRemainingQuota(a)))
     if (!imageKeys.value.some((key) => key.id === selectedKeyId.value)) {
       selectedKeyId.value = imageKeys.value[0]?.id ?? null
     }
-    if (selectedKey.value) await loadModels()
+    if (selectedKey.value) await loadModels(context)
   } catch (error) {
+    if (!isCurrentLoad(context) || isAbortError(error)) return
     console.error('Failed to load image playground keys:', error)
     imageKeys.value = []
     selectedKeyId.value = null
     loadError.value = true
   } finally {
-    loadingKeys.value = false
+    if (isCurrentLoad(context)) {
+      loadingKeys.value = false
+      if (activeLoadController === context.controller) activeLoadController = null
+    }
   }
 }
 
-async function loadModels(): Promise<void> {
+async function loadModels(context: LoadContext): Promise<void> {
   const key = selectedKey.value
   if (!key) {
     models.value = []
@@ -151,41 +234,42 @@ async function loadModels(): Promise<void> {
 
   loadingModels.value = true
   try {
-    const entries = await Promise.all(imageKeys.value.map(async (candidate) => {
-      try {
-        const response = await fetch(`${IMAGE_PLAYGROUND_API_BASE_URL}/models`, {
-          headers: { Authorization: `Bearer ${candidate.key}` },
-        })
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const body = await response.json() as { data?: GatewayModel[] }
-        const available = (body.data || []).filter((model) => {
-          const id = String(model.id || '').toLowerCase()
-          if (candidate.group?.platform === 'grok') {
-            return id.startsWith('grok-imagine') && !id.includes('video')
-          }
-          if (candidate.group?.platform === 'openai') {
-            return id.includes('image') || id.includes('dall-e')
-          }
-          return (id.includes('image') || id.includes('imagine') || id.includes('dall-e')) && !id.includes('video')
-        })
-        const ids = [...new Set(available.map((model) => model.id).filter((id): id is string => Boolean(id)))]
-        return [candidate.id, ids.length ? ids : [defaultModelForKey(candidate)]] as const
-      } catch (error) {
-        console.warn(`Failed to load models for image group ${candidate.group?.name || candidate.group_id}:`, error)
-        return [candidate.id, [defaultModelForKey(candidate)]] as const
+    // Only the selected key is sent to the provider. Other keys are carried to
+    // the local standalone selector but are never probed in parallel.
+    const response = await fetch(`${IMAGE_PLAYGROUND_API_BASE_URL}/models`, {
+      headers: { Authorization: `Bearer ${key.key}` },
+      cache: 'no-store',
+      signal: context.controller.signal,
+    })
+    if (!isCurrentLoad(context) || selectedKey.value?.id !== key.id) return
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const body = await response.json() as { data?: GatewayModel[] }
+    const available = (body.data || []).filter((model) => {
+      const id = String(model.id || '').toLowerCase()
+      if (key.group?.platform === 'grok') {
+        return id.startsWith('grok-imagine') && !id.includes('video')
       }
-    }))
-    modelsByKeyId.value = Object.fromEntries(entries)
-    const selectedAvailable = modelsByKeyId.value[key.id] || [defaultModelForKey(key)]
+      if (key.group?.platform === 'openai') {
+        return id.includes('image') || id.includes('dall-e')
+      }
+      return (id.includes('image') || id.includes('imagine') || id.includes('dall-e')) && !id.includes('video')
+    })
+    const ids = [...new Set(available.map((model) => model.id).filter((id): id is string => Boolean(id)))]
+    const selectedAvailable = ids.length ? ids : [defaultModelForKey(key)]
+    modelsByKeyId.value = { [key.id]: selectedAvailable }
     models.value = selectedAvailable.map((id) => ({ id }))
     selectedModel.value = chooseDefaultModel(key, models.value)
   } catch (error) {
+    if (!isCurrentLoad(context) || isAbortError(error)) return
     console.warn('Failed to load image playground models:', error)
     models.value = [{ id: defaultModelForKey(key) }]
     selectedModel.value = models.value[0].id || null
   } finally {
-    loadingModels.value = false
-    if (selectedKey.value && selectedModel.value) redirectToStandalone()
+    if (isCurrentLoad(context)) {
+      loadingModels.value = false
+      if (selectedKey.value?.id === key.id && selectedModel.value) redirectToStandalone(context, key, selectedModel.value)
+      if (activeLoadController === context.controller) activeLoadController = null
+    }
   }
 }
 
@@ -213,14 +297,15 @@ function buildStandaloneSettings(key: ApiKey, model: string): Record<string, unk
   }
 }
 
-function redirectToStandalone(): void {
-  if (redirecting.value || !selectedKey.value || !selectedModel.value) return
+function redirectToStandalone(context: LoadContext, key: ApiKey, model: string): void {
+  if (redirecting.value || !isCurrentLoad(context) || currentUserId() !== context.userId) return
   try {
     redirecting.value = true
-    const settings = buildStandaloneSettings(selectedKey.value, selectedModel.value)
-    // The standalone build reads this once on startup and clears window.name.
-    // Keeping credentials out of the URL also avoids leaking them via history or referrers.
-    window.name = `${STANDALONE_CONFIG_PREFIX}${JSON.stringify(settings)}`
+    const settings = buildStandaloneSettings(key, model)
+    // Use same-origin session storage as a one-time carrier. Unlike window.name,
+    // it is scoped to this tab and never travels with a new window or referrer.
+    sessionStorage.setItem(STANDALONE_CONFIG_STORAGE_KEY, `${STANDALONE_CONFIG_PREFIX}${JSON.stringify({ userId: context.userId, settings })}`)
+    window.name = ''
     window.location.replace(STANDALONE_IMAGE_PLAYGROUND_PATH)
   } catch (error) {
     console.error('Failed to open standalone image playground:', error)
@@ -232,26 +317,45 @@ function redirectToStandalone(): void {
 async function refreshAll(): Promise<void> {
   if (refreshing.value) return
   refreshing.value = true
+  const context = beginLoad()
   try {
-    await Promise.all([loadKeys(), authStore.refreshUser()])
+    // Refresh the authenticated identity before building the one-time
+    // bootstrap payload. This prevents a stale/empty user id from being
+    // carried when a session was restored just before opening the launcher.
+    await authStore.refreshUser().catch(() => undefined)
+    if (!context || !isCurrentLoad(context)) {
+      await loadKeys()
+      return
+    }
+    await loadKeys(context)
   } finally {
     refreshing.value = false
   }
 }
 
 onMounted(async () => {
+  // Remove a worker from an older standalone build before any navigation can
+  // be redirected back to the static gallery entry.
+  await invalidateStandaloneServiceWorker()
   await appStore.fetchPublicSettings()
   if (!imagePlaygroundEnabled.value) {
     loadingKeys.value = false
     return
   }
-  await Promise.all([loadKeys(), authStore.refreshUser().catch(() => undefined)])
+  // The standalone page binds its local cache to this identity. Resolve the
+  // current user first so the bootstrap cannot be attributed to an older
+  // session during a refresh or account switch.
+  await authStore.refreshUser().catch(() => undefined)
+  await loadKeys()
   balanceRefreshTimer = window.setInterval(() => {
     void authStore.refreshUser().catch(() => undefined)
   }, 15_000)
 })
 
 onBeforeUnmount(() => {
+  activeLoadController?.abort()
+  activeLoadController = null
+  loadGeneration += 1
   if (balanceRefreshTimer !== undefined) window.clearInterval(balanceRefreshTimer)
 })
 </script>

@@ -11,6 +11,7 @@ import (
 // Vite emits content-hashed filenames under assets/, so the backend can apply
 // immutable caching without relying on a reverse proxy to classify paths.
 const staticAssetsCacheControl = "public, max-age=31536000, immutable"
+const imagePlaygroundCacheControl = "private, no-store"
 
 // isFingerprintedEmbeddedAssetPath reports whether a cleaned URL path refers to
 // a Vite asset whose filename contains the default eight-character build hash.
@@ -46,7 +47,18 @@ func isFingerprintedEmbeddedAssetPath(cleanPath string) bool {
 // applyStaticAssetCacheHeaders sets Cache-Control for long-cacheable static paths.
 // index.html / SPA routes must keep no-cache and are not handled here.
 func applyStaticAssetCacheHeaders(header http.Header, cleanPath string) {
-	if header == nil || !isFingerprintedEmbeddedAssetPath(cleanPath) {
+	if header == nil {
+		return
+	}
+	cleanPath = strings.TrimPrefix(cleanPath, "/")
+	if strings.HasPrefix(cleanPath, "image-playground/") {
+		// The standalone page is feature-gated and carries account-scoped
+		// bootstrap state. Never let a browser, CDN, or old proxy replay it.
+		header.Set("Cache-Control", imagePlaygroundCacheControl)
+		header.Set("Pragma", "no-cache")
+		return
+	}
+	if !isFingerprintedEmbeddedAssetPath(cleanPath) {
 		return
 	}
 	header.Set("Cache-Control", staticAssetsCacheControl)

@@ -92,6 +92,15 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 		// entry and every nested asset here so a disabled deployment cannot load
 		// the independent bundle by guessing its static URL.
 		if isImagePlaygroundPath(path) {
+			c.Header("Cache-Control", imagePlaygroundCacheControl)
+			c.Header("Pragma", "no-cache")
+			// Fail closed when the settings provider is unavailable. This keeps a
+			// partially initialized server from exposing the standalone bundle.
+			if s == nil || s.settings == nil {
+				c.Status(http.StatusNotFound)
+				c.Abort()
+				return
+			}
 			ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
 			settings, err := s.settings.GetPublicSettingsForInjection(ctx)
 			cancel()
@@ -196,7 +205,12 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 		content := replaceNoncePlaceholder(cached.Content, nonce)
 
 		c.Header("ETag", cached.ETag)
-		c.Header("Cache-Control", "no-cache") // Must revalidate
+		if isImagePlaygroundPath(c.Request.URL.Path) {
+			c.Header("Cache-Control", imagePlaygroundCacheControl)
+			c.Header("Pragma", "no-cache")
+		} else {
+			c.Header("Cache-Control", "no-cache") // Must revalidate
+		}
 		c.Data(http.StatusOK, "text/html; charset=utf-8", content)
 		c.Abort()
 		return
@@ -232,7 +246,12 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 	if cached != nil {
 		c.Header("ETag", cached.ETag)
 	}
-	c.Header("Cache-Control", "no-cache")
+	if isImagePlaygroundPath(c.Request.URL.Path) {
+		c.Header("Cache-Control", imagePlaygroundCacheControl)
+		c.Header("Pragma", "no-cache")
+	} else {
+		c.Header("Cache-Control", "no-cache")
+	}
 	c.Data(http.StatusOK, "text/html; charset=utf-8", content)
 	c.Abort()
 }
@@ -346,6 +365,15 @@ func ServeEmbeddedFrontend() gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
+
+		// This legacy middleware has no settings provider, so it cannot
+		// establish the image-playground feature gate. Fail closed rather than
+		// exposing the standalone bundle during setup or initialization fallback.
+		if isImagePlaygroundPath(path) {
+			c.Status(http.StatusNotFound)
+			c.Abort()
+			return
+		}
 
 		if shouldBypassEmbeddedFrontend(path) {
 			c.Next()

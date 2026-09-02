@@ -745,7 +745,10 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   }
   items.push(
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
-    { path: '/image-playground', label: t('nav.imagePlayground'), icon: ViewToolIcon, openInNewWindow: true, featureFlag: flagImagePlayground },
+    // The launcher must run in this tab so its one-time sessionStorage
+    // bootstrap can reach the standalone gallery. Opening the static bundle
+    // in a new tab would skip key discovery and leave it without credentials.
+    { path: '/image-playground', label: t('nav.imagePlayground'), icon: ViewToolIcon, featureFlag: flagImagePlayground },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },

@@ -30,10 +30,37 @@ function initThemeClass() {
   document.documentElement.classList.toggle('dark', shouldUseDark)
 }
 
+async function invalidateLegacyImagePlaygroundWorker(): Promise<void> {
+  try {
+    if ('serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations()
+      await Promise.all(registrations
+        .filter((registration) => {
+          try {
+            return new URL(registration.scope).pathname.startsWith('/image-playground/')
+          } catch {
+            return false
+          }
+        })
+        .map((registration) => registration.unregister()))
+    }
+    if ('caches' in window) {
+      const keys = await caches.keys()
+      await Promise.all(keys
+        .filter((key) => /^(gpt-image-playground|zayu-image-playground)/i.test(key))
+        .map((key) => caches.delete(key)))
+    }
+  } catch {
+    // Private browsing may disable Service Worker/Cache APIs; route and
+    // server-side feature gates remain authoritative in that case.
+  }
+}
+
 async function bootstrap() {
   // Apply theme class globally before app mount to keep all routes consistent.
   initThemeClass()
   initIOSViewportZoomFix()
+  await invalidateLegacyImagePlaygroundWorker()
 
   const app = createApp(App)
   const pinia = createPinia()

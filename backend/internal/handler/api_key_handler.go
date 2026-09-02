@@ -21,6 +21,17 @@ type APIKeyHandler struct {
 	apiKeyService *service.APIKeyService
 }
 
+// API keys are returned in these responses so the image playground can build
+// an in-browser profile. They must never be stored by a browser or an
+// intermediary cache.
+const apiKeyResponseCacheControl = "private, no-store"
+
+func setAPIKeyResponseNoStore(c *gin.Context) {
+	if c != nil {
+		c.Header("Cache-Control", apiKeyResponseCacheControl)
+	}
+}
+
 // NewAPIKeyHandler creates a new APIKeyHandler
 func NewAPIKeyHandler(apiKeyService *service.APIKeyService) *APIKeyHandler {
 	return &APIKeyHandler{
@@ -65,6 +76,7 @@ type UpdateAPIKeyRequest struct {
 // List handles listing user's API keys with pagination
 // GET /api/v1/api-keys
 func (h *APIKeyHandler) List(c *gin.Context) {
+	setAPIKeyResponseNoStore(c)
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
 		response.Unauthorized(c, "User not authenticated")
@@ -111,6 +123,7 @@ func (h *APIKeyHandler) List(c *gin.Context) {
 // GetByID handles getting a single API key
 // GET /api/v1/api-keys/:id
 func (h *APIKeyHandler) GetByID(c *gin.Context) {
+	setAPIKeyResponseNoStore(c)
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
 		response.Unauthorized(c, "User not authenticated")
@@ -141,6 +154,7 @@ func (h *APIKeyHandler) GetByID(c *gin.Context) {
 // Create handles creating a new API key
 // POST /api/v1/api-keys
 func (h *APIKeyHandler) Create(c *gin.Context) {
+	setAPIKeyResponseNoStore(c)
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
 		response.Unauthorized(c, "User not authenticated")
@@ -186,6 +200,7 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 // Update handles updating an API key
 // PUT /api/v1/api-keys/:id
 func (h *APIKeyHandler) Update(c *gin.Context) {
+	setAPIKeyResponseNoStore(c)
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
 		response.Unauthorized(c, "User not authenticated")
@@ -249,6 +264,7 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 // Delete handles deleting an API key
 // DELETE /api/v1/api-keys/:id
 func (h *APIKeyHandler) Delete(c *gin.Context) {
+	setAPIKeyResponseNoStore(c)
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
 		response.Unauthorized(c, "User not authenticated")
@@ -273,6 +289,10 @@ func (h *APIKeyHandler) Delete(c *gin.Context) {
 // GetAvailableGroups 获取用户可以绑定的分组列表
 // GET /api/v1/groups/available
 func (h *APIKeyHandler) GetAvailableGroups(c *gin.Context) {
+	// Group availability and image-generation flags are user-specific. Keep
+	// them out of browser/shared caches so a session switch cannot reuse the
+	// previous user's capability catalogue.
+	setAPIKeyResponseNoStore(c)
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
 		response.Unauthorized(c, "User not authenticated")
@@ -295,6 +315,7 @@ func (h *APIKeyHandler) GetAvailableGroups(c *gin.Context) {
 // GetUserGroupRates 获取当前用户的专属分组倍率配置
 // GET /api/v1/groups/rates
 func (h *APIKeyHandler) GetUserGroupRates(c *gin.Context) {
+	setAPIKeyResponseNoStore(c)
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
 		response.Unauthorized(c, "User not authenticated")

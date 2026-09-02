@@ -220,7 +220,7 @@ export default {
     loadFailed: 'Failed to load image configuration',
     modelsFailed: 'The model list could not be loaded. A default model is being used.',
     keyOption: '{group} · {key}',
-    playgroundTitle: 'GPT Image Playground',
+    playgroundTitle: '小杂鱼の生图',
   },
 
   // Auth
