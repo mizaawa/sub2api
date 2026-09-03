@@ -364,6 +364,48 @@ describe('useAuthStore', () => {
       const store = useAuthStore()
       await expect(store.refreshUser()).rejects.toThrow('Not authenticated')
     })
+
+    it('同一会话的并发刷新只发送一个请求', async () => {
+      mockLogin.mockResolvedValue(fakeAuthResponse)
+      const store = useAuthStore()
+      await store.login({ email: 'test@example.com', password: '123456' })
+
+      let resolveRequest: ((value: { data: typeof fakeUser }) => void) | undefined
+      mockGetCurrentUser.mockReturnValue(new Promise((resolve) => {
+        resolveRequest = resolve
+      }))
+
+      const first = store.refreshUser()
+      const second = store.refreshUser()
+      expect(mockGetCurrentUser).toHaveBeenCalledOnce()
+
+      resolveRequest!({ data: fakeUser })
+      await expect(Promise.all([first, second])).resolves.toEqual([fakeUser, fakeUser])
+    })
+
+    it('旧会话的失败刷新不会清除已经替换的新会话', async () => {
+      mockLogin.mockResolvedValue(fakeAuthResponse)
+      const store = useAuthStore()
+      await store.login({ email: 'test@example.com', password: '123456' })
+
+      let rejectRequest: ((reason?: unknown) => void) | undefined
+      mockGetCurrentUser.mockReturnValue(new Promise((_resolve, reject) => {
+        rejectRequest = reject
+      }))
+      const pending = store.refreshUser()
+
+      const replacementUser = { ...fakeUser, id: 9, email: 'replacement@example.com' }
+      store.token = 'replacement-token'
+      store.user = replacementUser
+      localStorage.setItem('auth_token', 'replacement-token')
+      localStorage.setItem('auth_user', JSON.stringify(replacementUser))
+
+      rejectRequest!(Object.assign(new Error('stale request'), { status: 401 }))
+      await expect(pending).rejects.toMatchObject({ status: 401 })
+      expect(store.token).toBe('replacement-token')
+      expect(store.user).toEqual(replacementUser)
+      expect(localStorage.getItem('auth_token')).toBe('replacement-token')
+    })
   })
 
   // --- isSimpleMode ---

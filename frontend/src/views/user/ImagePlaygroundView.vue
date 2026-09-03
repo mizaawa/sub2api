@@ -329,16 +329,15 @@ function redirectToStandalone(context: LoadContext, key: ApiKey, model: string):
 async function refreshAll(): Promise<void> {
   if (refreshing.value) return
   refreshing.value = true
-  const context = beginLoad()
   try {
     // Refresh the authenticated identity before building the one-time
     // bootstrap payload. This prevents a stale/empty user id from being
     // carried when a session was restored just before opening the launcher.
     await authStore.refreshUser().catch(() => undefined)
-    if (!context || !isCurrentLoad(context)) {
-      await loadKeys()
-      return
-    }
+    // Capture the context only after refreshUser settles. Creating it before
+    // the refresh allows a concurrent account/token update to invalidate the
+    // snapshot while the key requests are still starting.
+    const context = beginLoad()
     await loadKeys(context)
   } finally {
     refreshing.value = false

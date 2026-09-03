@@ -1436,8 +1436,11 @@ func (s *AccountRepoSuite) TestClearError_SyncSchedulerSnapshotOnRecovery() {
 		Name:         "acc-clear-err",
 		Status:       service.StatusError,
 		ErrorMessage: "temporary error",
-		Schedulable:  false,
 	})
+	// mustCreateAccount defaults the zero value to true for the many tests that
+	// omit Schedulable. Set the explicit recovery-state value after creation.
+	s.Require().NoError(s.client.Account.UpdateOneID(account.ID).SetSchedulable(false).Exec(s.ctx))
+	account.Schedulable = false
 	cacheRecorder := &schedulerCacheRecorder{}
 	s.repo.schedulerCache = cacheRecorder
 

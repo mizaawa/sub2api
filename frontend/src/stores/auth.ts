@@ -85,6 +85,8 @@ export const useAuthStore = defineStore('auth', () => {
   const pendingAuthSession = ref<PendingAuthSessionSummary | null>(null)
   let refreshIntervalId: ReturnType<typeof setInterval> | null = null
   let tokenRefreshTimeoutId: ReturnType<typeof setTimeout> | null = null
+  let authSessionGeneration = 0
+  let refreshUserRequest: { userId: number | null; token: string; promise: Promise<User> } | null = null
 
   // ==================== Computed ====================
 
@@ -297,6 +299,7 @@ export const useAuthStore = defineStore('auth', () => {
    * Internal helper function
    */
   function setAuthFromResponse(response: AuthResponse): void {
+    authSessionGeneration += 1
     // Store token and user
     token.value = response.access_token
 
@@ -359,8 +362,13 @@ export const useAuthStore = defineStore('auth', () => {
     // Note: Don't clear localStorage here as OAuth callback may have set refresh_token
     stopAutoRefresh()
     stopTokenRefresh()
+    authSessionGeneration += 1
     token.value = null
     user.value = null
+    // The persisted profile belongs to the previous session. Remove it before
+    // the new token's /auth/me request so the stale-session guard cannot reject
+    // the first response of an OAuth/SSO login.
+    localStorage.removeItem(AUTH_USER_KEY)
 
     token.value = newToken
     localStorage.setItem(AUTH_TOKEN_KEY, newToken)
@@ -437,24 +445,87 @@ export const useAuthStore = defineStore('auth', () => {
       throw new Error('Not authenticated')
     }
 
+    const requestUserId = user.value?.id ?? null
+    const requestToken = token.value
+    const requestGeneration = authSessionGeneration
+    if (!requestToken) {
+      throw new Error('Not authenticated')
+    }
+    // checkAuth() starts a background refresh and route components may request
+    // the same profile immediately afterwards. Share that request for the same
+    // in-memory user instead of racing two refreshes against token rotation.
+    if (refreshUserRequest?.userId === requestUserId && refreshUserRequest.token === requestToken) {
+      return refreshUserRequest.promise
+    }
+
+    const request = (async (): Promise<User> => {
+      try {
+        const response = await authAPI.getCurrentUser()
+        const persistedUser = localStorage.getItem(AUTH_USER_KEY)
+        let persistedUserId: number | null = null
+        try {
+          const parsed = persistedUser ? JSON.parse(persistedUser) as { id?: unknown } : null
+          const id = Number(parsed?.id)
+          persistedUserId = Number.isSafeInteger(id) && id > 0 ? id : null
+        } catch {
+          persistedUserId = null
+        }
+
+        // A logout or account switch may complete while this request is in
+        // flight. Never let the old response repopulate the new session.
+        // A token-based login (OAuth/SSO) intentionally starts with no
+        // persisted user record; accept that first /auth/me response. Once a
+        // user is already present, a missing or different persisted ID means
+        // logout/account replacement happened while this request was pending.
+        if (
+          authSessionGeneration !== requestGeneration ||
+          (requestUserId !== null && requestUserId !== persistedUserId) ||
+          !localStorage.getItem(AUTH_TOKEN_KEY)
+        ) {
+          throw {
+            status: 401,
+            code: 'AUTH_SESSION_CHANGED',
+            message: 'Authentication session changed while refreshing.',
+          }
+        }
+
+        if (response.data.run_mode) {
+          runMode.value = response.data.run_mode
+        }
+        const { run_mode: _run_mode, ...userData } = response.data
+        user.value = userData
+
+        // An Axios retry may have rotated auth_token while the request was in
+        // flight. Keep the Pinia snapshot aligned with the persisted session.
+        token.value = localStorage.getItem(AUTH_TOKEN_KEY)
+
+        // Update localStorage
+        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userData))
+
+        return userData
+      } catch (error) {
+        // Only the request that still owns the current token may clear auth.
+        // A stale 401 must not log out a replacement session.
+        const currentUserId = user.value?.id ?? null
+        const currentToken = localStorage.getItem(AUTH_TOKEN_KEY)
+        if (
+          (error as { status?: number }).status === 401 &&
+          authSessionGeneration === requestGeneration &&
+          currentUserId === requestUserId &&
+          currentToken === requestToken &&
+          token.value === requestToken
+        ) {
+          clearAuth({ preservePendingAuthSession: pendingAuthSession.value !== null })
+        }
+        throw error
+      }
+    })()
+
+    refreshUserRequest = { userId: requestUserId, token: requestToken, promise: request }
     try {
-      const response = await authAPI.getCurrentUser()
-      if (response.data.run_mode) {
-        runMode.value = response.data.run_mode
-      }
-      const { run_mode: _run_mode, ...userData } = response.data
-      user.value = userData
-
-      // Update localStorage
-      localStorage.setItem(AUTH_USER_KEY, JSON.stringify(userData))
-
-      return userData
-    } catch (error) {
-      // If refresh fails with 401, clear auth state
-      if ((error as { status?: number }).status === 401) {
-        clearAuth({ preservePendingAuthSession: pendingAuthSession.value !== null })
-      }
-      throw error
+      return await request
+    } finally {
+      if (refreshUserRequest?.promise === request) refreshUserRequest = null
     }
   }
 
@@ -463,6 +534,7 @@ export const useAuthStore = defineStore('auth', () => {
    * Internal helper function
    */
   function clearAuth(options?: { preservePendingAuthSession?: boolean }): void {
+    authSessionGeneration += 1
     // Stop auto-refresh
     stopAutoRefresh()
     // Stop token refresh
@@ -472,6 +544,7 @@ export const useAuthStore = defineStore('auth', () => {
     refreshTokenValue.value = null
     tokenExpiresAt.value = null
     user.value = null
+    refreshUserRequest = null
     localStorage.removeItem(AUTH_TOKEN_KEY)
     localStorage.removeItem(AUTH_USER_KEY)
     localStorage.removeItem(REFRESH_TOKEN_KEY)
