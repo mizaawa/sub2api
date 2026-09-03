@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -27,6 +28,13 @@ type ImageStorage interface {
 	Save(ctx context.Context, key, contentType string, data []byte) (url string, err error)
 }
 
+// ImageStorageCleaner is implemented by stores that can remove all managed
+// image objects below a prefix. It is deliberately optional so existing test
+// and third-party stores remain compatible with the Save-only interface.
+type ImageStorageCleaner interface {
+	DeletePrefix(ctx context.Context, prefix string) (int64, error)
+}
+
 // ImageResultUploader 是 ImageStorage 的上层编排器（与具体厂商无关）：
 // 把上游生图响应里的每张图片（b64_json 解码 / url 下载）转存到对象存储，
 // 并把响应结果改写为只含短链接的紧凑 JSON，从而避免大 base64 落 Redis。
@@ -45,6 +53,13 @@ func NewImageResultUploader(storage ImageStorage, prefix string, maxDownloadByte
 	if maxDownloadBytes <= 0 {
 		maxDownloadBytes = defaultImageMaxDownloadBytes
 	}
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		prefix = "images/"
+	}
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
 	return &ImageResultUploader{
 		storage:          storage,
 		httpClient:       httpClient,
@@ -61,6 +76,13 @@ func defaultImageDownloadHTTPClient() *http.Client {
 // 返回改写后的紧凑结果（data[i].url 指向对象存储，b64_json 被移除）。
 // 任一图片转存失败即返回 error（调用方据此将任务标记为失败，绝不把大 blob 落 Redis）。
 func (u *ImageResultUploader) Rewrite(ctx context.Context, taskID string, result json.RawMessage) (json.RawMessage, error) {
+	return u.RewriteForEmail(ctx, taskID, "", result)
+}
+
+// RewriteForEmail stores results in a deterministic, non-reversible user
+// partition. The email is normalized and hashed before it reaches an object
+// key, so public URLs and storage listings never disclose the address.
+func (u *ImageResultUploader) RewriteForEmail(ctx context.Context, taskID, email string, result json.RawMessage) (json.RawMessage, error) {
 	if u == nil || u.storage == nil {
 		return result, nil
 	}
@@ -85,7 +107,7 @@ func (u *ImageResultUploader) Rewrite(ctx context.Context, taskID string, result
 		if err != nil {
 			return nil, fmt.Errorf("image %d: %w", i, err)
 		}
-		key := u.buildKey(taskID, i, contentType)
+		key := u.buildKey(taskID, email, i, contentType)
 		url, err := u.storage.Save(ctx, key, contentType, data)
 		if err != nil {
 			return nil, fmt.Errorf("image %d: upload to object storage: %w", i, err)
@@ -108,6 +130,26 @@ func (u *ImageResultUploader) Rewrite(ctx context.Context, taskID string, result
 		return nil, fmt.Errorf("encode image response: %w", err)
 	}
 	return out, nil
+}
+
+// DeleteAll removes only objects under this uploader's configured image
+// prefix. A store without the optional cleaner is left untouched.
+func (u *ImageResultUploader) DeleteAll(ctx context.Context) (int64, error) {
+	if u == nil || u.storage == nil {
+		return 0, nil
+	}
+	cleaner, ok := u.storage.(ImageStorageCleaner)
+	if !ok {
+		return 0, nil
+	}
+	// All production-generated objects are email-partitioned below users/.
+	// Restrict deletion to that namespace so an operator accidentally pointing
+	// image storage at a shared bucket cannot remove unrelated objects.
+	prefix := strings.TrimSpace(u.prefix) + "users/"
+	if prefix == "" {
+		return 0, nil
+	}
+	return cleaner.DeletePrefix(ctx, prefix)
 }
 
 func (u *ImageResultUploader) fetchImageBytes(ctx context.Context, item map[string]json.RawMessage) ([]byte, string, error) {
@@ -222,8 +264,19 @@ func (u *ImageResultUploader) download(ctx context.Context, rawURL string) ([]by
 	return data, contentType, nil
 }
 
-func (u *ImageResultUploader) buildKey(taskID string, index int, contentType string) string {
-	return u.prefix + taskID + "-" + strconv.Itoa(index) + extensionForContentType(contentType)
+func (u *ImageResultUploader) buildKey(taskID, email string, index int, contentType string) string {
+	partition := ""
+	if normalized := NormalizeImageOwnerEmail(email); normalized != "" {
+		digest := sha256.Sum256([]byte(normalized))
+		partition = "users/" + fmt.Sprintf("%x", digest[:]) + "/"
+	}
+	return u.prefix + partition + taskID + "-" + strconv.Itoa(index) + extensionForContentType(contentType)
+}
+
+// NormalizeImageOwnerEmail is the canonical identity form used by request
+// validation, task records, and object-storage partitioning.
+func NormalizeImageOwnerEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
 }
 
 func detectImageContentType(data []byte) string {

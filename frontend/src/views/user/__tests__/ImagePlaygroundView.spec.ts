@@ -50,6 +50,7 @@ describe('Image playground launcher', () => {
     expect(componentSource).toContain("baseUrl: IMAGE_PLAYGROUND_API_BASE_URL")
     expect(componentSource).toContain('apiKey: candidate.key')
     expect(componentSource).toContain('modelOptions: modelsByKeyId.value[candidate.id]')
+    expect(componentSource).toContain("'X-Sub2API-User-Email': context.userEmail")
     expect(componentSource).toContain('id: `sub2api-key-${candidate.id}`')
     expect(componentSource).toContain('name: candidate.name')
     expect(componentSource).toContain('function buildStandaloneSettings')

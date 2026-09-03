@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
@@ -23,6 +25,7 @@ type S3ImageStorage struct {
 }
 
 var _ service.ImageStorage = (*S3ImageStorage)(nil)
+var _ service.ImageStorageCleaner = (*S3ImageStorage)(nil)
 
 // NewS3ImageStorage 依据配置构造 S3 图片存储（调用方应先确认 cfg.Active()）。
 func NewS3ImageStorage(ctx context.Context, cfg *config.ImageStorageConfig) (*S3ImageStorage, error) {
@@ -77,4 +80,52 @@ func (s *S3ImageStorage) Save(ctx context.Context, key, contentType string, data
 		return "", fmt.Errorf("presign url: %w", err)
 	}
 	return result.URL, nil
+}
+
+// DeletePrefix removes every object below prefix in bounded batches. The
+// caller supplies the already-isolated image prefix; no user-controlled value
+// is ever used as the bucket or a parent path.
+func (s *S3ImageStorage) DeletePrefix(ctx context.Context, prefix string) (int64, error) {
+	prefix = strings.TrimSpace(prefix)
+	if s == nil || s.client == nil || prefix == "" {
+		return 0, nil
+	}
+	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
+		Bucket: &s.bucket,
+		Prefix: &prefix,
+	})
+	var deleted int64
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return deleted, fmt.Errorf("S3 ListObjectsV2: %w", err)
+		}
+		identifiers := make([]types.ObjectIdentifier, 0, len(page.Contents))
+		for _, object := range page.Contents {
+			if object.Key == nil || strings.TrimSpace(*object.Key) == "" {
+				continue
+			}
+			identifiers = append(identifiers, types.ObjectIdentifier{Key: object.Key})
+		}
+		for start := 0; start < len(identifiers); start += 1000 {
+			end := start + 1000
+			if end > len(identifiers) {
+				end = len(identifiers)
+			}
+			output, err := s.client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+				Bucket: &s.bucket,
+				Delete: &types.Delete{Objects: identifiers[start:end], Quiet: aws.Bool(false)},
+			})
+			if err != nil {
+				return deleted, fmt.Errorf("S3 DeleteObjects: %w", err)
+			}
+			if output != nil {
+				deleted += int64(len(output.Deleted))
+				if len(output.Errors) > 0 {
+					return deleted, fmt.Errorf("S3 DeleteObjects: %d object deletions failed", len(output.Errors))
+				}
+			}
+		}
+	}
+	return deleted, nil
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -200,6 +201,21 @@ func TestImageResultUploaderNilStoragePassthrough(t *testing.T) {
 	require.JSONEq(t, string(result), string(out))
 }
 
+func TestImageResultUploaderPartitionsByNormalizedEmail(t *testing.T) {
+	storage := &fakeImageStorage{}
+	uploader := NewImageResultUploader(storage, "images", 0, nil)
+	b64 := base64.StdEncoding.EncodeToString(pngBytes)
+	result := json.RawMessage(`{"data":[{"b64_json":"` + b64 + `"}]}`)
+	_, err := uploader.RewriteForEmail(context.Background(), "imgtask_a", " User@Example.COM ", result)
+	require.NoError(t, err)
+	_, err = uploader.RewriteForEmail(context.Background(), "imgtask_b", "other@example.com", result)
+	require.NoError(t, err)
+	require.Len(t, storage.saved, 2)
+	require.Contains(t, storage.saved[0].key, "images/users/")
+	require.NotContains(t, storage.saved[0].key, "User@Example")
+	require.NotEqual(t, storage.saved[0].key[:strings.LastIndex(storage.saved[0].key, "/")], storage.saved[1].key[:strings.LastIndex(storage.saved[1].key, "/")])
+}
+
 func TestImageTaskServiceCompleteOffloadsToStorage(t *testing.T) {
 	store := &imageTaskMemoryStore{}
 	storage := &fakeImageStorage{}
@@ -207,7 +223,7 @@ func TestImageTaskServiceCompleteOffloadsToStorage(t *testing.T) {
 	svc := NewImageTaskServiceWithUploader(store, uploader, time.Hour, time.Minute)
 	require.True(t, svc.Enabled())
 
-	owner := ImageTaskOwner{UserID: 1, APIKeyID: 2}
+	owner := ImageTaskOwner{UserID: 1, APIKeyID: 2, UserEmail: "owner@example.com"}
 	created, err := svc.Create(context.Background(), owner)
 	require.NoError(t, err)
 
@@ -218,7 +234,8 @@ func TestImageTaskServiceCompleteOffloadsToStorage(t *testing.T) {
 	got, err := svc.Get(context.Background(), owner, created.ID)
 	require.NoError(t, err)
 	require.Equal(t, ImageTaskStatusCompleted, got.Status)
-	require.Equal(t, "https://cdn.test/images/"+created.ID+"-0.png", got.ImageURL)
+	require.Contains(t, got.ImageURL, "https://cdn.test/images/users/")
+	require.Contains(t, got.ImageURL, "/"+created.ID+"-0.png")
 	require.NotContains(t, string(got.Result), "b64_json", "large base64 must not be persisted to Redis")
 	require.Len(t, storage.saved, 1)
 }
@@ -229,7 +246,7 @@ func TestImageTaskServiceCompleteOffloadFailureMarksFailed(t *testing.T) {
 	uploader := NewImageResultUploader(storage, "images/", 0, nil)
 	svc := NewImageTaskServiceWithUploader(store, uploader, time.Hour, time.Minute)
 
-	owner := ImageTaskOwner{UserID: 1, APIKeyID: 2}
+	owner := ImageTaskOwner{UserID: 1, APIKeyID: 2, UserEmail: "owner@example.com"}
 	created, err := svc.Create(context.Background(), owner)
 	require.NoError(t, err)
 

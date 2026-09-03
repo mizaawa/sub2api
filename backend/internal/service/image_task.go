@@ -35,6 +35,7 @@ type ImageTaskRecord struct {
 	ID          string          `json:"id"`
 	UserID      int64           `json:"user_id"`
 	APIKeyID    int64           `json:"api_key_id"`
+	UserEmail   string          `json:"user_email,omitempty"`
 	Status      string          `json:"status"`
 	HTTPStatus  int             `json:"http_status,omitempty"`
 	Result      json.RawMessage `json:"result,omitempty"`
@@ -60,8 +61,9 @@ type ImageTask struct {
 }
 
 type ImageTaskOwner struct {
-	UserID   int64
-	APIKeyID int64
+	UserID    int64
+	APIKeyID  int64
+	UserEmail string
 }
 
 type ImageTaskStore interface {
@@ -159,6 +161,7 @@ func (s *ImageTaskService) Create(ctx context.Context, owner ImageTaskOwner) (*I
 		ID:        "imgtask_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
 		UserID:    owner.UserID,
 		APIKeyID:  owner.APIKeyID,
+		UserEmail: NormalizeImageOwnerEmail(owner.UserEmail),
 		Status:    ImageTaskStatusProcessing,
 		CreatedAt: now.Unix(),
 		ExpiresAt: now.Add(s.ttl).Unix(),
@@ -180,7 +183,9 @@ func (s *ImageTaskService) Get(ctx context.Context, owner ImageTaskOwner, id str
 		}
 		return nil, ErrImageTaskUnavailable.WithCause(err)
 	}
-	if task.UserID != owner.UserID || task.APIKeyID != owner.APIKeyID {
+	ownerEmail := NormalizeImageOwnerEmail(owner.UserEmail)
+	if task.UserID != owner.UserID || task.APIKeyID != owner.APIKeyID ||
+		(ownerEmail != "" && NormalizeImageOwnerEmail(task.UserEmail) != ownerEmail) {
 		// Do not reveal whether a random task ID exists for another caller.
 		return nil, ErrImageTaskNotFound
 	}
@@ -191,8 +196,21 @@ func (s *ImageTaskService) Complete(ctx context.Context, id string, statusCode i
 	if !json.Valid(result) {
 		return s.Fail(ctx, id, http.StatusBadGateway, imageTaskErrorJSON("api_error", "upstream returned a non-JSON image response"))
 	}
-	if uploader, _ := s.current(); uploader != nil {
-		rewritten, err := uploader.Rewrite(ctx, id, result)
+	uploader, enabled := s.current()
+	if s.resolve != nil && (!enabled || uploader == nil) {
+		// Do not fall back to persisting provider base64 in Redis when storage is
+		// disabled or incompletely resolved while an accepted task is still running.
+		return s.Fail(ctx, id, http.StatusServiceUnavailable, imageTaskErrorJSON("api_error", "image storage is no longer available"))
+	}
+	if uploader != nil {
+		task, err := s.store.Get(ctx, id)
+		if err != nil {
+			return err
+		}
+		if NormalizeImageOwnerEmail(task.UserEmail) == "" {
+			return s.Fail(ctx, id, http.StatusForbidden, imageTaskErrorJSON("permission_error", "image task owner email is missing"))
+		}
+		rewritten, err := uploader.RewriteForEmail(ctx, id, task.UserEmail, result)
 		if err != nil {
 			// 转存失败不回退存 base64，避免大 blob 撑爆 Redis：直接把任务标记为失败。
 			logger.L().Error("image_task.offload_failed", zap.String("task_id", id), zap.Error(err))

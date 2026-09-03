@@ -89,3 +89,30 @@ func TestImageTaskServiceMapsStoreFailures(t *testing.T) {
 	_, err := svc.Create(context.Background(), ImageTaskOwner{UserID: 1, APIKeyID: 2})
 	require.ErrorIs(t, err, ErrImageTaskUnavailable)
 }
+
+func TestImageTaskServiceResolverUnavailableFailsWithoutPersistingResult(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		enabled bool
+	}{
+		{name: "disabled", enabled: false},
+		{name: "missing uploader", enabled: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &imageTaskMemoryStore{}
+			svc := NewImageTaskServiceWithResolver(store, func() (*ImageResultUploader, bool) {
+				return nil, tc.enabled
+			}, time.Hour, time.Minute)
+			created, err := svc.Create(context.Background(), ImageTaskOwner{UserID: 1, APIKeyID: 2, UserEmail: "owner@example.com"})
+			require.NoError(t, err)
+
+			b64 := json.RawMessage(`{"data":[{"b64_json":"c2Vuc2l0aXZl"}]}`)
+			require.NoError(t, svc.Complete(context.Background(), created.ID, http.StatusOK, b64))
+			got, err := svc.Get(context.Background(), ImageTaskOwner{UserID: 1, APIKeyID: 2, UserEmail: "owner@example.com"}, created.ID)
+			require.NoError(t, err)
+			require.Equal(t, ImageTaskStatusFailed, got.Status)
+			require.Equal(t, http.StatusServiceUnavailable, got.HTTPStatus)
+			require.Empty(t, got.Result)
+		})
+	}
+}

@@ -61,6 +61,7 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
 			ID:      9,
 			UserID:  7,
+			User:    &service.User{ID: 7, Email: "owner@example.com"},
 			GroupID: &groupID,
 			Group:   &service.Group{ID: groupID, Platform: service.PlatformOpenAI, AllowImageGeneration: true},
 		})
@@ -72,6 +73,7 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 	requestCtx, cancelRequest := context.WithCancel(context.Background())
 	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations/async", strings.NewReader(`{"model":"gpt-image-1","prompt":"cat"}`)).WithContext(requestCtx)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(imageOwnerEmailHeader, " owner@example.com ")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	require.Equal(t, http.StatusAccepted, w.Code)
@@ -98,12 +100,35 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 	}, time.Second, 10*time.Millisecond)
 
 	pollReq := httptest.NewRequest(http.MethodGet, accepted.PollURL, nil)
+	pollReq.Header.Set(imageOwnerEmailHeader, "owner@example.com")
 	pollWriter := httptest.NewRecorder()
 	router.ServeHTTP(pollWriter, pollReq)
 	require.Equal(t, http.StatusOK, pollWriter.Code)
 	require.Equal(t, "no-store", pollWriter.Header().Get("Cache-Control"))
 	require.Empty(t, pollWriter.Header().Get("Retry-After"))
 	require.Contains(t, pollWriter.Body.String(), "https://example.test/image.png")
+}
+
+func TestAsyncImageHandlerRejectsMismatchedOwnerEmail(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := &asyncImageMemoryStore{tasks: make(map[string]*service.ImageTaskRecord)}
+	tasks := service.NewImageTaskServiceWithUploader(store, nil, time.Hour, time.Minute)
+	h := &AsyncImageHandler{tasks: tasks}
+	h.execute = func(string, *gin.Context) {}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		gid := int64(3)
+		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{ID: 9, UserID: 7, User: &service.User{ID: 7, Email: "owner@example.com"}, GroupID: &gid, Group: &service.Group{ID: gid, Platform: service.PlatformOpenAI, AllowImageGeneration: true}})
+		c.Next()
+	})
+	router.POST("/v1/images/generations/async", h.Submit)
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations/async", strings.NewReader(`{"model":"gpt-image-2","prompt":"cat"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(imageOwnerEmailHeader, "other@example.com")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusForbidden, w.Code)
+	require.Empty(t, store.tasks)
 }
 
 func TestAsyncImageHandlerSubmitUsesResolvedCompositeTarget(t *testing.T) {
@@ -123,6 +148,7 @@ func TestAsyncImageHandlerSubmitUsesResolvedCompositeTarget(t *testing.T) {
 		apiKey := &service.APIKey{
 			ID:      9,
 			UserID:  7,
+			User:    &service.User{ID: 7, Email: "owner@example.com"},
 			GroupID: &groupID,
 			Group:   &service.Group{ID: groupID, Platform: service.PlatformComposite, AllowImageGeneration: true},
 		}
@@ -134,6 +160,7 @@ func TestAsyncImageHandlerSubmitUsesResolvedCompositeTarget(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations/async", strings.NewReader(`{"model":"image-alias","prompt":"cat"}`))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(imageOwnerEmailHeader, "owner@example.com")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	require.Equal(t, http.StatusAccepted, w.Code)
@@ -160,6 +187,7 @@ func TestAsyncImageHandlerDisabledReturns404(t *testing.T) {
 		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
 			ID:      9,
 			UserID:  7,
+			User:    &service.User{ID: 7, Email: "owner@example.com"},
 			GroupID: &groupID,
 			Group:   &service.Group{ID: groupID, Platform: service.PlatformOpenAI, AllowImageGeneration: true},
 		})
@@ -170,12 +198,14 @@ func TestAsyncImageHandlerDisabledReturns404(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations/async", strings.NewReader(`{"model":"gpt-image-1","prompt":"cat"}`))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(imageOwnerEmailHeader, "owner@example.com")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	require.Equal(t, http.StatusNotFound, w.Code)
 	require.Contains(t, w.Body.String(), "not enabled")
 
 	pollReq := httptest.NewRequest(http.MethodGet, "/v1/images/tasks/imgtask_missing", nil)
+	pollReq.Header.Set(imageOwnerEmailHeader, "owner@example.com")
 	pollWriter := httptest.NewRecorder()
 	router.ServeHTTP(pollWriter, pollReq)
 	require.Equal(t, http.StatusNotFound, pollWriter.Code)

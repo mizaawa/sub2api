@@ -87,7 +87,7 @@ func TestAsyncImageEnablesWithoutRestart(t *testing.T) {
 	router.Use(func(c *gin.Context) {
 		groupID := int64(3)
 		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
-			ID: 9, UserID: 7, GroupID: &groupID,
+			ID: 9, UserID: 7, User: &service.User{ID: 7, Email: "owner@example.com"}, GroupID: &groupID,
 			Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI, AllowImageGeneration: true},
 		})
 		c.Next()
@@ -99,6 +99,7 @@ func TestAsyncImageEnablesWithoutRestart(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/v1/images/generations/async",
 			strings.NewReader(`{"model":"gpt-image-1","prompt":"a lighthouse"}`))
 		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set(imageOwnerEmailHeader, "owner@example.com")
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
 		return rec

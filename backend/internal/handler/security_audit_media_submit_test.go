@@ -83,6 +83,7 @@ func TestAsyncImagePromptGuardRunsBeforeTaskCreation(t *testing.T) {
 	router.POST("/v1/images/generations/async", h.Submit)
 	request := httptest.NewRequest(http.MethodPost, "/v1/images/generations/async", strings.NewReader(`{"model":"gpt-image-2","prompt":"blocked async prompt"}`))
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(imageOwnerEmailHeader, "media@example.test")
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, request)
 
@@ -120,6 +121,7 @@ func TestAsyncImageSuccessfulPrecheckIsNotRepeatedByDetachedExecution(t *testing
 	router.POST("/v1/images/generations/async", h.Submit)
 	request := httptest.NewRequest(http.MethodPost, "/v1/images/generations/async", strings.NewReader(`{"model":"gpt-image-2","prompt":"allowed async prompt"}`))
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(imageOwnerEmailHeader, "media@example.test")
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, request)
 	require.Equal(t, http.StatusAccepted, recorder.Code)

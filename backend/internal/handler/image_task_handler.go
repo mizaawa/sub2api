@@ -26,6 +26,8 @@ type AsyncImageHandler struct {
 	execute func(platform string, c *gin.Context)
 }
 
+const imageOwnerEmailHeader = "X-Sub2API-User-Email"
+
 func NewAsyncImageHandler(tasks *service.ImageTaskService, openAI *OpenAIGatewayHandler) *AsyncImageHandler {
 	h := &AsyncImageHandler{tasks: tasks, openAI: openAI}
 	h.execute = h.executeWithGateway
@@ -55,6 +57,11 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 	}
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok || apiKey == nil || apiKey.UserID <= 0 || apiKey.ID <= 0 {
+		imageTaskError(c, service.ErrImageTaskForbidden)
+		return
+	}
+	ownerEmail, ok := imageOwnerEmail(c, apiKey)
+	if !ok {
 		imageTaskError(c, service.ErrImageTaskForbidden)
 		return
 	}
@@ -107,7 +114,7 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 	}
 
 	taskCtx, recorder, cancel := newAsyncImageContext(c, body, h.tasks.ExecutionTimeout())
-	task, err := h.tasks.Create(c.Request.Context(), service.ImageTaskOwner{UserID: apiKey.UserID, APIKeyID: apiKey.ID})
+	task, err := h.tasks.Create(c.Request.Context(), service.ImageTaskOwner{UserID: apiKey.UserID, APIKeyID: apiKey.ID, UserEmail: ownerEmail})
 	if err != nil {
 		cancel()
 		imageTaskError(c, err)
@@ -181,7 +188,12 @@ func (h *AsyncImageHandler) Get(c *gin.Context) {
 		imageTaskError(c, service.ErrImageTaskForbidden)
 		return
 	}
-	task, err := h.tasks.Get(c.Request.Context(), service.ImageTaskOwner{UserID: apiKey.UserID, APIKeyID: apiKey.ID}, c.Param("task_id"))
+	ownerEmail, ok := imageOwnerEmail(c, apiKey)
+	if !ok {
+		imageTaskError(c, service.ErrImageTaskForbidden)
+		return
+	}
+	task, err := h.tasks.Get(c.Request.Context(), service.ImageTaskOwner{UserID: apiKey.UserID, APIKeyID: apiKey.ID, UserEmail: ownerEmail}, c.Param("task_id"))
 	if err != nil {
 		imageTaskError(c, err)
 		return
@@ -191,6 +203,18 @@ func (h *AsyncImageHandler) Get(c *gin.Context) {
 		c.Header("Retry-After", "3")
 	}
 	c.JSON(http.StatusOK, task)
+}
+
+// imageOwnerEmail binds the browser-provided identity hint to the authenticated
+// API key owner. The header is never trusted on its own; it must match the
+// server-loaded user record case-insensitively after whitespace normalization.
+func imageOwnerEmail(c *gin.Context, apiKey *service.APIKey) (string, bool) {
+	provided := service.NormalizeImageOwnerEmail(c.GetHeader(imageOwnerEmailHeader))
+	if apiKey == nil || apiKey.User == nil {
+		return "", false
+	}
+	expected := service.NormalizeImageOwnerEmail(apiKey.User.Email)
+	return expected, expected != "" && provided != "" && expected == provided
 }
 
 func (h *AsyncImageHandler) validateRequest(c *gin.Context, platform string, body []byte) error {

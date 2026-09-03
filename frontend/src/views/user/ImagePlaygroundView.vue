@@ -57,6 +57,7 @@ interface GatewayModel {
 interface LoadContext {
   generation: number
   userId: number
+  userEmail: string
   tokenPresent: boolean
   controller: AbortController
 }
@@ -99,16 +100,25 @@ function currentUserId(): number | null {
   return Number.isSafeInteger(id) && id > 0 ? id : null
 }
 
+function currentUserEmail(): string | null {
+  const email = authStore.user?.email
+  if (typeof email !== 'string') return null
+  const normalized = email.trim().toLowerCase()
+  return normalized || null
+}
+
 function beginLoad(): LoadContext | null {
   activeLoadController?.abort()
   const userId = currentUserId()
-  if (!userId) return null
+  const userEmail = currentUserEmail()
+  if (!userId || !userEmail) return null
   const controller = new AbortController()
   activeLoadController = controller
   loadGeneration += 1
   return {
     generation: loadGeneration,
     userId,
+    userEmail,
     tokenPresent: Boolean(authStore.token),
     controller,
   }
@@ -118,6 +128,7 @@ function isCurrentLoad(context: LoadContext): boolean {
   return context.generation === loadGeneration
     && !context.controller.signal.aborted
     && currentUserId() === context.userId
+    && currentUserEmail() === context.userEmail
     && Boolean(authStore.token) === context.tokenPresent
 }
 
@@ -237,7 +248,7 @@ async function loadModels(context: LoadContext): Promise<void> {
     // Only the selected key is sent to the provider. Other keys are carried to
     // the local standalone selector but are never probed in parallel.
     const response = await fetch(`${IMAGE_PLAYGROUND_API_BASE_URL}/models`, {
-      headers: { Authorization: `Bearer ${key.key}` },
+      headers: { Authorization: `Bearer ${key.key}`, 'X-Sub2API-User-Email': context.userEmail },
       cache: 'no-store',
       signal: context.controller.signal,
     })
@@ -273,7 +284,7 @@ async function loadModels(context: LoadContext): Promise<void> {
   }
 }
 
-function buildStandaloneSettings(key: ApiKey, model: string): Record<string, unknown> {
+function buildStandaloneSettings(context: LoadContext, key: ApiKey, model: string): Record<string, unknown> {
   const profiles = imageKeys.value.map((candidate) => ({
     id: `sub2api-key-${candidate.id}`,
     name: candidate.name || `Sub2API API Key ${candidate.id}`,
@@ -282,6 +293,7 @@ function buildStandaloneSettings(key: ApiKey, model: string): Record<string, unk
     provider: 'sb2api-async',
     baseUrl: IMAGE_PLAYGROUND_API_BASE_URL,
     apiKey: candidate.key,
+    userEmail: context.userEmail,
     model: candidate.id === key.id ? model : defaultModelForKey(candidate),
     modelOptions: modelsByKeyId.value[candidate.id] || [defaultModelForKey(candidate)],
     isDefault: candidate.id === key.id,
@@ -301,10 +313,10 @@ function redirectToStandalone(context: LoadContext, key: ApiKey, model: string):
   if (redirecting.value || !isCurrentLoad(context) || currentUserId() !== context.userId) return
   try {
     redirecting.value = true
-    const settings = buildStandaloneSettings(key, model)
+    const settings = buildStandaloneSettings(context, key, model)
     // Use same-origin session storage as a one-time carrier. Unlike window.name,
     // it is scoped to this tab and never travels with a new window or referrer.
-    sessionStorage.setItem(STANDALONE_CONFIG_STORAGE_KEY, `${STANDALONE_CONFIG_PREFIX}${JSON.stringify({ userId: context.userId, settings })}`)
+    sessionStorage.setItem(STANDALONE_CONFIG_STORAGE_KEY, `${STANDALONE_CONFIG_PREFIX}${JSON.stringify({ userId: context.userId, userEmail: context.userEmail, settings })}`)
     window.name = ''
     window.location.replace(STANDALONE_IMAGE_PLAYGROUND_PATH)
   } catch (error) {
