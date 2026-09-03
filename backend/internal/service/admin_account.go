@@ -600,6 +600,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
+	previousStatus := account.Status
 	var normalizedExtra map[string]any
 	if input.Extra != nil {
 		normalizedExtra, err = normalizeOpenAILongContextBillingUpdateExtra(account, input)
@@ -812,6 +813,15 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	if input.Status != "" {
 		account.Status = input.Status
+		// API-key accounts can be left in status=error by the historical
+		// privacy probe bug or by a transient upstream rejection.  An explicit
+		// admin transition back to active is a recovery action; keep the account
+		// schedulable and clear the stale diagnostic in the same update.  Do not
+		// alter accounts that were already active and manually paused.
+		if account.Type == AccountTypeAPIKey && previousStatus == StatusError && account.Status == StatusActive {
+			account.Schedulable = true
+			account.ErrorMessage = ""
+		}
 	}
 	if input.ExpiresAt != nil {
 		if *input.ExpiresAt <= 0 {
@@ -1270,6 +1280,12 @@ func (s *adminServiceImpl) RefreshAccountCredentials(ctx context.Context, id int
 
 func (s *adminServiceImpl) ClearAccountError(ctx context.Context, id int64) (*Account, error) {
 	if err := s.accountRepo.ClearError(ctx, id); err != nil {
+		return nil, err
+	}
+	// Clearing an account error is an explicit administrator recovery action.
+	// Keep ClearError side-effect free for background callers, then opt this
+	// endpoint back into scheduling after all persisted error state is cleared.
+	if err := s.accountRepo.SetSchedulable(ctx, id, true); err != nil {
 		return nil, err
 	}
 	if err := s.accountRepo.ClearRateLimit(ctx, id); err != nil {

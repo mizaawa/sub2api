@@ -270,7 +270,9 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			break
 		}
 		// OpenAI: {"detail":"Unauthorized"} 表示 token 完全无效（非标准 OpenAI 错误格式），直接标记 error
-		if authAccount.Platform == PlatformOpenAI && gjson.GetBytes(responseBody, "detail").String() == "Unauthorized" {
+		if authAccount.Platform == PlatformOpenAI &&
+			(authAccount.Type != AccountTypeAPIKey || !IsDisableTempUnschedulableEnabled()) &&
+			gjson.GetBytes(responseBody, "detail").String() == "Unauthorized" {
 			msg := "Unauthorized (401): account authentication failed permanently"
 			if upstreamMsg != "" {
 				msg = "Unauthorized (401): " + upstreamMsg
@@ -338,7 +340,15 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			}
 			shouldDisable = true
 		} else {
-			// 非 OAuth：保持 SetError 行为
+			// API Key 账号在管理员关闭临时不可调度时，通用 401 只影响当前
+			// 请求的 failover，不把账号永久写成 error。明确 token_revoked /
+			// token_invalidated 等永久错误仍在上方分支中处理。
+			if authAccount.Type == AccountTypeAPIKey && IsDisableTempUnschedulableEnabled() {
+				slog.Warn("api_key_401_kept_active", "account_id", authAccount.ID)
+				shouldDisable = true
+				break
+			}
+			// 非 OAuth 默认保持 SetError 行为
 			msg := "Authentication failed (401): invalid or expired credentials"
 			if upstreamMsg != "" {
 				msg = "Authentication failed (401): " + upstreamMsg
@@ -813,7 +823,13 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	if account.Platform == PlatformOpenAI {
 		return s.handleOpenAI403(ctx, account, upstreamMsg, responseBody)
 	}
-	// 非 Antigravity 平台：保持原有行为
+	// API Key 账号在禁用临时不可调度时不因通用 403 永久停用；当前请求
+	// 仍然 failover，后续请求继续有机会使用该账号。
+	if account.Type == AccountTypeAPIKey && IsDisableTempUnschedulableEnabled() {
+		slog.Warn("api_key_403_kept_active", "account_id", account.ID)
+		return true
+	}
+	// 非 Antigravity 平台：默认保持原有行为
 	msg := buildForbiddenErrorMessage(
 		"Access forbidden (403):",
 		upstreamMsg,
@@ -833,6 +849,10 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 	)
 
 	if s.openAI403CounterCache == nil {
+		if account.Type == AccountTypeAPIKey && IsDisableTempUnschedulableEnabled() {
+			slog.Warn("api_key_403_kept_active_without_counter", "account_id", account.ID)
+			return true
+		}
 		s.handleAuthError(ctx, account, msg)
 		return true
 	}
@@ -840,12 +860,23 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 	count, err := s.openAI403CounterCache.IncrementOpenAI403Count(ctx, account.ID, openAI403CounterWindowMinutes)
 	if err != nil {
 		slog.Warn("openai_403_increment_failed", "account_id", account.ID, "error", err)
+		if account.Type == AccountTypeAPIKey && IsDisableTempUnschedulableEnabled() {
+			slog.Warn("api_key_403_kept_active_after_counter_error", "account_id", account.ID)
+			return true
+		}
 		s.handleAuthError(ctx, account, msg)
 		return true
 	}
 
 	if count >= openAI403DisableThreshold {
 		msg = fmt.Sprintf("%s | consecutive_403=%d/%d", msg, count, openAI403DisableThreshold)
+		if account.Type == AccountTypeAPIKey && IsDisableTempUnschedulableEnabled() {
+			// With transient scheduling disabled, a repeated generic 403 must not
+			// permanently poison an API Key account. The upstream response still
+			// fails over, while the account remains active for later attempts.
+			slog.Warn("api_key_403_threshold_kept_active", "account_id", account.ID, "count", count)
+			return true
+		}
 		s.handleAuthError(ctx, account, msg)
 		return true
 	}

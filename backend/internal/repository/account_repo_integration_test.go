@@ -817,6 +817,51 @@ func (s *AccountRepoSuite) TestSetSchedulable() {
 	s.Require().Equal(account.ID, cacheRecorder.setAccounts[0].ID)
 }
 
+func (s *AccountRepoSuite) TestSetSchedulable_RecoversAPIKeyErrorWhenEnabled() {
+	account := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:         "acc-apikey-recover",
+		Platform:     service.PlatformOpenAI,
+		Type:         service.AccountTypeAPIKey,
+		Status:       service.StatusError,
+		ErrorMessage: "Privacy not set, required by group [default]",
+		Schedulable:  false,
+		Credentials:  map[string]any{"api_key": "sk-test"},
+	})
+	cacheRecorder := &schedulerCacheRecorder{}
+	s.repo.schedulerCache = cacheRecorder
+
+	s.Require().NoError(s.repo.SetSchedulable(s.ctx, account.ID, true))
+
+	got, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(service.StatusActive, got.Status)
+	s.Require().Empty(got.ErrorMessage)
+	s.Require().True(got.Schedulable)
+	s.Require().Len(cacheRecorder.setAccounts, 1)
+	s.Require().Equal(service.StatusActive, cacheRecorder.setAccounts[0].Status)
+	s.Require().True(cacheRecorder.setAccounts[0].Schedulable)
+}
+
+func (s *AccountRepoSuite) TestSetSchedulable_DoesNotClearOAuthError() {
+	account := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:         "acc-oauth-preserve-error",
+		Platform:     service.PlatformOpenAI,
+		Type:         service.AccountTypeOAuth,
+		Status:       service.StatusError,
+		ErrorMessage: "token revoked",
+		Schedulable:  false,
+		Credentials:  map[string]any{"refresh_token": "rt-test"},
+	})
+
+	s.Require().NoError(s.repo.SetSchedulable(s.ctx, account.ID, true))
+
+	got, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(service.StatusError, got.Status)
+	s.Require().Equal("token revoked", got.ErrorMessage)
+	s.Require().True(got.Schedulable)
+}
+
 func (s *AccountRepoSuite) TestBulkUpdate_SyncSchedulerSnapshotOnDisabled() {
 	account1 := mustCreateAccount(s.T(), s.client, &service.Account{Name: "bulk-1", Status: service.StatusActive, Schedulable: true})
 	account2 := mustCreateAccount(s.T(), s.client, &service.Account{Name: "bulk-2", Status: service.StatusActive, Schedulable: true})
@@ -1391,6 +1436,7 @@ func (s *AccountRepoSuite) TestClearError_SyncSchedulerSnapshotOnRecovery() {
 		Name:         "acc-clear-err",
 		Status:       service.StatusError,
 		ErrorMessage: "temporary error",
+		Schedulable:  false,
 	})
 	cacheRecorder := &schedulerCacheRecorder{}
 	s.repo.schedulerCache = cacheRecorder
@@ -1401,9 +1447,11 @@ func (s *AccountRepoSuite) TestClearError_SyncSchedulerSnapshotOnRecovery() {
 	s.Require().NoError(err)
 	s.Require().Equal(service.StatusActive, got.Status)
 	s.Require().Empty(got.ErrorMessage)
+	s.Require().False(got.Schedulable)
 	s.Require().Len(cacheRecorder.setAccounts, 1)
 	s.Require().Equal(account.ID, cacheRecorder.setAccounts[0].ID)
 	s.Require().Equal(service.StatusActive, cacheRecorder.setAccounts[0].Status)
+	s.Require().False(cacheRecorder.setAccounts[0].Schedulable)
 }
 
 // --- UpdateSessionWindow ---

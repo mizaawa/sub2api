@@ -2205,7 +2205,14 @@ const handleToggleSchedulable = async (a: Account) => {
   togglingSchedulable.value = a.id
   try {
     const updated = await adminAPI.accounts.setSchedulable(a.id, nextSchedulable)
-    updateSchedulableInList([a.id], updated?.schedulable ?? nextSchedulable)
+    // Enabling an API-key account can also recover a historical error state;
+    // merge the complete response so the status column is updated together
+    // with the scheduling switch instead of requiring a full page reload.
+    if (updated) {
+      patchAccountInList(updated)
+    } else {
+      updateSchedulableInList([a.id], nextSchedulable)
+    }
     enterAutoRefreshSilentWindow()
   } catch (error) {
     console.error('Failed to toggle schedulable:', error)

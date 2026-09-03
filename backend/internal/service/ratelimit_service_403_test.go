@@ -86,3 +86,54 @@ func TestRateLimitService_HandleUpstreamError_OpenAI403ThresholdDisables(t *test
 	require.Contains(t, repo.lastErrorMsg, "workspace forbidden by policy")
 	require.Contains(t, repo.lastErrorMsg, "consecutive_403=3/3")
 }
+
+func TestRateLimitService_HandleUpstreamError_APIKey403KeepsAccountActiveWhenTransientBlocksDisabled(t *testing.T) {
+	previous := IsDisableTempUnschedulableEnabled()
+	SetDisableTempUnschedulableRuntime(true)
+	t.Cleanup(func() { SetDisableTempUnschedulableRuntime(previous) })
+
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{ID: 303, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true}
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, []byte(`{"error":{"message":"temporary edge rejection"}}`))
+
+	require.True(t, shouldDisable)
+	require.Zero(t, repo.setErrorCalls, "an API Key 403 without a counter must not persist status=error")
+	require.Zero(t, repo.tempCalls)
+	require.True(t, account.IsSchedulable())
+}
+
+func TestRateLimitService_HandleUpstreamError_APIKey403ThresholdKeepsAccountActiveWhenTransientBlocksDisabled(t *testing.T) {
+	previous := IsDisableTempUnschedulableEnabled()
+	SetDisableTempUnschedulableRuntime(true)
+	t.Cleanup(func() { SetDisableTempUnschedulableRuntime(previous) })
+
+	repo := &rateLimitAccountRepoStub{}
+	counter := &openAI403CounterCacheStub{counts: []int64{openAI403DisableThreshold}}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetOpenAI403CounterCache(counter)
+	account := &Account{ID: 304, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true}
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, []byte(`{"error":{"message":"temporary edge rejection"}}`))
+
+	require.True(t, shouldDisable)
+	require.Zero(t, repo.setErrorCalls, "the transient-block switch must prevent a generic 403 threshold from poisoning an API Key")
+	require.True(t, account.IsSchedulable())
+}
+
+func TestRateLimitService_HandleUpstreamError_NonOpenAIAPIKey403KeepsAccountActiveWhenTransientBlocksDisabled(t *testing.T) {
+	previous := IsDisableTempUnschedulableEnabled()
+	SetDisableTempUnschedulableRuntime(true)
+	t.Cleanup(func() { SetDisableTempUnschedulableRuntime(previous) })
+
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{ID: 305, Platform: PlatformGemini, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true}
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, []byte(`{"error":{"message":"temporary permission edge"}}`))
+
+	require.True(t, shouldDisable)
+	require.Zero(t, repo.setErrorCalls)
+	require.True(t, account.IsSchedulable())
+}

@@ -1849,8 +1849,9 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 			if !s.isGatewayAccountProfitEligible(ctx, acc) {
 				continue
 			}
-			// require_privacy_set: 跳过 privacy 未设置的账号并标记异常
-			if schedGroup != nil && schedGroup.RequirePrivacySet && !acc.IsPrivacySet() {
+			// require_privacy_set applies only to accounts with a provider privacy
+			// endpoint. API keys have no privacy setting and remain schedulable.
+			if schedGroup != nil && schedGroup.RequirePrivacySet && acc.SupportsPrivacySetting() && !acc.IsPrivacySet() {
 				_ = s.accountRepo.SetError(ctx, acc.ID,
 					fmt.Sprintf("Privacy not set, required by group [%s]", schedGroup.Name))
 				continue
@@ -1963,8 +1964,9 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 		if !s.isGatewayAccountProfitEligible(ctx, acc) {
 			continue
 		}
-		// require_privacy_set: 跳过 privacy 未设置的账号并标记异常
-		if schedGroup != nil && schedGroup.RequirePrivacySet && !acc.IsPrivacySet() {
+		// require_privacy_set applies only to accounts with a provider privacy
+		// endpoint. API keys have no privacy setting and remain schedulable.
+		if schedGroup != nil && schedGroup.RequirePrivacySet && acc.SupportsPrivacySetting() && !acc.IsPrivacySet() {
 			_ = s.accountRepo.SetError(ctx, acc.ID,
 				fmt.Sprintf("Privacy not set, required by group [%s]", schedGroup.Name))
 			continue
@@ -2111,8 +2113,9 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 			if !s.isGatewayAccountProfitEligible(ctx, acc) {
 				continue
 			}
-			// require_privacy_set: 跳过 privacy 未设置的账号并标记异常
-			if schedGroup != nil && schedGroup.RequirePrivacySet && !acc.IsPrivacySet() {
+			// require_privacy_set applies only to accounts with a provider privacy
+			// endpoint. API keys have no privacy setting and remain schedulable.
+			if schedGroup != nil && schedGroup.RequirePrivacySet && acc.SupportsPrivacySetting() && !acc.IsPrivacySet() {
 				_ = s.accountRepo.SetError(ctx, acc.ID,
 					fmt.Sprintf("Privacy not set, required by group [%s]", schedGroup.Name))
 				continue
@@ -2226,8 +2229,9 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 		if !s.isGatewayAccountProfitEligible(ctx, acc) {
 			continue
 		}
-		// require_privacy_set: 跳过 privacy 未设置的账号并标记异常
-		if schedGroup != nil && schedGroup.RequirePrivacySet && !acc.IsPrivacySet() {
+		// require_privacy_set applies only to accounts with a provider privacy
+		// endpoint. API keys have no privacy setting and remain schedulable.
+		if schedGroup != nil && schedGroup.RequirePrivacySet && acc.SupportsPrivacySetting() && !acc.IsPrivacySet() {
 			_ = s.accountRepo.SetError(ctx, acc.ID,
 				fmt.Sprintf("Privacy not set, required by group [%s]", schedGroup.Name))
 			continue

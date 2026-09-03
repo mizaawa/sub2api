@@ -235,6 +235,47 @@ func TestRateLimitService_HandleUpstreamError_NonOAuth401(t *testing.T) {
 	require.Empty(t, invalidator.accounts)
 }
 
+func TestRateLimitService_HandleUpstreamError_APIKey401KeepsAccountActiveWhenTransientBlocksDisabled(t *testing.T) {
+	previous := IsDisableTempUnschedulableEnabled()
+	SetDisableTempUnschedulableRuntime(true)
+	t.Cleanup(func() { SetDisableTempUnschedulableRuntime(previous) })
+
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:          104,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{
+			"api_key": "sk-compatible",
+		},
+	}
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusUnauthorized, http.Header{}, []byte(`{"error":{"message":"temporary gateway auth failure"}}`))
+
+	require.True(t, shouldDisable, "the failed request should still fail over")
+	require.Zero(t, repo.setErrorCalls, "a generic API Key 401 must not persist status=error when transient blocks are disabled")
+	require.Zero(t, repo.tempCalls)
+	require.True(t, account.IsSchedulable())
+}
+
+func TestRateLimitService_HandleUpstreamError_APIKeyRevoked401StillDisables(t *testing.T) {
+	previous := IsDisableTempUnschedulableEnabled()
+	SetDisableTempUnschedulableRuntime(true)
+	t.Cleanup(func() { SetDisableTempUnschedulableRuntime(previous) })
+
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{ID: 105, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true}
+
+	shouldDisable := service.HandleUpstreamError(context.Background(), account, http.StatusUnauthorized, http.Header{}, []byte(`{"error":{"code":"token_revoked","message":"revoked"}}`))
+
+	require.True(t, shouldDisable)
+	require.Equal(t, 1, repo.setErrorCalls, "an explicit token revocation remains a permanent credential failure")
+}
+
 // TestRateLimitService_HandleUpstreamError_OAuth401DoesNotOverwriteCredentials
 // 回归测试:确保 401 handler 不再使用请求开始时的 account 快照写回 credentials。
 // 原实现会通过 persistAccountCredentials → UpdateCredentials → SetCredentials

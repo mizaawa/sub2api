@@ -18,6 +18,7 @@ type accountRepoStubForClearAccountError struct {
 	clearAntigravityCalls    int
 	clearModelRateLimitCalls int
 	clearTempUnschedCalls    int
+	setSchedulableCalls      int
 }
 
 func (r *accountRepoStubForClearAccountError) GetByID(ctx context.Context, id int64) (*Account, error) {
@@ -28,6 +29,12 @@ func (r *accountRepoStubForClearAccountError) ClearError(ctx context.Context, id
 	r.clearErrorCalls++
 	r.account.Status = StatusActive
 	r.account.ErrorMessage = ""
+	return nil
+}
+
+func (r *accountRepoStubForClearAccountError) SetSchedulable(_ context.Context, _ int64, schedulable bool) error {
+	r.setSchedulableCalls++
+	r.account.Schedulable = schedulable
 	return nil
 }
 
@@ -77,6 +84,7 @@ func TestAdminService_ClearAccountError_AlsoClearsRecoverableRuntimeState(t *tes
 	require.NoError(t, err)
 	require.NotNil(t, updated)
 	require.Equal(t, 1, repo.clearErrorCalls)
+	require.Equal(t, 1, repo.setSchedulableCalls)
 	require.Equal(t, 1, repo.clearRateLimitCalls)
 	require.Equal(t, 1, repo.clearAntigravityCalls)
 	require.Equal(t, 1, repo.clearModelRateLimitCalls)
@@ -84,5 +92,6 @@ func TestAdminService_ClearAccountError_AlsoClearsRecoverableRuntimeState(t *tes
 	require.Nil(t, updated.RateLimitResetAt)
 	require.Nil(t, updated.TempUnschedulableUntil)
 	require.Empty(t, updated.TempUnschedulableReason)
+	require.True(t, updated.Schedulable)
 	require.Equal(t, []int64{31}, blocker.clearedIDs)
 }

@@ -259,6 +259,15 @@ func (a *Account) IsPrivacySet() bool {
 	}
 }
 
+// SupportsPrivacySetting reports whether the account has a provider privacy
+// setting that this service can actively configure. Static API-key and
+// service-account credentials do not expose the OAuth privacy endpoint; a
+// group requiring privacy must not quarantine those accounts as "unset".
+func (a *Account) SupportsPrivacySetting() bool {
+	return a != nil && a.Type == AccountTypeOAuth &&
+		(a.Platform == PlatformOpenAI || a.Platform == PlatformAntigravity)
+}
+
 func (a *Account) IsGemini() bool {
 	return a.Platform == PlatformGemini
 }

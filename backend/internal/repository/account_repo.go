@@ -1724,6 +1724,9 @@ func (r *accountRepository) syncSchedulerAccountSnapshots(ctx context.Context, a
 }
 
 func (r *accountRepository) ClearError(ctx context.Context, id int64) error {
+	// Clear only the persisted error state. The schedulable flag is an
+	// independent, administrator-controlled switch and must not be changed by
+	// background recovery paths that also use ClearError.
 	_, err := r.client.Account.Update().
 		Where(dbaccount.IDEQ(id)).
 		SetStatus(service.StatusActive).
@@ -2497,19 +2500,39 @@ func (r *accountRepository) UpdateSessionWindowEnd(ctx context.Context, id int64
 }
 
 func (r *accountRepository) SetSchedulable(ctx context.Context, id int64, schedulable bool) error {
-	_, err := r.client.Account.Update().
-		Where(dbaccount.IDEQ(id)).
-		SetSchedulable(schedulable).
-		Save(ctx)
+	// A generic upstream failure used to leave API-key accounts in
+	// status=error.  Enabling scheduling is the explicit admin recovery action
+	// for those accounts, so restore the status atomically with the switch.  The
+	// type/status guards keep OAuth and deliberately disabled accounts untouched.
+	client := clientFromContext(ctx, r.client)
+	result, err := client.ExecContext(ctx, `
+		UPDATE accounts
+		SET schedulable = $1,
+			status = CASE
+				WHEN $1 = TRUE AND type = $3 AND status = $4 THEN $5
+				ELSE status
+			END,
+			error_message = CASE
+				WHEN $1 = TRUE AND type = $3 AND status = $4 THEN ''
+				ELSE error_message
+			END,
+			updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL
+	`, schedulable, id, service.AccountTypeAPIKey, service.StatusError, service.StatusActive)
 	if err != nil {
 		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrAccountNotFound
 	}
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue schedulable change failed: account=%d err=%v", id, err)
 	}
-	if !schedulable {
-		r.syncSchedulerAccountSnapshot(ctx, id)
-	}
+	r.syncSchedulerAccountSnapshot(ctx, id)
 	return nil
 }
 
@@ -2885,6 +2908,16 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		setClauses = append(setClauses, "schedulable = $"+itoa(idx))
 		args = append(args, *updates.Schedulable)
 		idx++
+		// Match the single-account recovery path: enabling scheduling on an
+		// API-key account clears only an error state produced by the account
+		// failure path.  When a bulk status is supplied, that explicit status
+		// change remains authoritative and is not rewritten here.
+		if *updates.Schedulable && updates.Status == nil {
+			setClauses = append(setClauses,
+				"status = CASE WHEN type = 'apikey' AND status = 'error' THEN 'active' ELSE status END",
+				"error_message = CASE WHEN type = 'apikey' AND status = 'error' THEN '' ELSE error_message END",
+			)
+		}
 	}
 	if updates.ProbeEnabled != nil {
 		if updates.Extra == nil {
@@ -3029,7 +3062,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		if updates.Status != nil && (*updates.Status == service.StatusError || *updates.Status == service.StatusDisabled) {
 			shouldSync = true
 		}
-		if updates.Schedulable != nil && !*updates.Schedulable {
+		if updates.Schedulable != nil {
 			shouldSync = true
 		}
 		if shouldSync {

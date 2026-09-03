@@ -424,6 +424,143 @@ func TestAccountTestService_OpenAI401SetsPermanentErrorOnly(t *testing.T) {
 	require.Nil(t, account.RateLimitResetAt)
 }
 
+func TestAccountTestService_OpenAIAPIKey401DoesNotPersistError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	previous := IsDisableTempUnschedulableEnabled()
+	SetDisableTempUnschedulableRuntime(true)
+	t.Cleanup(func() { SetDisableTempUnschedulableRuntime(previous) })
+	ctx, recorder := newTestContext()
+
+	repo := &openAIAccountTestRepo{}
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{
+		newJSONResponse(http.StatusUnauthorized, `{"error":"temporary gateway auth failure"}`),
+	}}
+	svc := &AccountTestService{
+		accountRepo:  repo,
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := &Account{
+		ID:          801,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Credentials: map[string]any{"api_key": "sk-test", "base_url": "https://compat-upstream.example/v1"},
+		Extra:       map[string]any{openai_compat.ExtraKeyResponsesSupported: true},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4", "", "")
+	require.Error(t, err)
+	require.Zero(t, repo.setErrorID, "API Key connectivity probes must not permanently disable the account")
+	require.Equal(t, StatusActive, account.Status)
+	require.True(t, account.IsSchedulable())
+	require.Contains(t, recorder.Body.String(), "API returned 401")
+}
+
+func TestAccountTestService_OpenAIAPIKeyChatCompletions401DoesNotPersistError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	previous := IsDisableTempUnschedulableEnabled()
+	SetDisableTempUnschedulableRuntime(true)
+	t.Cleanup(func() { SetDisableTempUnschedulableRuntime(previous) })
+	ctx, recorder := newTestContext()
+
+	repo := &openAIAccountTestRepo{}
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{
+		newJSONResponse(http.StatusUnauthorized, `{"error":"temporary gateway auth failure"}`),
+	}}
+	svc := &AccountTestService{
+		accountRepo:  repo,
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := &Account{
+		ID:          802,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Credentials: map[string]any{"api_key": "sk-test"},
+	}
+
+	err := svc.testOpenAIChatCompletionsConnection(ctx, account, "gpt-5.4", "hello", "https://compat-upstream.example/v1", "sk-test")
+	require.Error(t, err)
+	require.Zero(t, repo.setErrorID)
+	require.Equal(t, StatusActive, account.Status)
+	require.True(t, account.IsSchedulable())
+	require.Contains(t, recorder.Body.String(), "returned 401")
+}
+
+func TestAccountTestService_OpenAIAPIKeyCompact401DoesNotPersistError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	previous := IsDisableTempUnschedulableEnabled()
+	SetDisableTempUnschedulableRuntime(true)
+	t.Cleanup(func() { SetDisableTempUnschedulableRuntime(previous) })
+	ctx, recorder := newTestContext()
+
+	repo := &openAIAccountTestRepo{}
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{
+		newJSONResponse(http.StatusUnauthorized, `{"error":"temporary gateway auth failure"}`),
+	}}
+	svc := &AccountTestService{
+		accountRepo:  repo,
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := &Account{
+		ID:          803,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Credentials: map[string]any{"api_key": "sk-test"},
+	}
+
+	err := svc.testOpenAICompactConnection(ctx, account, "gpt-5.4")
+	require.Error(t, err)
+	require.Zero(t, repo.setErrorID)
+	require.Equal(t, StatusActive, account.Status)
+	require.True(t, account.IsSchedulable())
+	require.Contains(t, recorder.Body.String(), "API returned 401")
+}
+
+func TestAccountTestService_AnthropicAPIKey403DoesNotPersistError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	previous := IsDisableTempUnschedulableEnabled()
+	SetDisableTempUnschedulableRuntime(true)
+	t.Cleanup(func() { SetDisableTempUnschedulableRuntime(previous) })
+	ctx, recorder := newTestContext()
+
+	repo := &openAIAccountTestRepo{}
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{
+		newJSONResponse(http.StatusForbidden, `{"error":{"message":"temporary edge rejection"}}`),
+	}}
+	svc := &AccountTestService{
+		accountRepo:  repo,
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := &Account{
+		ID:          804,
+		Platform:    PlatformAnthropic,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Credentials: map[string]any{"api_key": "sk-anthropic-test", "base_url": "https://compat-upstream.example"},
+	}
+
+	err := svc.testClaudeAccountConnection(ctx, account, "claude-sonnet-4-5")
+	require.Error(t, err)
+	require.Zero(t, repo.setErrorID, "Anthropic API Key connectivity probes must not permanently disable the account")
+	require.Equal(t, StatusActive, account.Status)
+	require.True(t, account.IsSchedulable())
+	require.Contains(t, recorder.Body.String(), "API returned 403")
+}
+
 func TestAccountTestService_OpenAIAPIKeyResponsesUsesCodexProbeHeaders(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := newTestContext()
