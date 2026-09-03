@@ -133,6 +133,8 @@ func TestAsyncImageEnablesWithoutRestart(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, submit().Code, "new submissions are refused again")
 
 	pollRec := httptest.NewRecorder()
-	router.ServeHTTP(pollRec, httptest.NewRequest(http.MethodGet, accepted.PollURL, nil))
+	pollReq := httptest.NewRequest(http.MethodGet, accepted.PollURL, nil)
+	pollReq.Header.Set(imageOwnerEmailHeader, "owner@example.com")
+	router.ServeHTTP(pollRec, pollReq)
 	require.Equal(t, http.StatusOK, pollRec.Code, "an already-accepted task stays pollable after the switch is turned off")
 }

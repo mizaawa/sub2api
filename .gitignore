@@ -143,3 +143,6 @@ docs/*
 frontend/coverage/
 aicodex
 output/
+
+# Local checkout used to rebuild the embedded image playground; never commit it.
+.tmp-gpt-image-playground/
