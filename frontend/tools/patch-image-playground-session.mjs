@@ -79,6 +79,29 @@ function replaceFunctionOnce(label, startMarker, endMarker, replacement, already
   patched = patched.slice(0, start) + replacement + patched.slice(end)
 }
 
+// Keep provider requests same-origin so browser preflight policy cannot block
+// the Authorization and owner-email headers. Deployments on the zayu hostname
+// still resolve this to the same zayu `/v1` endpoint.
+const remoteBaseUrl = 'Yo="https://api.zayuapi.com/v1"'
+const sameOriginBaseUrl = 'Yo=typeof window>"u"?"https://api.zayuapi.com/v1":`${window.location.origin}/v1`'
+if (patched.includes(remoteBaseUrl)) replaceOnce('same-origin image API base URL', remoteBaseUrl, sameOriginBaseUrl)
+const staleSameOriginBaseUrl = 'Yo=typeof window<"u"?"https://api.zayuapi.com/v1":`${window.location.origin}/v1`'
+if (patched.includes(staleSameOriginBaseUrl)) replaceOnce('same-origin image API base URL condition', staleSameOriginBaseUrl, sameOriginBaseUrl)
+
+// The vendored build references v4 from the task runner but the function was
+// omitted by the upstream production bundle. Dispatch managed image profiles
+// through the HTTP Images API and retain the Responses path for other modes.
+const imageDispatcher = 'async function v4(a,l,s){if(s&&s.submit)return a.params.n>1?M4(a,l,s,a.params.n):vb(a,l,s);return A4(a,l)}'
+if (!patched.includes('async function v4(')) {
+  replaceOnce('image request dispatcher', 'const lk={', imageDispatcher + 'const lk={')
+}
+
+// zayu rejects an explicit null output_compression field. Omit optional nulls
+// from the resolved JSON body while preserving zero and positive values.
+const jsonBodyBuild = 'const A=Qs(a.body??{},p);s.responseFormatB64Json&&A&&typeof A=="object"&&!Array.isArray(A)&&(A.response_format="b64_json"),S=JSON.stringify(A)'
+const jsonBodyBuildFixed = 'const A=Qs(a.body??{},p);A&&typeof A=="object"&&!Array.isArray(A)&&A.output_compression==null&&delete A.output_compression,s.responseFormatB64Json&&A&&typeof A=="object"&&!Array.isArray(A)&&(A.response_format="b64_json"),S=JSON.stringify(A)'
+if (patched.includes(jsonBodyBuild)) replaceOnce('omit null image compression', jsonBodyBuild, jsonBodyBuildFixed)
+
 // Keep the bootstrap carrier until the standalone app has finished restoring
 // its settings. A malformed or interrupted first mount must be retryable.
 const bootstrapReaderReplacement = 'function wk(){if(typeof window>"u")return null;let a=null;try{a=window.sessionStorage.getItem(zx)}catch{return null}if(!a||!a.startsWith(_x))return null;try{const l=JSON.parse(a.slice(_x.length));if(!l||typeof l!=="object"||Array.isArray(l))return null;const s=F0(l.userId),i=l.settings;if(!s||!i||typeof i!=="object"||Array.isArray(i))return null;const d=Xl(l.userEmail);return{settings:i,userId:s,...d?{userEmail:d}:{}}}catch{return null}}function clearImagePlaygroundBootstrap(){try{window.sessionStorage.removeItem(zx)}catch{}}'

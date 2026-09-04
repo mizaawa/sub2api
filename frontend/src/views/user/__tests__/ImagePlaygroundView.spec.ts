@@ -32,7 +32,7 @@ describe('Image playground launcher', () => {
     expect(componentSource).toContain('window.location.replace(STANDALONE_IMAGE_PLAYGROUND_PATH)')
     expect(componentSource).toContain('userGroupsAPI.getAvailable({ signal: context.controller.signal })')
     expect(componentSource).toContain('key.group_id == null || key.group?.allow_image_generation === true')
-    expect(componentSource).toContain("const IMAGE_PLAYGROUND_API_BASE_URL = 'https://api.zayuapi.com/v1'")
+    expect(componentSource).toContain("const IMAGE_PLAYGROUND_API_BASE_URL = '/v1'")
     expect(componentSource).toContain('imagePlaygroundEnabled')
   })
 
@@ -106,6 +106,9 @@ describe('Image playground launcher', () => {
     expect(componentSource).not.toContain('Promise.all(imageKeys.value.map')
     expect(standaloneScript).toContain('OpenAI 兼容接口')
     expect(standaloneScript).toContain('https://api.zayuapi.com/v1')
+    expect(standaloneScript).toContain('window.location.origin}/v1')
+    expect(standaloneScript).toContain('async function v4')
+    expect(standaloneScript).toContain('output_compression==null&&delete')
     expect(standaloneScript).toContain('aria-label":"当前配置"')
     expect(standaloneScript).toContain('aria-label":"选择模型"')
     expect(standaloneScript).toContain('N=_r(tn(z.getState().settings)),ee=N.profiles.find')

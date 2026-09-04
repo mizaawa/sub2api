@@ -65,7 +65,10 @@ interface LoadContext {
 const STANDALONE_IMAGE_PLAYGROUND_PATH = '/image-playground/'
 const STANDALONE_CONFIG_PREFIX = 'sub2api-image-playground:'
 const STANDALONE_CONFIG_STORAGE_KEY = 'sub2api-image-playground:bootstrap'
-const IMAGE_PLAYGROUND_API_BASE_URL = 'https://api.zayuapi.com/v1'
+// Browser requests stay same-origin. When Sub2API is deployed at the zayu
+// hostname this still resolves to the zayu `/v1` endpoint, while local/dev
+// deployments avoid a cross-origin preflight for the auth headers.
+const IMAGE_PLAYGROUND_API_BASE_URL = '/v1'
 const STANDALONE_SERVICE_WORKER_PATH = '/image-playground/'
 
 const { t } = useI18n()
