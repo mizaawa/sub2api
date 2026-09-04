@@ -74,8 +74,10 @@ describe('Image playground launcher', () => {
 
     expect(sessionComponent).toContain('const g=wk(),v=_o()')
     expect(sessionComponent).toContain('g.userId===x')
-    expect(sessionComponent).toContain('Xl(g.userEmail)===v.userEmail')
-    expect(sessionComponent).toContain('S.tokenPresent&&S.userId===m&&S.userEmail===Bx()')
+    expect(sessionComponent).toContain('Xl(g.userEmail)===Xl(y)')
+    expect(sessionComponent).toContain('x=g?.userId??v.userId')
+    expect(sessionComponent).toContain('sessionValid=')
+    expect(sessionComponent).toContain('localUserPresent=')
     expect(sessionComponent).toContain('S.key===null||S.key==="auth_user"')
     expect(sessionComponent).not.toContain('ij()')
     expect(sessionComponent).not.toContain('auth_token')
