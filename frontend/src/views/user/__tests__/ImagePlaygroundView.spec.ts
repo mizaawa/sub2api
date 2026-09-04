@@ -14,6 +14,8 @@ const standaloneScriptPath = resolve(
   standaloneIndex.match(/src="\.\/assets\/(index-[^"]+\.js)"/)?.[1] ?? '',
 )
 const standaloneScript = readFileSync(standaloneScriptPath, 'utf8')
+const responsiveOverridePath = resolve(dirname(standaloneIndexPath), 'assets', 'workbench-overrides.css')
+const responsiveOverride = readFileSync(responsiveOverridePath, 'utf8')
 
 describe('Image playground launcher', () => {
   it('opens the standalone project instead of embedding a local workbench', () => {
@@ -81,6 +83,13 @@ describe('Image playground launcher', () => {
     expect(sessionComponent).not.toContain('token_expires_at')
   })
 
+  it('keeps a failed bootstrap available for a later standalone mount', () => {
+    expect(standaloneScript).toContain('function clearImagePlaygroundBootstrap')
+    expect(standaloneScript).toContain('window.sessionStorage.getItem(zx)')
+    expect(standaloneScript).not.toContain('window.sessionStorage.getItem(zx),window.sessionStorage.removeItem(zx)')
+    expect(standaloneScript).toContain('g&&clearImagePlaygroundBootstrap()')
+  })
+
   it('passes the selected Sub2API async profile to the standalone project', () => {
     expect(componentSource).toContain("provider: 'sb2api-async'")
     expect(componentSource).toContain("baseUrl: IMAGE_PLAYGROUND_API_BASE_URL")
@@ -106,6 +115,15 @@ describe('Image playground launcher', () => {
     expect(standaloneScript).toContain('rawImageUrls:m')
     expect(standaloneScript).not.toContain('moderation')
     expect(standaloneScript).not.toContain('审核')
+  })
+
+  it('uses the synchronous zayu image endpoints and keeps mobile controls inside the viewport', () => {
+    expect(standaloneScript).toContain('path:"images/generations"')
+    expect(standaloneScript).not.toContain('path:"images/generations/async"')
+    expect(standaloneScript).toContain('data-image-actions')
+    expect(standaloneScript).toContain('data-image-params')
+    expect(responsiveOverride).toContain('@media (max-width: 639px)')
+    expect(responsiveOverride).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))')
   })
 
   it('keeps the API key creation return path', () => {
