@@ -883,6 +883,13 @@ func (s *AccountRepoSuite) TestSetError_DoesNotOverrideAPIKeyManualAvailability(
 			Schedulable: schedulable,
 			Credentials: map[string]any{"api_key": "sk-test"},
 		})
+		if !schedulable {
+			// mustCreateAccount treats false as an omitted value for legacy tests;
+			// explicitly persist the paused state for this two-state coverage.
+			s.Require().NoError(s.client.Account.UpdateOneID(account.ID).
+				SetSchedulable(false).
+				Exec(s.ctx))
+		}
 
 		s.Require().NoError(s.repo.SetError(s.ctx, account.ID, "upstream rejected request"))
 		got, err := s.repo.GetByID(s.ctx, account.ID)
