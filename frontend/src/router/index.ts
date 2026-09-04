@@ -610,6 +610,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/features',
+    name: 'AdminFeatureManagement',
+    component: () => import('@/views/admin/SettingsView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Feature Management',
+      titleKey: 'admin.settings.tabs.features',
+      descriptionKey: 'admin.settings.description'
+    }
+  },
+  {
     path: '/admin/risk-control',
     name: 'AdminRiskControl',
     component: () => import('@/views/admin/RiskControlView.vue'),

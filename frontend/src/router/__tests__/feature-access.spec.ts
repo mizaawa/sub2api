@@ -8,6 +8,7 @@ type NavigationGuard = (
 
 const routerHarness = vi.hoisted(() => ({
   guard: null as NavigationGuard | null,
+  routes: [] as Array<Record<string, any>>,
 }))
 
 const authStore = vi.hoisted(() => ({
@@ -32,13 +33,16 @@ const appStore = vi.hoisted(() => ({
 
 vi.mock('vue-router', () => ({
   createWebHistory: vi.fn(() => ({})),
-  createRouter: vi.fn(() => ({
-    beforeEach: vi.fn((guard: NavigationGuard) => {
-      routerHarness.guard = guard
-    }),
-    afterEach: vi.fn(),
-    onError: vi.fn(),
-  })),
+  createRouter: vi.fn((options: { routes?: Array<Record<string, any>> }) => {
+    routerHarness.routes = options.routes ?? []
+    return {
+      beforeEach: vi.fn((guard: NavigationGuard) => {
+        routerHarness.guard = guard
+      }),
+      afterEach: vi.fn(),
+      onError: vi.fn(),
+    }
+  }),
 }))
 
 vi.mock('@/stores/auth', () => ({
@@ -117,6 +121,19 @@ describe('feature route guard', () => {
     appStore.publicSettingsLoaded = false
     appStore.cachedPublicSettings = null
     appStore.fetchPublicSettings.mockReset()
+  })
+
+  it('keeps a direct administrator route for the feature-management tab', () => {
+    const featureRoute = routerHarness.routes.find((route) => route.path === '/admin/features')
+
+    expect(featureRoute).toMatchObject({
+      name: 'AdminFeatureManagement',
+      meta: {
+        requiresAuth: true,
+        requiresAdmin: true,
+        titleKey: 'admin.settings.tabs.features',
+      },
+    })
   })
 
   it('waits for the first public-settings request before deciding payment access', async () => {

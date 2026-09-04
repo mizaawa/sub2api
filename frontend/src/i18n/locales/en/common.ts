@@ -80,6 +80,7 @@ export default {
     },
     view: 'View',
     settings: 'Settings',
+    featureManagement: 'Feature Management',
     chooseFile: 'Choose File',
     copy: 'Copy',
     notAvailable: 'N/A',

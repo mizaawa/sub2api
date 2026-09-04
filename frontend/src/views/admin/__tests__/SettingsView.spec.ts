@@ -720,6 +720,21 @@ describe("admin SettingsView payment visible method controls", () => {
     );
   });
 
+  it("renders and persists the image playground feature switch", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+
+    const toggle = wrapper.get('[data-testid="image-playground-toggle"]');
+    expect(toggle.exists()).toBe(true);
+    await toggle.setValue(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ image_playground_enabled: true }),
+    );
+  });
+
   it("renders panel rate limit card and saves settings", async () => {
     getPanelRateLimitSettings.mockClear();
     updatePanelRateLimitSettings.mockClear();

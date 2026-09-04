@@ -8532,6 +8532,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import { useRoute } from "vue-router";
 import { adminAPI } from "@/api";
 import {
   appendAuthSourceDefaultsToUpdateRequest,
@@ -8605,6 +8606,7 @@ import {
 
 const { t, locale } = useI18n();
 const appStore = useAppStore();
+const route = useRoute();
 // 关闭 step-up 开关是敏感操作：后端返回 STEP_UP_REQUIRED 时弹 TOTP 码重试
 const settingsStepUp = useStepUp();
 const adminSettingsStore = useAdminSettingsStore();
@@ -8636,7 +8638,12 @@ type SettingsTab =
   | "payment"
   | "email"
   | "backup";
-const activeTab = ref<SettingsTab>("general");
+const activeTab = ref<SettingsTab>(
+  (route?.path === "/admin/features") ||
+  (typeof window !== "undefined" && window.location.pathname === "/admin/features")
+    ? "features"
+    : "general",
+);
 const settingsTabs = [
   { key: "general" as SettingsTab, icon: "home" as const },
   { key: "agreement" as SettingsTab, icon: "document" as const },
@@ -8648,6 +8655,14 @@ const settingsTabs = [
   { key: "email" as SettingsTab, icon: "mail" as const },
   { key: "backup" as SettingsTab, icon: "database" as const },
 ];
+
+watch(
+  () => route?.path,
+  (path) => {
+    if (path === "/admin/features") activeTab.value = "features";
+    else if (path === "/admin/settings") activeTab.value = "general";
+  },
+);
 
 const settingsTabKeyboardActions = {
   ArrowLeft: -1,

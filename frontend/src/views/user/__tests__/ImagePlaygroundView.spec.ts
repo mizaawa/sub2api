@@ -45,6 +45,25 @@ describe('Image playground launcher', () => {
     expect(standaloneScript).not.toContain('习惯配置')
   })
 
+  it('retains the managed workbench capabilities while keeping removed surfaces out', () => {
+    for (const capability of [
+      '输入提示词开始生成图片',
+      '参考图',
+      '编辑遮罩',
+      '下载图片',
+      '收藏夹',
+      '查看',
+      'aria-label":"当前配置"',
+      'aria-label":"选择模型"',
+      '生成图像',
+    ]) {
+      expect(standaloneScript).toContain(capability)
+    }
+    expect(standaloneScript).not.toContain('AgentWorkspace')
+    expect(standaloneScript).not.toContain('习惯配置')
+    expect(standaloneScript).not.toContain('审核')
+  })
+
   it('binds the standalone cache to user identity without treating token rotation as logout', () => {
     const sessionComponent = standaloneScript.slice(
       standaloneScript.indexOf('function oj(){'),

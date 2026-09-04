@@ -79,6 +79,10 @@ describe('AppSidebar image playground navigation', () => {
     expect(componentSource).toContain(":target=\"item.openInNewWindow ? '_blank' : undefined\"")
     expect(componentSource).toContain(":rel=\"item.openInNewWindow ? 'noopener noreferrer' : undefined\"")
   })
+
+  it('exposes a direct administrator entry for feature management', () => {
+    expect(componentSource).toContain("path: '/admin/features', label: t('nav.featureManagement'), icon: ViewToolIcon")
+  })
 })
 
 describe('AppSidebar console appearance', () => {
