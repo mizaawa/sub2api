@@ -254,8 +254,9 @@ async function loadModels(context: LoadContext): Promise<void> {
     })
     if (!isCurrentLoad(context) || selectedKey.value?.id !== key.id) return
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const body = await response.json() as { data?: GatewayModel[] }
-    const available = (body.data || []).filter((model) => {
+    const body = await response.json() as { data?: GatewayModel[]; models?: GatewayModel[] } | GatewayModel[]
+    const upstreamModels = Array.isArray(body) ? body : body.data || body.models || []
+    const available = upstreamModels.filter((model) => {
       const id = String(model.id || '').toLowerCase()
       if (key.group?.platform === 'grok') {
         return id.startsWith('grok-imagine') && !id.includes('video')
@@ -267,7 +268,12 @@ async function loadModels(context: LoadContext): Promise<void> {
     })
     const ids = [...new Set(available.map((model) => model.id).filter((id): id is string => Boolean(id)))]
     const selectedAvailable = ids.length ? ids : [defaultModelForKey(key)]
-    modelsByKeyId.value = { [key.id]: selectedAvailable }
+    // Keep model lists for every key so switching profiles in the standalone
+    // workbench never discards models fetched for another API key.
+    modelsByKeyId.value = {
+      ...modelsByKeyId.value,
+      [key.id]: selectedAvailable,
+    }
     models.value = selectedAvailable.map((id) => ({ id }))
     selectedModel.value = chooseDefaultModel(key, models.value)
   } catch (error) {

@@ -29,4 +29,189 @@ const auditedReplacement = replacement.replace(
   'S.tokenPresent&&S.userId===m&&S.userEmail===Bx()',
 )
 
-writeFileSync(bundlePath, source.slice(0, start) + auditedReplacement + source.slice(end))
+let patched = source.slice(0, start) + auditedReplacement + source.slice(end)
+
+function replaceOnce(label, from, to) {
+  const occurrences = patched.split(from).length - 1
+  if (occurrences !== 1) {
+    throw new Error(`${label}: expected one occurrence, found ${occurrences}`)
+  }
+  patched = patched.replace(from, to)
+}
+
+function removeOnce(label, from) {
+  const occurrences = patched.split(from).length - 1
+  if (occurrences === 0) return
+  if (occurrences !== 1) {
+    throw new Error(`${label}: expected one occurrence, found ${occurrences}`)
+  }
+  patched = patched.replace(from, '')
+}
+
+function removeCount(label, from, expected) {
+  const occurrences = patched.split(from).length - 1
+  if (occurrences === 0) return
+  if (occurrences !== expected) {
+    throw new Error(`${label}: expected ${expected} occurrences, found ${occurrences}`)
+  }
+  patched = patched.split(from).join('')
+}
+
+function replaceFunctionOnce(label, startMarker, endMarker, replacement, alreadyMarker) {
+  const start = patched.indexOf(startMarker)
+  const end = patched.indexOf(endMarker, start)
+  if (start < 0 || end < 0) throw new Error(`${label}: function markers are missing`)
+  const current = patched.slice(start, end)
+  if (current.includes(alreadyMarker)) return
+  patched = patched.slice(0, start) + replacement + patched.slice(end)
+}
+
+// The managed build never sends moderation controls. Keep these replacements
+// explicit so a refreshed vendor bundle fails loudly instead of silently
+// retaining a request field or stale UI.
+removeOnce('default params moderation', ',moderation:"auto"')
+removeOnce('normalized params moderation', ',moderation:a.moderation==="low"?"low":"auto"')
+removeOnce('actual params moderation', ',(l.moderation==="auto"||l.moderation==="low")&&(s.moderation=l.moderation)')
+removeOnce('responses moderation', ',moderation:a.moderation')
+removeOnce('stream result moderation', ',moderation:en(a,"moderation")')
+removeOnce('multipart moderation', ',O.append("moderation",i.moderation)')
+removeCount('sync moderation', ',moderation:i.moderation', 1)
+removeCount('async moderation', ',moderation:"$params.moderation"', 2)
+
+const toolbarStart = patched.indexOf('function kS(')
+const toolbarEnd = patched.indexOf('const Ys=16', toolbarStart)
+if (toolbarStart < 0 || toolbarEnd < 0) {
+  throw new Error('toolbar component markers are missing')
+}
+let toolbar = patched.slice(toolbarStart, toolbarEnd)
+const toolbarSignature = 'activeProfile:i,isFalProvider:d,isFalTextToImage:f,displaySize:m,qualityOptions:p,selectClass:g,transparentOutputAvailable:v,showTransparentOutputControl:x,transparentOutputEnabled:y,transparentOutputHint:S,onTransparentOutputMenuOpenChange:E,compressionHint:A,compressionDisabled:R,outputCompressionInput:_,setOutputCompressionInput:U,commitOutputCompression:O,moderationHint:D,moderationDisabled:N,outputImageLimit:H'
+if (toolbar.includes(toolbarSignature)) {
+  toolbar = toolbar.replace(toolbarSignature, 'activeProfile:i,profileOptions:po,onProfileChange:pc,onModelChange:mc,onModelRefresh:mr,isFalProvider:d,isFalTextToImage:f,displaySize:m,qualityOptions:p,selectClass:g,transparentOutputAvailable:v,showTransparentOutputControl:x,transparentOutputEnabled:y,transparentOutputHint:S,onTransparentOutputMenuOpenChange:E,compressionHint:A,compressionDisabled:R,outputCompressionInput:_,setOutputCompressionInput:U,commitOutputCompression:O,outputImageLimit:H')
+} else if (!toolbar.includes('profileOptions:po,onProfileChange:pc,onModelChange:mc,onModelRefresh:mr')) {
+  throw new Error('toolbar signature marker is missing')
+}
+const moderationControl = 'o.jsxs("label",{className:"relative flex flex-col gap-0.5",onMouseEnter:D.show,onMouseLeave:D.hide,onTouchStart:D.startTouch,onTouchEnd:D.clearTimer,onTouchCancel:D.hide,onClick:D.show,children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500 ml-1",children:"审核"}),o.jsx(Gs,{value:N?"auto":l.moderation,onChange:V=>{N||s({moderation:V})},options:[{label:"auto",value:"auto"},{label:"low",value:"low"}],disabled:N,showValueTooltips:!1,className:N?"px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed text-xs transition-all duration-200 shadow-sm":g}),o.jsx(rr,{visible:N&&D.visible,text:"fal.ai 不支持审核参数"})]})'
+const modelControl = 'o.jsxs("div",{className:"relative flex flex-col gap-0.5",children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500 ml-1",children:"配置 / 模型"}),o.jsxs("div",{className:"flex gap-1",children:[o.jsx("select",{value:i.id,onChange:V=>pc&&pc(V.target.value),className:g,"aria-label":"当前配置",children:(po??[]).map(V=>o.jsx("option",{value:V.id,children:V.name},V.id))}),o.jsx("select",{value:i.model,onFocus:()=>mr&&mr(),onChange:V=>mc&&mc(V.target.value),className:g,"aria-label":"选择模型",children:[...new Set((i.modelOptions??[]).concat(i.model||[]))].filter(V=>V).map(V=>o.jsx("option",{value:V,children:V},V))})]})]})'
+if (toolbar.includes(moderationControl)) toolbar = toolbar.replace(moderationControl, modelControl)
+else if (!toolbar.includes(modelControl)) throw new Error('toolbar model control marker is missing')
+patched = patched.slice(0, toolbarStart) + toolbar + patched.slice(toolbarEnd)
+
+// Remove the old moderation details block from the task inspector as well.
+const detailsModeration = ',o.jsxs("div",{className:"bg-gray-50 dark:bg-white/[0.03] rounded-lg px-3 py-2 min-w-0 overflow-hidden",children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500",children:"审核"}),o.jsx("br",{}),o.jsx("div",{className:"mt-0.5 overflow-x-auto hide-scrollbar whitespace-nowrap mask-edge-r pr-2",children:o.jsx(Bs,{task:w,paramKey:"moderation",className:"font-medium",actualParams:Qe})})]})'
+removeOnce('task moderation details', detailsModeration)
+removeOnce('toolbar moderation props', ',moderationHint:de,moderationDisabled:!1')
+
+// A provider may return a valid image URL without CORS headers. In that case
+// an image element can still render the URL, while fetch/blob conversion cannot.
+// Keep the URL as the stored image source instead of turning a successful task
+// into a misleading "load failed" error.
+const syncImageFallback = 'async function pb(a,l,s,i){const d=[],f=(l.imageUrlPaths??[]).flatMap(p=>Nx(a,p).filter(g=>zl(g)||Po(g))),m=f.filter(zl);for(const p of l.b64JsonPaths??[])for(const g of Nx(a,p))typeof g==="string"&&g.trim()&&d.push(Ll(g,s));for(const p of f)try{d.push(await E0(p,s,i))}catch(g){zl(p)?d.push(p):g instanceof Error&&(g.rawImageUrls=m);if(!zl(p))throw g}if(!d.length){const p=new Error("接口没有返回可识别的图片数据，请查看接口实际返回的数据结构，并根据 API 文档调整「自定义服务商」配置中的结果提取路径。" );throw p.rawResponsePayload=JSON.stringify(a,null,2),p}return{images:d,...m.length?{rawImageUrls:m}:{}}}'
+if (patched.includes('async function pb(')) {
+  replaceFunctionOnce('sync image result fallback', 'async function pb(', 'async function C4', syncImageFallback, 'zl(p)?d.push(p):g instanceof Error&&(g.rawImageUrls=m)')
+} else {
+  const c4 = patched.indexOf('async function C4')
+  if (c4 < 0) throw new Error('sync image result fallback: C4 marker is missing')
+  patched = patched.slice(0, c4) + syncImageFallback + patched.slice(c4)
+}
+replaceFunctionOnce(
+  'stream image result fallback',
+  'async function hb(',
+  'async function pb',
+  'async function hb(a,l,s){const i=a.data;if(!Array.isArray(i)||!i.length){const g=new Error("接口没有返回图片数据，请查看接口实际返回的数据结构，并根据 API 文档调整「自定义服务商」配置中的结果提取路径。" );throw g.rawResponsePayload=JSON.stringify(a,null,2),g}const d=[],f=i.map(g=>g.url).filter(zl),m=[];for(const g of i){const v=g.b64_json;if(v){d.push(Ll(v,l)),m.push(typeof g.revised_prompt==="string"?g.revised_prompt:void 0);continue}if(zl(g.url)||Po(g.url))try{d.push(await E0(g.url,l,s)),m.push(typeof g.revised_prompt==="string"?g.revised_prompt:void 0)}catch(x){if(zl(g.url)){d.push(g.url),m.push(typeof g.revised_prompt==="string"?g.revised_prompt:void 0);continue}throw x}}if(!d.length){const p=new Error("接口没有返回可识别的图片数据，请查看接口实际返回的数据结构，并根据 API 文档调整「自定义服务商」配置中的结果提取路径。" );throw p.rawResponsePayload=JSON.stringify(a,null,2),p}return{images:d,...m.length?{rawImageUrls:f}:{}}}',
+  'zl(g.url)){d.push(g.url),m.push',
+)
+
+// Read the latest Zustand settings for profile/model changes. This keeps the
+// launcher bootstrap, toolbar, and settings dialog on one browser-local object.
+if (patched.includes('U=D=>{var H;const N=A.profiles.find(ee=>ee.id===D);')) {
+  replaceOnce(
+    'settings profile switch',
+    'U=D=>{var H;const N=A.profiles.find(ee=>ee.id===D);N&&(S.current+=1,(H=y.current)==null||H.abort(),y.current=null,x(!1),g(!1),s(_r({...A,activeProfileId:N.id})))}',
+    'U=D=>{var H;const N=_r(tn(z.getState().settings)),ee=N.profiles.find($=>$.id===D);ee&&(S.current+=1,(H=y.current)==null||H.abort(),y.current=null,x(!1),g(!1),s(_r({...N,activeProfileId:ee.id})))}',
+  )
+} else if (!patched.includes('N=_r(tn(z.getState().settings)),ee=N.profiles.find')) {
+  throw new Error('settings profile switch marker is missing')
+}
+
+// The model controls live in SS, the input toolbar component. Keep their
+// Zustand state and callbacks in that same lexical scope; placing them in the
+// gallery component makes the selectors fail at runtime with undefined names.
+const ssSettingsMarker = 'x=z(j=>j.settings),y=z(j=>j.setShowSettings)'
+const staleSsSettingsMarker = 'x=z(j=>j.settings),j=z(j=>j.setSettings),I=z(j=>j.showToast),y=z(j=>j.setShowSettings)'
+if (patched.includes(staleSsSettingsMarker)) {
+  replaceOnce(
+    'stale input toolbar settings state',
+    staleSsSettingsMarker,
+    'x=z(j=>j.settings),j=z(j=>j.setSettings),y=z(j=>j.setShowSettings)',
+  )
+}
+if (patched.includes(ssSettingsMarker) && !patched.includes('x=z(j=>j.settings),j=z(j=>j.setSettings),y=z(j=>j.setShowSettings)')) {
+  replaceOnce(
+    'input toolbar settings state',
+    ssSettingsMarker,
+    'x=z(j=>j.settings),j=z(j=>j.setSettings),y=z(j=>j.setShowSettings)',
+  )
+}
+if (patched.includes('p=z(M=>M.setConfirmDialog),j=z(M=>M.setSettings),I=z(M=>M.showToast),J=z(M=>M.settings),g=z(M=>M.selectedTaskIds)')) {
+  replaceOnce(
+    'unused gallery model state',
+    'p=z(M=>M.setConfirmDialog),j=z(M=>M.setSettings),I=z(M=>M.showToast),J=z(M=>M.settings),g=z(M=>M.selectedTaskIds)',
+    'p=z(M=>M.setConfirmDialog),g=z(M=>M.selectedTaskIds)',
+  )
+}
+if (patched.includes('re=b.useRef([]),[modelPulling,setModelPulling]=b.useState(!1),ge=')) {
+  replaceOnce(
+    'unused gallery model loading state',
+    're=b.useRef([]),[modelPulling,setModelPulling]=b.useState(!1),ge=',
+    're=b.useRef([]),ge=',
+  )
+}
+const ssModelStateMarker = '[Ke,_t]=b.useState(!1),[Ee,lt]=b.useState(!0)'
+if (patched.includes(ssModelStateMarker) && !patched.includes('[modelPulling,setModelPulling]=b.useState(!1),[Ke,_t]')) {
+  replaceOnce(
+    'input toolbar model loading state',
+    ssModelStateMarker,
+    '[modelPulling,setModelPulling]=b.useState(!1),[Ke,_t]=b.useState(!1),[Ee,lt]=b.useState(!0)',
+  )
+}
+const modelHooks = 'const modelProfiles=b.useMemo(()=>tn(x),[x]),changeProfile=b.useCallback(M=>{const P=_r(tn(z.getState().settings));P.profiles.some(le=>le.id===M)&&j(_r({...P,activeProfileId:M}))},[j]),changeModel=b.useCallback(M=>{const P=_r(tn(z.getState().settings)),le=P.profiles.find(V=>V.id===P.activeProfileId);le&&j(_r({...P,profiles:P.profiles.map(V=>V.id===le.id?{...V,model:M,modelOptions:[...new Set((V.modelOptions??[]).concat(M))]}:V)}))},[j]),pullModels=b.useCallback(async()=>{if(modelPulling)return;const M=_r(tn(z.getState().settings)),P=M.profiles.find(le=>le.id===M.activeProfileId);if(!P||!P.apiKey.trim()||(P.modelOptions??[]).length>1)return;const V=_o().userEmail;if(!V){S("当前登录用户缺少邮箱信息","error");return}setModelPulling(!0);try{const ye=await fetch(`${Yo}/models`,{headers:{Authorization:`Bearer ${P.apiKey}`,"X-Sub2API-User-Email":V},cache:"no-store"});if(!ye.ok)throw new Error(`HTTP ${ye.status}`);const T=await ye.json(),C=Array.isArray(T)?T:T.data??T.models??[],B=[...new Set(C.map(G=>typeof(G==null?void 0:G.id)==="string"?G.id.trim():"").filter(G=>G&&!/video/i.test(G)&&/image|imagine|dall[-_ ]?e/i.test(G)))];if(!B.length)throw new Error("接口没有返回可用的图片模型");const G=_r(tn(z.getState().settings)),Y=G.profiles.find(X=>X.id===P.id);Y&&Y.apiKey===P.apiKey&&j(_r({...G,profiles:G.profiles.map(X=>X.id===P.id?{...X,modelOptions:B,model:B.includes(X.model)?X.model:B[0]}:X)})),S(`已拉取 ${B.length} 个图片模型`,`success`)}catch(M){console.warn("Failed to pull image models:",M),S(M instanceof Error?`模型拉取失败：${M.message}`:"模型拉取失败","error")}finally{setModelPulling(!1)}},[S,j,modelPulling]);'
+const toolbarHookMarker = 'const ra=async()=>{if(!he){if(!gn){y(!0);return}if(a.trim()){se(!0);try{await Ob()}finally{se(!1)}}}},la=()=>{'
+for (const staleHook of [
+  'const modelProfiles=b.useMemo(()=>tn(J),[J])',
+  'const modelProfiles=b.useMemo(()=>tn(x),[x])',
+]) {
+  const staleStart = patched.indexOf(staleHook)
+  if (staleStart < 0 || patched.includes(modelHooks)) continue
+  const staleEnd = patched.indexOf('const ra=', staleStart)
+  if (staleEnd < 0) throw new Error('toolbar model hooks are malformed')
+  patched = patched.slice(0, staleStart) + modelHooks + patched.slice(staleEnd)
+}
+if (!patched.includes(modelHooks) && patched.includes(toolbarHookMarker)) {
+  replaceOnce('toolbar model hooks', toolbarHookMarker, modelHooks + toolbarHookMarker)
+} else if (!patched.includes(modelHooks)) {
+  throw new Error('toolbar model hook marker is missing')
+}
+if (patched.includes('params:Ol(g),setParams:v,activeProfile:nt,isFalProvider:!1')) {
+  replaceOnce(
+    'toolbar model props',
+    'params:Ol(g),setParams:v,activeProfile:nt,isFalProvider:!1',
+    'params:Ol(g),setParams:v,activeProfile:nt,profileOptions:modelProfiles.profiles,onProfileChange:changeProfile,onModelChange:changeModel,onModelRefresh:pullModels,isFalProvider:!1',
+  )
+}
+if (patched.includes('const be=await ge.json(),Z=Array.isArray(be)?be:be.data??[]')) {
+  replaceOnce('settings model response shape', 'const be=await ge.json(),Z=Array.isArray(be)?be:be.data??[]', 'const be=await ge.json(),Z=Array.isArray(be)?be:be.data??be.models??[]')
+}
+if (patched.includes('const T=await ye.json(),C=Array.isArray(T)?T:T.data??[]')) {
+  replaceOnce('toolbar model response shape', 'const T=await ye.json(),C=Array.isArray(T)?T:T.data??[]', 'const T=await ye.json(),C=Array.isArray(T)?T:T.data??T.models??[]')
+}
+
+if (patched.includes('moderation')) {
+  let cursor = 0
+  while ((cursor = patched.indexOf('moderation', cursor)) >= 0) {
+    console.error(patched.slice(Math.max(0, cursor - 100), cursor + 180))
+    cursor += 10
+  }
+  throw new Error('moderation controls or request fields remain in the standalone bundle')
+}
+
+writeFileSync(bundlePath, patched)
