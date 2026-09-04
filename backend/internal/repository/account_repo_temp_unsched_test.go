@@ -46,7 +46,9 @@ func TestAccountRepository_BulkEnableAPIKeyMergesExtraWithOneAssignment(t *testi
 	require.Contains(t, query, "- 'model_rate_limits'")
 	require.Contains(t, query, "WHERE id = ANY($3)")
 	require.Equal(t, true, exec.execArgs[0][0])
-	require.JSONEq(t, `{"custom_flag":true}`, string(exec.execArgs[0][1].([]byte)))
+	payload, ok := exec.execArgs[0][1].([]byte)
+	require.True(t, ok, "extra update argument must be encoded as []byte")
+	require.JSONEq(t, `{"custom_flag":true}`, string(payload))
 }
 
 func TestAccountRepository_GrokCredentialConditionalMutationsAreEligibleAndAtomicallyPropagated(t *testing.T) {
