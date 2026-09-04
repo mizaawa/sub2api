@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -817,16 +818,28 @@ func (s *AccountRepoSuite) TestSetSchedulable() {
 	s.Require().Equal(account.ID, cacheRecorder.setAccounts[0].ID)
 }
 
-func (s *AccountRepoSuite) TestSetSchedulable_RecoversAPIKeyErrorWhenEnabled() {
+func (s *AccountRepoSuite) TestSetSchedulable_APIKeyUsesOnlyManualTwoStateAvailability() {
+	limitedAt := time.Now().Add(-time.Minute)
+	blockedUntil := time.Now().Add(time.Hour)
 	account := mustCreateAccount(s.T(), s.client, &service.Account{
-		Name:         "acc-apikey-recover",
-		Platform:     service.PlatformOpenAI,
-		Type:         service.AccountTypeAPIKey,
-		Status:       service.StatusError,
-		ErrorMessage: "Privacy not set, required by group [default]",
-		Schedulable:  false,
-		Credentials:  map[string]any{"api_key": "sk-test"},
+		Name:        "acc-apikey-recover",
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeAPIKey,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{"api_key": "sk-test"},
 	})
+	s.Require().NoError(s.client.Account.UpdateOneID(account.ID).
+		SetStatus(service.StatusDisabled).
+		SetErrorMessage("legacy disabled state").
+		SetSchedulable(false).
+		SetRateLimitedAt(limitedAt).
+		SetRateLimitResetAt(blockedUntil).
+		SetOverloadUntil(blockedUntil).
+		SetTempUnschedulableUntil(blockedUntil).
+		SetTempUnschedulableReason("legacy temporary block").
+		SetExtra(map[string]any{"model_rate_limits": map[string]any{"gpt-image-2": map[string]any{"rate_limit_reset_at": blockedUntil.Format(time.RFC3339)}}}).
+		Exec(s.ctx))
 	cacheRecorder := &schedulerCacheRecorder{}
 	s.repo.schedulerCache = cacheRecorder
 
@@ -837,9 +850,47 @@ func (s *AccountRepoSuite) TestSetSchedulable_RecoversAPIKeyErrorWhenEnabled() {
 	s.Require().Equal(service.StatusActive, got.Status)
 	s.Require().Empty(got.ErrorMessage)
 	s.Require().True(got.Schedulable)
+	s.Require().Nil(got.RateLimitedAt)
+	s.Require().Nil(got.RateLimitResetAt)
+	s.Require().Nil(got.OverloadUntil)
+	s.Require().Nil(got.TempUnschedulableUntil)
+	s.Require().Empty(got.TempUnschedulableReason)
+	s.Require().NotContains(got.Extra, "model_rate_limits")
 	s.Require().Len(cacheRecorder.setAccounts, 1)
 	s.Require().Equal(service.StatusActive, cacheRecorder.setAccounts[0].Status)
 	s.Require().True(cacheRecorder.setAccounts[0].Schedulable)
+
+	s.Require().NoError(s.repo.SetSchedulable(s.ctx, account.ID, false))
+	got, err = s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(service.StatusActive, got.Status)
+	s.Require().False(got.Schedulable)
+
+	s.Require().NoError(s.repo.SetSchedulable(s.ctx, account.ID, true))
+	got, err = s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(service.StatusActive, got.Status)
+	s.Require().True(got.Schedulable)
+}
+
+func (s *AccountRepoSuite) TestSetError_DoesNotOverrideAPIKeyManualAvailability() {
+	for _, schedulable := range []bool{false, true} {
+		account := mustCreateAccount(s.T(), s.client, &service.Account{
+			Name:        fmt.Sprintf("acc-apikey-error-%t", schedulable),
+			Platform:    service.PlatformOpenAI,
+			Type:        service.AccountTypeAPIKey,
+			Status:      service.StatusActive,
+			Schedulable: schedulable,
+			Credentials: map[string]any{"api_key": "sk-test"},
+		})
+
+		s.Require().NoError(s.repo.SetError(s.ctx, account.ID, "upstream rejected request"))
+		got, err := s.repo.GetByID(s.ctx, account.ID)
+		s.Require().NoError(err)
+		s.Require().Equal(service.StatusActive, got.Status)
+		s.Require().Equal(schedulable, got.Schedulable)
+		s.Require().Equal("upstream rejected request", got.ErrorMessage)
+	}
 }
 
 func (s *AccountRepoSuite) TestSetSchedulable_DoesNotClearOAuthError() {
@@ -882,6 +933,62 @@ func (s *AccountRepoSuite) TestBulkUpdate_SyncSchedulerSnapshotOnDisabled() {
 	}
 	s.Require().Contains(ids, account1.ID)
 	s.Require().Contains(ids, account2.ID)
+}
+
+func (s *AccountRepoSuite) TestBulkUpdate_APIKeySchedulableRestoresCanonicalState() {
+	blockedUntil := time.Now().Add(time.Hour)
+	account := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name: "bulk-apikey-recover", Platform: service.PlatformOpenAI,
+		Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true,
+	})
+	s.Require().NoError(s.client.Account.UpdateOneID(account.ID).
+		SetStatus(service.StatusError).
+		SetErrorMessage("legacy error").
+		SetSchedulable(false).
+		SetRateLimitResetAt(blockedUntil).
+		SetOverloadUntil(blockedUntil).
+		SetTempUnschedulableUntil(blockedUntil).
+		SetTempUnschedulableReason("legacy temporary block").
+		SetExtra(map[string]any{"model_rate_limits": map[string]any{"gpt-image-2": map[string]any{"rate_limit_reset_at": blockedUntil.Format(time.RFC3339)}}}).
+		Exec(s.ctx))
+
+	enabled := true
+	rows, err := s.repo.BulkUpdate(s.ctx, []int64{account.ID}, service.AccountBulkUpdate{Schedulable: &enabled})
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), rows)
+	got, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(service.StatusActive, got.Status)
+	s.Require().True(got.Schedulable)
+	s.Require().Empty(got.ErrorMessage)
+	s.Require().Nil(got.RateLimitResetAt)
+	s.Require().Nil(got.OverloadUntil)
+	s.Require().Nil(got.TempUnschedulableUntil)
+	s.Require().NotContains(got.Extra, "model_rate_limits")
+
+	s.Require().NoError(s.client.Account.UpdateOneID(account.ID).
+		SetStatus(service.StatusError).
+		SetErrorMessage("second legacy error").
+		SetSchedulable(false).
+		SetRateLimitResetAt(blockedUntil).
+		SetOverloadUntil(blockedUntil).
+		SetTempUnschedulableUntil(blockedUntil).
+		SetTempUnschedulableReason("second legacy temporary block").
+		SetExtra(map[string]any{"model_rate_limits": map[string]any{"gpt-image-2": map[string]any{"rate_limit_reset_at": blockedUntil.Format(time.RFC3339)}}}).
+		Exec(s.ctx))
+	active := service.StatusActive
+	rows, err = s.repo.BulkUpdate(s.ctx, []int64{account.ID}, service.AccountBulkUpdate{Status: &active})
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), rows)
+	got, err = s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(service.StatusActive, got.Status)
+	s.Require().True(got.Schedulable)
+	s.Require().Empty(got.ErrorMessage)
+	s.Require().Nil(got.RateLimitResetAt)
+	s.Require().Nil(got.OverloadUntil)
+	s.Require().Nil(got.TempUnschedulableUntil)
+	s.Require().NotContains(got.Extra, "model_rate_limits")
 }
 
 // --- SetOverloaded / SetRateLimited / ClearRateLimit ---

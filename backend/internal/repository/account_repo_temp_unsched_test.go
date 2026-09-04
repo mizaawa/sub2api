@@ -26,6 +26,29 @@ func TestAccountRepository_SetTempUnschedulable_NoRowsAffectedDoesNotWriteOutbox
 	require.NotContains(t, strings.Join(exec.execQueries, "\n"), "scheduler_outbox")
 }
 
+func TestAccountRepository_BulkEnableAPIKeyMergesExtraWithOneAssignment(t *testing.T) {
+	exec := &recordingSQLExecutor{result: rowsAffectedResult(1)}
+	repo := newAccountRepositoryWithSQL(nil, exec, nil)
+	enabled := true
+
+	rows, err := repo.BulkUpdate(context.Background(), []int64{17}, service.AccountBulkUpdate{
+		Schedulable: &enabled,
+		Extra:       map[string]any{"custom_flag": true},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, int64(1), rows)
+	require.Len(t, exec.execQueries, 2)
+	query := normalizeSQLWhitespace(exec.execQueries[0])
+	require.Equal(t, 1, strings.Count(query, "extra ="), "PostgreSQL rejects assigning one column twice")
+	require.Contains(t, query, "extra = CASE WHEN type = 'apikey'")
+	require.Contains(t, query, "COALESCE(extra, '{}'::jsonb) || $2::jsonb")
+	require.Contains(t, query, "- 'model_rate_limits'")
+	require.Contains(t, query, "WHERE id = ANY($3)")
+	require.Equal(t, true, exec.execArgs[0][0])
+	require.JSONEq(t, `{"custom_flag":true}`, string(exec.execArgs[0][1].([]byte)))
+}
+
 func TestAccountRepository_GrokCredentialConditionalMutationsAreEligibleAndAtomicallyPropagated(t *testing.T) {
 	proxyID := int64(77)
 	snapshot := service.GrokCredentialMutationSnapshot{

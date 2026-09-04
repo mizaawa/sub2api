@@ -1705,7 +1705,25 @@ const handleBulkProbeUpstreamBilling = async () => {
 const updateSchedulableInList = (accountIds: number[], schedulable: boolean) => {
   if (accountIds.length === 0) return
   const idSet = new Set(accountIds)
-  accounts.value = accounts.value.map((account) => (idSet.has(account.id) ? { ...account, schedulable } : account))
+  accounts.value = accounts.value.map((account) => {
+    if (!idSet.has(account.id)) return account
+    if (account.type !== 'apikey') return { ...account, schedulable }
+    return {
+      ...account,
+      schedulable,
+      status: 'active',
+      error_message: null,
+      ...(schedulable
+        ? {
+            rate_limited_at: null,
+            rate_limit_reset_at: null,
+            overload_until: null,
+            temp_unschedulable_until: null,
+            temp_unschedulable_reason: null,
+          }
+        : {}),
+    }
+  })
 }
 const normalizeBulkSchedulableResult = (
   result: {

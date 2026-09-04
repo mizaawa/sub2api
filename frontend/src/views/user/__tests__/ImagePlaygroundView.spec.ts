@@ -45,6 +45,23 @@ describe('Image playground launcher', () => {
     expect(standaloneScript).not.toContain('习惯配置')
   })
 
+  it('binds the standalone cache to user identity without treating token rotation as logout', () => {
+    const sessionComponent = standaloneScript.slice(
+      standaloneScript.indexOf('function oj(){'),
+      standaloneScript.indexOf('const cj="width=device-width'),
+    )
+
+    expect(sessionComponent).toContain('const g=wk(),v=_o()')
+    expect(sessionComponent).toContain('g.userId===x')
+    expect(sessionComponent).toContain('Xl(g.userEmail)===v.userEmail')
+    expect(sessionComponent).toContain('S.tokenPresent&&S.userId===m&&S.userEmail===Bx()')
+    expect(sessionComponent).toContain('S.key===null||S.key==="auth_user"')
+    expect(sessionComponent).not.toContain('ij()')
+    expect(sessionComponent).not.toContain('auth_token')
+    expect(sessionComponent).not.toContain('refresh_token')
+    expect(sessionComponent).not.toContain('token_expires_at')
+  })
+
   it('passes the selected Sub2API async profile to the standalone project', () => {
     expect(componentSource).toContain("provider: 'sb2api-async'")
     expect(componentSource).toContain("baseUrl: IMAGE_PLAYGROUND_API_BASE_URL")

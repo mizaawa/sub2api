@@ -2548,7 +2548,7 @@
       </div>
 
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-        <div>
+        <div v-if="account?.type !== 'apikey'" data-testid="account-status-field">
           <label class="input-label">{{ t('common.status') }}</label>
           <Select v-model="form.status" :options="statusOptions" />
         </div>
@@ -4153,7 +4153,12 @@ const handleSubmit = async () => {
   if (!props.account) return
   const accountID = props.account.id
 
-  if (form.status !== 'active' && form.status !== 'inactive' && form.status !== 'error') {
+  if (
+    props.account.type !== 'apikey' &&
+    form.status !== 'active' &&
+    form.status !== 'inactive' &&
+    form.status !== 'error'
+  ) {
     appStore.showError(t('admin.accounts.pleaseSelectStatus'))
     return
   }
@@ -4174,6 +4179,9 @@ const handleSubmit = async () => {
     }
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
     if (props.account.type === 'apikey') {
+      // API-key availability is changed only by the scheduling switch in the
+      // account table. Ordinary edits must not create a conflicting status.
+      delete updatePayload.status
       updatePayload.upstream_billing_probe_enabled = upstreamBillingAutoProbeEnabled.value
       updatePayload.upstream_billing_rate_sync_enabled = upstreamBillingRateSyncEnabled.value
       if (upstreamBillingRateSyncEnabled.value) {

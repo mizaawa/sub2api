@@ -35,6 +35,18 @@ func (r *accountRepoStubForClearAccountError) ClearError(ctx context.Context, id
 func (r *accountRepoStubForClearAccountError) SetSchedulable(_ context.Context, _ int64, schedulable bool) error {
 	r.setSchedulableCalls++
 	r.account.Schedulable = schedulable
+	if r.account.Type == AccountTypeAPIKey {
+		r.account.Status = StatusActive
+		r.account.ErrorMessage = ""
+		if schedulable {
+			r.account.RateLimitedAt = nil
+			r.account.RateLimitResetAt = nil
+			r.account.OverloadUntil = nil
+			r.account.TempUnschedulableUntil = nil
+			r.account.TempUnschedulableReason = ""
+			delete(r.account.Extra, modelRateLimitsKey)
+		}
+	}
 	return nil
 }
 
@@ -94,4 +106,36 @@ func TestAdminService_ClearAccountError_AlsoClearsRecoverableRuntimeState(t *tes
 	require.Empty(t, updated.TempUnschedulableReason)
 	require.True(t, updated.Schedulable)
 	require.Equal(t, []int64{31}, blocker.clearedIDs)
+}
+
+func TestAdminService_SetAccountSchedulable_APIKeyClearsRuntimeBlock(t *testing.T) {
+	blockedUntil := time.Now().Add(time.Hour)
+	repo := &accountRepoStubForClearAccountError{
+		account: &Account{
+			ID: 44, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Status: StatusError, ErrorMessage: "legacy error", Schedulable: false,
+			RateLimitResetAt: &blockedUntil, OverloadUntil: &blockedUntil,
+			TempUnschedulableUntil: &blockedUntil, TempUnschedulableReason: "legacy block",
+			Extra: map[string]any{modelRateLimitsKey: map[string]any{"gpt-image-2": map[string]any{}}},
+		},
+	}
+	blocker := &runtimeBlockRecorder{}
+	svc := &adminServiceImpl{accountRepo: repo, runtimeBlocker: blocker}
+
+	updated, err := svc.SetAccountSchedulable(context.Background(), 44, true)
+	require.NoError(t, err)
+	require.Equal(t, StatusActive, updated.Status)
+	require.True(t, updated.Schedulable)
+	require.Empty(t, updated.ErrorMessage)
+	require.Nil(t, updated.RateLimitResetAt)
+	require.Nil(t, updated.OverloadUntil)
+	require.Nil(t, updated.TempUnschedulableUntil)
+	require.NotContains(t, updated.Extra, modelRateLimitsKey)
+	require.Equal(t, []int64{44}, blocker.clearedIDs)
+
+	updated, err = svc.SetAccountSchedulable(context.Background(), 44, false)
+	require.NoError(t, err)
+	require.Equal(t, StatusActive, updated.Status)
+	require.False(t, updated.Schedulable)
+	require.Equal(t, []int64{44}, blocker.clearedIDs)
 }

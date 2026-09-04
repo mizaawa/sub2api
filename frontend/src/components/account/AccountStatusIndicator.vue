@@ -171,8 +171,11 @@ const emit = defineEmits<{
   (e: 'show-temp-unsched', account: Account): void
 }>()
 
+const isAPIKey = computed(() => props.account.type === 'apikey')
+
 // Computed: is rate limited (429)
 const isRateLimited = computed(() => {
+	if (isAPIKey.value) return false
   if (!props.account.rate_limit_reset_at) return false
   return new Date(props.account.rate_limit_reset_at) > new Date()
 })
@@ -185,6 +188,7 @@ type AccountModelStatusItem = {
 
 // Computed: active model statuses (普通模型限流 + 积分耗尽 + 走积分中)
 const activeModelStatuses = computed<AccountModelStatusItem[]>(() => {
+	if (isAPIKey.value) return []
   const extra = props.account.extra as Record<string, unknown> | undefined
   const modelLimits = extra?.model_rate_limits as
     | Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
@@ -262,19 +266,21 @@ const formatScopeName = (scope: string): string => {
 
 // Computed: is overloaded (529)
 const isOverloaded = computed(() => {
+	if (isAPIKey.value) return false
   if (!props.account.overload_until) return false
   return new Date(props.account.overload_until) > new Date()
 })
 
 // Computed: is temp unschedulable
 const isTempUnschedulable = computed(() => {
+	if (isAPIKey.value) return false
   if (!props.account.temp_unschedulable_until) return false
   return new Date(props.account.temp_unschedulable_until) > new Date()
 })
 
 // Computed: has error status
 const hasError = computed(() => {
-  return props.account.status === 'error'
+	return !isAPIKey.value && props.account.status === 'error'
 })
 
 const isQuotaExceeded = computed(() => {
@@ -304,6 +310,9 @@ const overloadCountdown = computed(() => {
 
 // Computed: status badge class
 const statusClass = computed(() => {
+	if (isAPIKey.value) {
+		return props.account.schedulable ? 'badge-success' : 'badge-warning'
+	}
   if (hasError.value) {
     return 'badge-danger'
   }
@@ -324,6 +333,11 @@ const statusClass = computed(() => {
 
 // Computed: status text
 const statusText = computed(() => {
+	if (isAPIKey.value) {
+		return props.account.schedulable
+			? t('admin.accounts.status.active')
+			: t('admin.accounts.status.paused')
+	}
   if (hasError.value) {
     return t('admin.accounts.status.error')
   }

@@ -222,4 +222,72 @@ describe('AccountStatusIndicator', () => {
     // AICredits 积分耗尽状态应显示
     expect(wrapper.text()).toContain('admin.accounts.status.creditsExhausted')
   })
+
+  it('API Key 开启时忽略遗留错误与临时阻断并显示启用', () => {
+    const future = '2099-01-01T00:00:00Z'
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          type: 'apikey',
+          platform: 'openai',
+          status: 'error',
+          error_message: 'legacy error',
+          schedulable: true,
+          rate_limit_reset_at: future,
+          overload_until: future,
+          temp_unschedulable_until: future,
+          extra: {
+            model_rate_limits: {
+              'gpt-image-2': { rate_limited_at: future, rate_limit_reset_at: future }
+            }
+          }
+        })
+      },
+      global: {
+        stubs: {
+          Icon: true
+        }
+      }
+    })
+
+    expect(wrapper.find('.badge-success').text()).toBe('admin.accounts.status.active')
+    expect(wrapper.text()).not.toContain('admin.accounts.status.error')
+    expect(wrapper.text()).not.toContain('admin.accounts.status.rateLimited')
+  })
+
+  it('API Key 关闭时显示黄色未启用状态', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          type: 'apikey',
+          platform: 'openai',
+          status: 'error',
+          schedulable: false
+        })
+      },
+      global: {
+        stubs: {
+          Icon: true
+        }
+      }
+    })
+
+    expect(wrapper.find('.badge-warning').text()).toBe('admin.accounts.status.paused')
+    expect(wrapper.find('.badge-gray').exists()).toBe(false)
+  })
+
+  it('OAuth 账号仍保留原有错误状态', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({ status: 'error', schedulable: false })
+      },
+      global: {
+        stubs: {
+          Icon: true
+        }
+      }
+    })
+
+    expect(wrapper.find('.badge-danger').text()).toBe('admin.accounts.status.error')
+  })
 })

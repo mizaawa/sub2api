@@ -331,11 +331,11 @@ export default {
       accountSchedulingThresholdOverrideDisabledHint:
         '1-100，达到该用量百分比后临时不可调度；100 表示禁用当前账号自动停调。',
       status: {
-        active: '正常',
+        active: '启用',
         inactive: '停用',
         error: '错误',
         cooldown: '冷却中',
-        paused: '暂停',
+        paused: '未启用',
         limited: '限流',
         rateLimited: '限流中',
         overloaded: '过载中',

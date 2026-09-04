@@ -128,11 +128,11 @@ export default {
       accountSchedulingThresholdOverrideDisabledHint:
         'Use 1-100. The account becomes temporarily unschedulable after reaching this usage percent; 100 disables it for this account.',
       status: {
-        active: 'Active',
+        active: 'Enabled',
         inactive: 'Inactive',
         error: 'Error',
         cooldown: 'Cooldown',
-        paused: 'Paused',
+        paused: 'Not enabled',
         limited: 'Limited',
         rateLimited: 'Rate Limited',
         overloaded: 'Overloaded',

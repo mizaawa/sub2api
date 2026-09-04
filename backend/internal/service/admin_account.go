@@ -600,7 +600,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
-	previousStatus := account.Status
 	var normalizedExtra map[string]any
 	if input.Extra != nil {
 		normalizedExtra, err = normalizeOpenAILongContextBillingUpdateExtra(account, input)
@@ -811,17 +810,19 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			account.LoadFactor = input.LoadFactor
 		}
 	}
-	if input.Status != "" {
-		account.Status = input.Status
-		// API-key accounts can be left in status=error by the historical
-		// privacy probe bug or by a transient upstream rejection.  An explicit
-		// admin transition back to active is a recovery action; keep the account
-		// schedulable and clear the stale diagnostic in the same update.  Do not
-		// alter accounts that were already active and manually paused.
-		if account.Type == AccountTypeAPIKey && previousStatus == StatusError && account.Status == StatusActive {
+	if account.Type == AccountTypeAPIKey {
+		// API-key accounts expose one manual availability switch. Accept legacy
+		// status updates as switch intent, then normalize the stored status.
+		switch input.Status {
+		case StatusActive:
 			account.Schedulable = true
-			account.ErrorMessage = ""
+		case "inactive", StatusDisabled, StatusError:
+			account.Schedulable = false
 		}
+		account.Status = StatusActive
+		account.ErrorMessage = ""
+	} else if input.Status != "" {
+		account.Status = input.Status
 	}
 	if input.ExpiresAt != nil {
 		if *input.ExpiresAt <= 0 {
@@ -974,7 +975,9 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate || input.ProbeEnabled != nil || input.RateMultiplier != nil {
+	needsAPIKeyRuntimeClearLookup := s.runtimeBlocker != nil && ((input.Schedulable != nil && *input.Schedulable) ||
+		(input.Schedulable == nil && input.Status == StatusActive))
+	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate || input.ProbeEnabled != nil || input.RateMultiplier != nil || needsAPIKeyRuntimeClearLookup {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
@@ -1139,6 +1142,17 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	// Run bulk update for column/jsonb fields first.
 	if _, err := s.accountRepo.BulkUpdate(ctx, input.AccountIDs, repoUpdates); err != nil {
 		return nil, err
+	}
+	apiKeyEnabled := input.Schedulable != nil && *input.Schedulable
+	if input.Schedulable == nil && input.Status != "" {
+		apiKeyEnabled = input.Status == StatusActive
+	}
+	if apiKeyEnabled && s.runtimeBlocker != nil {
+		for _, account := range cachedTargets {
+			if account != nil && account.Type == AccountTypeAPIKey {
+				s.runtimeBlocker.ClearAccountSchedulingBlock(account.ID)
+			}
+		}
 	}
 
 	// 将 proxy 变更传播到每个目标账号的 spark 影子账号
@@ -1317,6 +1331,11 @@ func (s *adminServiceImpl) SetAccountSchedulable(ctx context.Context, id int64, 
 	updated, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if schedulable && updated.Type == AccountTypeAPIKey && s.runtimeBlocker != nil {
+		// Persisted cooldowns are cleared atomically by SetSchedulable. Remove the
+		// matching in-memory fast-path block so the next request can schedule now.
+		s.runtimeBlocker.ClearAccountSchedulingBlock(id)
 	}
 	return updated, nil
 }

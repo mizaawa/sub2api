@@ -103,6 +103,12 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 	if account == nil {
 		return service.ErrAccountNilInput
 	}
+	if account.Type == service.AccountTypeAPIKey {
+		// API-key availability is controlled exclusively by the manual
+		// schedulable switch. Never persist a second availability state.
+		account.Status = service.StatusActive
+		account.ErrorMessage = ""
+	}
 
 	builder := client.Account.Create().
 		SetName(account.Name).
@@ -487,6 +493,10 @@ func (r *accountRepository) updateLockedAccount(
 		return nil, err
 	}
 	account.Extra = extra
+	if account.Type == service.AccountTypeAPIKey {
+		account.Status = service.StatusActive
+		account.ErrorMessage = ""
+	}
 
 	schedulable := account.Schedulable
 	if account.Status == service.StatusError {
@@ -1324,14 +1334,24 @@ func (r *accountRepository) BatchUpdateLastUsed(ctx context.Context, updates map
 }
 
 func (r *accountRepository) SetError(ctx context.Context, id int64, errorMsg string) error {
-	_, err := r.client.Account.Update().
-		Where(dbaccount.IDEQ(id)).
-		SetStatus(service.StatusError).
-		SetErrorMessage(errorMsg).
-		SetSchedulable(false).
-		Save(ctx)
+	client := clientFromContext(ctx, r.client)
+	result, err := client.ExecContext(ctx, `
+		UPDATE accounts
+		SET status = CASE WHEN type = $3 THEN $4 ELSE $5 END,
+			error_message = $1,
+			schedulable = CASE WHEN type = $3 THEN schedulable ELSE FALSE END,
+			updated_at = NOW()
+		WHERE id = $2 AND deleted_at IS NULL
+	`, errorMsg, id, service.AccountTypeAPIKey, service.StatusActive, service.StatusError)
 	if err != nil {
 		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return service.ErrAccountNotFound
 	}
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue set error failed: account=%d err=%v", id, err)
@@ -2500,25 +2520,33 @@ func (r *accountRepository) UpdateSessionWindowEnd(ctx context.Context, id int64
 }
 
 func (r *accountRepository) SetSchedulable(ctx context.Context, id int64, schedulable bool) error {
-	// A generic upstream failure used to leave API-key accounts in
-	// status=error.  Enabling scheduling is the explicit admin recovery action
-	// for those accounts, so restore the status atomically with the switch.  The
-	// type/status guards keep OAuth and deliberately disabled accounts untouched.
+	// API-key availability is a strict two-state model. The manual switch is the
+	// only persisted availability control; enabling it also removes every stale
+	// transient blocker in the same database write.
 	client := clientFromContext(ctx, r.client)
 	result, err := client.ExecContext(ctx, `
 		UPDATE accounts
 		SET schedulable = $1,
 			status = CASE
-				WHEN $1 = TRUE AND type = $3 AND status = $4 THEN $5
+				WHEN type = $3 THEN $4
 				ELSE status
 			END,
 			error_message = CASE
-				WHEN $1 = TRUE AND type = $3 AND status = $4 THEN ''
+				WHEN type = $3 THEN ''
 				ELSE error_message
+			END,
+			rate_limited_at = CASE WHEN $1 = TRUE AND type = $3 THEN NULL ELSE rate_limited_at END,
+			rate_limit_reset_at = CASE WHEN $1 = TRUE AND type = $3 THEN NULL ELSE rate_limit_reset_at END,
+			overload_until = CASE WHEN $1 = TRUE AND type = $3 THEN NULL ELSE overload_until END,
+			temp_unschedulable_until = CASE WHEN $1 = TRUE AND type = $3 THEN NULL ELSE temp_unschedulable_until END,
+			temp_unschedulable_reason = CASE WHEN $1 = TRUE AND type = $3 THEN NULL ELSE temp_unschedulable_reason END,
+			extra = CASE
+				WHEN $1 = TRUE AND type = $3 THEN COALESCE(extra, '{}'::jsonb) - 'model_rate_limits'
+				ELSE extra
 			END,
 			updated_at = NOW()
 		WHERE id = $2 AND deleted_at IS NULL
-	`, schedulable, id, service.AccountTypeAPIKey, service.StatusError, service.StatusActive)
+	`, schedulable, id, service.AccountTypeAPIKey, service.StatusActive)
 	if err != nil {
 		return err
 	}
@@ -2900,24 +2928,46 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		}
 	}
 	if updates.Status != nil {
-		setClauses = append(setClauses, "status = $"+itoa(idx))
+		statusPlaceholder := "$" + itoa(idx)
+		setClauses = append(setClauses,
+			"status = CASE WHEN type = 'apikey' THEN 'active' ELSE "+statusPlaceholder+" END",
+		)
 		args = append(args, *updates.Status)
 		idx++
+		if updates.Schedulable == nil {
+			setClauses = append(setClauses,
+				"schedulable = CASE WHEN type = 'apikey' THEN "+statusPlaceholder+" = 'active' ELSE schedulable END",
+			)
+		}
 	}
 	if updates.Schedulable != nil {
 		setClauses = append(setClauses, "schedulable = $"+itoa(idx))
 		args = append(args, *updates.Schedulable)
 		idx++
-		// Match the single-account recovery path: enabling scheduling on an
-		// API-key account clears only an error state produced by the account
-		// failure path.  When a bulk status is supplied, that explicit status
-		// change remains authoritative and is not rewritten here.
-		if *updates.Schedulable && updates.Status == nil {
+		if updates.Status == nil {
 			setClauses = append(setClauses,
-				"status = CASE WHEN type = 'apikey' AND status = 'error' THEN 'active' ELSE status END",
-				"error_message = CASE WHEN type = 'apikey' AND status = 'error' THEN '' ELSE error_message END",
+				"status = CASE WHEN type = 'apikey' THEN 'active' ELSE status END",
 			)
 		}
+	}
+	apiKeyAvailabilityTouched := updates.Status != nil || updates.Schedulable != nil
+	apiKeyEnabled := updates.Schedulable != nil && *updates.Schedulable
+	if updates.Schedulable == nil && updates.Status != nil {
+		apiKeyEnabled = *updates.Status == service.StatusActive
+	}
+	if apiKeyAvailabilityTouched {
+		setClauses = append(setClauses,
+			"error_message = CASE WHEN type = 'apikey' THEN '' ELSE error_message END",
+		)
+	}
+	if apiKeyEnabled {
+		setClauses = append(setClauses,
+			"rate_limited_at = CASE WHEN type = 'apikey' THEN NULL ELSE rate_limited_at END",
+			"rate_limit_reset_at = CASE WHEN type = 'apikey' THEN NULL ELSE rate_limit_reset_at END",
+			"overload_until = CASE WHEN type = 'apikey' THEN NULL ELSE overload_until END",
+			"temp_unschedulable_until = CASE WHEN type = 'apikey' THEN NULL ELSE temp_unschedulable_until END",
+			"temp_unschedulable_reason = CASE WHEN type = 'apikey' THEN NULL ELSE temp_unschedulable_reason END",
+		)
 	}
 	if updates.ProbeEnabled != nil {
 		if updates.Extra == nil {
@@ -2948,7 +2998,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 				" AND "+ollamaCloudBaseURLMatchesSQL(credentialPlaceholder+"::jsonb ->> 'base_url'")+")")
 	}
 
-	if len(updates.Extra) > 0 || len(ollamaGroupIdentityChanges) > 0 || ollamaProxyIdentityChanged != "" {
+	if apiKeyEnabled || len(updates.Extra) > 0 || len(ollamaGroupIdentityChanges) > 0 || ollamaProxyIdentityChanged != "" {
 		extraExpression := "COALESCE(extra, '{}'::jsonb)"
 		if len(updates.Extra) > 0 {
 			payload, err := json.Marshal(updates.Extra)
@@ -2986,6 +3036,9 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 				" ELSE " + extraExpression + " END"
 		} else if snapshotIdentityChanged != "" {
 			extraExpression = "CASE WHEN " + snapshotIdentityChanged + " THEN (" + extraExpression + ") - 'ollama_cloud_usage_snapshot' ELSE " + extraExpression + " END"
+		}
+		if apiKeyEnabled {
+			extraExpression = "CASE WHEN type = 'apikey' THEN (" + extraExpression + ") - 'model_rate_limits' ELSE " + extraExpression + " END"
 		}
 		setClauses = append(setClauses, "extra = "+extraExpression)
 	}
@@ -3059,7 +3112,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	}
 	if rows > 0 && contextTx == nil {
 		shouldSync := false
-		if updates.Status != nil && (*updates.Status == service.StatusError || *updates.Status == service.StatusDisabled) {
+		if updates.Status != nil {
 			shouldSync = true
 		}
 		if updates.Schedulable != nil {
