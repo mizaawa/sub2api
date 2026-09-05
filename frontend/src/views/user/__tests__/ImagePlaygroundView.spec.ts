@@ -60,8 +60,8 @@ describe('Image playground launcher', () => {
       '下载图片',
       '收藏夹',
       '查看',
-      'aria-label":"当前配置"',
-      'aria-label":"选择模型"',
+      'children:"配置"',
+      'children:"模型"',
       '生成图像',
     ]) {
       expect(standaloneScript).toContain(capability)
@@ -158,11 +158,11 @@ describe('Image playground launcher', () => {
     expect(standaloneScript).toContain('Failed to persist image task:')
     expect(standaloneScript).toContain('Failed to persist image data; using memory cache')
     expect(standaloneScript).toContain('Failed to read image data:')
-    expect(standaloneScript).toContain('aria-label":"当前配置"')
-    expect(standaloneScript).toContain('aria-label":"选择模型"')
     expect(standaloneScript).toContain('children:"配置"')
     expect(standaloneScript).toContain('children:"模型"')
-    expect(standaloneScript).toContain('onClick:()=>mr&&mr()')
+    expect(standaloneScript).toContain('o.jsx(Gs,{value:i.id')
+    expect(standaloneScript).toContain('o.jsx(Gs,{value:i.model')
+    expect(standaloneScript).toContain('onOpenChange:V=>{V&&mr&&mr()}')
     expect(standaloneScript).toContain('changeProfile=b.useCallback')
     expect(standaloneScript).toContain('P=_r(tn(z.getState().settings));P.profiles.some')
     expect(standaloneScript).toContain('X-API-Key')
