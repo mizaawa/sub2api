@@ -427,7 +427,7 @@ func (s *APIKeyService) canUserBindGroup(ctx context.Context, user *User, group 
 		return err == nil // 有有效订阅则允许
 	}
 	// 标准类型分组：使用原有逻辑
-	return user.CanBindGroup(group.ID, group.IsExclusive, group.SubscriptionType)
+	return user.CanBindGroupWithSubscriptionType(group.ID, group.IsExclusive, group.SubscriptionType)
 }
 
 // Create 创建API Key
@@ -1099,7 +1099,7 @@ func (s *APIKeyService) canUserBindGroupInternal(user *User, group *Group, subsc
 		return subscribedGroupIDs[group.ID]
 	}
 	// 标准类型分组：使用原有逻辑
-	return user.CanBindGroup(group.ID, group.IsExclusive, group.SubscriptionType)
+	return user.CanBindGroupWithSubscriptionType(group.ID, group.IsExclusive, group.SubscriptionType)
 }
 
 func (s *APIKeyService) SearchAPIKeys(ctx context.Context, userID int64, keyword string, limit int) ([]APIKey, error) {

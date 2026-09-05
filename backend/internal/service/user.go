@@ -100,19 +100,26 @@ func (u *User) IsPublicGroupBlocked(groupID int64, isExclusive bool, subscriptio
 
 // CanBindGroup checks whether a user can bind to a given group.
 // For standard groups:
-// - Public standard groups (non-exclusive): all users can bind unless blocked
-// - Subscription groups: callers pass the subscription type and handle the
-//   subscription entitlement separately
-// - Exclusive groups: only users with the group in AllowedGroups can bind
-func (u *User) CanBindGroup(groupID int64, isExclusive bool, subscriptionType ...string) bool {
+//   - Public standard groups (non-exclusive): all users can bind unless blocked
+//   - Subscription groups: callers pass the subscription type and handle the
+//     subscription entitlement separately
+//   - Exclusive groups: only users with the group in AllowedGroups can bind
+func (u *User) CanBindGroup(groupID int64, isExclusive bool) bool {
+	return u.canBindGroup(groupID, isExclusive, "")
+}
+
+// CanBindGroupWithSubscriptionType applies the same binding rules while also
+// distinguishing subscription groups from public standard groups. The
+// subscription entitlement itself is checked by the caller.
+func (u *User) CanBindGroupWithSubscriptionType(groupID int64, isExclusive bool, subscriptionType string) bool {
+	return u.canBindGroup(groupID, isExclusive, subscriptionType)
+}
+
+func (u *User) canBindGroup(groupID int64, isExclusive bool, subscriptionType string) bool {
 	if u == nil {
 		return false
 	}
-	subscription := ""
-	if len(subscriptionType) > 0 {
-		subscription = subscriptionType[0]
-	}
-	if u.IsPublicGroupBlocked(groupID, isExclusive, subscription) {
+	if u.IsPublicGroupBlocked(groupID, isExclusive, subscriptionType) {
 		return false
 	}
 	// 公开分组（非专属）：所有用户都可以绑定

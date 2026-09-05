@@ -19,7 +19,7 @@ func TestUserCanBindGroupRejectsBlockedGroupBeforeVisibilityChecks(t *testing.T)
 	// that happens to reuse the ID remains governed by its allow list.
 	user.AllowedGroups = []int64{7}
 	require.True(t, user.CanBindGroup(7, true))
-	require.True(t, user.CanBindGroup(7, false, SubscriptionTypeSubscription))
+	require.True(t, user.CanBindGroupWithSubscriptionType(7, false, SubscriptionTypeSubscription))
 	// Other public groups retain the historical behavior.
 	require.True(t, user.CanBindGroup(8, false))
 }
