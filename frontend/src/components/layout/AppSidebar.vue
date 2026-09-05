@@ -1010,11 +1010,7 @@ onBeforeUnmount(() => {
   padding: 0.625rem;
   border: 1px solid transparent;
   border-radius: 1.25rem;
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, var(--md-sys-color-surface) 90%, transparent),
-    color-mix(in srgb, var(--md-sys-color-surface-container-high) 82%, var(--md-sys-color-primary))
-  );
+  background: color-mix(in srgb, var(--md-sys-color-primary) 14%, var(--md-sys-color-surface));
   box-shadow:
     0 0.9rem 1.7rem rgb(15 23 42 / 0.1),
     0 0.3rem 0.75rem rgb(15 23 42 / 0.06);
@@ -1030,11 +1026,7 @@ onBeforeUnmount(() => {
   padding: 0.375rem;
   border: 1px solid transparent;
   border-radius: 1.25rem;
-  background: linear-gradient(
-    145deg,
-    color-mix(in srgb, var(--md-sys-color-surface) 90%, transparent),
-    color-mix(in srgb, var(--md-sys-color-surface-container-high) 82%, var(--md-sys-color-primary))
-  );
+  background: color-mix(in srgb, var(--md-sys-color-primary) 14%, var(--md-sys-color-surface));
   box-shadow:
     0 -0.9rem 1.7rem rgb(15 23 42 / 0.08),
     0 -0.3rem 0.75rem rgb(15 23 42 / 0.05);

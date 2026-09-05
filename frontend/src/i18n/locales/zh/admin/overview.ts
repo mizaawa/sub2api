@@ -619,6 +619,8 @@ export default {
       groupBlocked: '封禁',
       blockPublicGroup: '禁用此公开分组',
       enablePublicGroup: '恢复此公开分组',
+      selectExclusiveGroup: '选择此专属分组',
+      deselectExclusiveGroup: '取消选择此专属分组',
       defaultRate: '默认倍率',
       customRate: '专属倍率',
       useDefaultRate: '使用默认',

@@ -615,6 +615,8 @@ export default {
       groupBlocked: 'Blocked',
       blockPublicGroup: 'Block this public group',
       enablePublicGroup: 'Allow this public group',
+      selectExclusiveGroup: 'Select this exclusive group',
+      deselectExclusiveGroup: 'Deselect this exclusive group',
       defaultRate: 'Default Rate',
       customRate: 'Custom Rate',
       useDefaultRate: 'Use Default',

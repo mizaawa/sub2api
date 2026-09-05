@@ -38,21 +38,24 @@
                 : 'border-gray-200 bg-white hover:border-gray-300 dark:border-dark-600 dark:bg-dark-800 dark:hover:border-dark-500'"
             >
               <div class="flex items-center gap-4">
-                <!-- 复选框 -->
+                <!-- 复选框：使用可见按钮，确保未选状态在浅色和深色主题中都有清晰边框。 -->
                 <div class="flex-shrink-0">
-                  <label class="relative flex h-6 w-6 cursor-pointer items-center justify-center">
-                    <input
-                      type="checkbox"
-                      :checked="config.isSelected"
-                      @change="toggleExclusiveGroup(config.groupId)"
-                      class="peer sr-only"
-                    />
-                    <div class="h-5 w-5 rounded-md border-2 border-gray-300 transition-all peer-checked:border-primary-500 peer-checked:bg-primary-500 dark:border-dark-500 peer-checked:dark:border-primary-500">
-                      <svg v-if="config.isSelected" class="h-full w-full text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                  </label>
+                  <button
+                    type="button"
+                    role="checkbox"
+                    :aria-checked="config.isSelected"
+                    :aria-label="config.isSelected ? t('admin.users.deselectExclusiveGroup') : t('admin.users.selectExclusiveGroup')"
+                    :data-test="`exclusive-group-checkbox-${config.groupId}`"
+                    class="flex h-6 w-6 items-center justify-center rounded-md border-2 text-white transition-colors focus:outline-none focus:ring-2 focus:ring-primary-400 focus:ring-offset-1 dark:focus:ring-offset-dark-800"
+                    :class="config.isSelected
+                      ? 'border-primary-500 bg-primary-500 dark:border-primary-400 dark:bg-primary-500'
+                      : 'border-gray-400 bg-white hover:border-primary-400 dark:border-dark-400 dark:bg-dark-800 dark:hover:border-primary-400'"
+                    @click.stop="toggleExclusiveGroup(config.groupId)"
+                  >
+                    <svg v-if="config.isSelected" class="h-full w-full" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </button>
                 </div>
 
                 <!-- 分组信息 -->
