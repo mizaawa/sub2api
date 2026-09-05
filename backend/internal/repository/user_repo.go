@@ -130,6 +130,11 @@ func (r *userRepository) create(ctx context.Context, userIn *service.User, guard
 	if err := r.syncUserAllowedGroupsWithClient(txCtx, txClient, created.ID, userIn.AllowedGroups); err != nil {
 		return err
 	}
+	if len(userIn.BlockedGroups) > 0 {
+		if err := r.syncUserBlockedGroupsWithClient(txCtx, txClient, created.ID, userIn.BlockedGroups); err != nil {
+			return err
+		}
+	}
 	if err := ensureEmailAuthIdentityWithClient(txCtx, txClient, created.ID, created.Email, "user_repo_create"); err != nil {
 		return err
 	}
@@ -157,6 +162,13 @@ func (r *userRepository) GetByID(ctx context.Context, id int64) (*service.User, 
 	}
 	if v, ok := groups[id]; ok {
 		out.AllowedGroups = v
+	}
+	blocked, err := r.loadBlockedGroups(ctx, []int64{id})
+	if err != nil {
+		return nil, err
+	}
+	if v, ok := blocked[id]; ok {
+		out.BlockedGroups = v
 	}
 	return out, nil
 }
@@ -207,6 +219,13 @@ func (r *userRepository) GetByIDIncludeDeleted(ctx context.Context, id int64) (*
 	if v, ok := groups[id]; ok {
 		out.AllowedGroups = v
 	}
+	blocked, err := r.loadBlockedGroups(ctx, []int64{id})
+	if err != nil {
+		return nil, err
+	}
+	if v, ok := blocked[id]; ok {
+		out.BlockedGroups = v
+	}
 	return out, nil
 }
 
@@ -233,6 +252,13 @@ func (r *userRepository) GetByEmail(ctx context.Context, email string) (*service
 	}
 	if v, ok := groups[m.ID]; ok {
 		out.AllowedGroups = v
+	}
+	blocked, err := r.loadBlockedGroups(ctx, []int64{m.ID})
+	if err != nil {
+		return nil, err
+	}
+	if v, ok := blocked[m.ID]; ok {
+		out.BlockedGroups = v
 	}
 	return out, nil
 }
@@ -345,6 +371,11 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User, field
 
 	if fields.AllowedGroups {
 		if err := r.syncUserAllowedGroupsWithClient(txCtx, txClient, updated.ID, userIn.AllowedGroups); err != nil {
+			return err
+		}
+	}
+	if fields.BlockedGroups {
+		if err := r.syncUserBlockedGroupsWithClient(txCtx, txClient, updated.ID, userIn.BlockedGroups); err != nil {
 			return err
 		}
 	}
@@ -637,6 +668,16 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 	for id, u := range userMap {
 		if groups, ok := allowedGroupsByUser[id]; ok {
 			u.AllowedGroups = groups
+		}
+	}
+
+	blockedGroupsByUser, err := r.loadBlockedGroups(ctx, userIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	for id, u := range userMap {
+		if groups, ok := blockedGroupsByUser[id]; ok {
+			u.BlockedGroups = groups
 		}
 	}
 
@@ -1328,6 +1369,13 @@ func (r *userRepository) GetFirstAdmin(ctx context.Context) (*service.User, erro
 	if v, ok := groups[m.ID]; ok {
 		out.AllowedGroups = v
 	}
+	blocked, err := r.loadBlockedGroups(ctx, []int64{m.ID})
+	if err != nil {
+		return nil, err
+	}
+	if v, ok := blocked[m.ID]; ok {
+		out.BlockedGroups = v
+	}
 	return out, nil
 }
 
@@ -1353,6 +1401,100 @@ func (r *userRepository) loadAllowedGroups(ctx context.Context, userIDs []int64)
 	}
 
 	return out, nil
+}
+
+// loadBlockedGroups loads the per-user public-group deny list.  This is kept
+// as raw SQL rather than an Ent edge because the table is an authorization
+// adjunct and should not require regenerating the large Ent graph for a
+// simple join-table migration.
+func (r *userRepository) loadBlockedGroups(ctx context.Context, userIDs []int64) (map[int64][]int64, error) {
+	out := make(map[int64][]int64, len(userIDs))
+	if len(userIDs) == 0 {
+		return out, nil
+	}
+	client := clientFromContext(ctx, r.client)
+	placeholders := make([]string, len(userIDs))
+	args := make([]any, len(userIDs))
+	for i, userID := range userIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = userID
+	}
+	query := fmt.Sprintf(`
+		SELECT user_id, group_id
+		FROM user_blocked_groups
+		WHERE user_id IN (%s)
+		ORDER BY user_id, group_id`, strings.Join(placeholders, ","))
+	rows, err := client.QueryContext(ctx, query, args...)
+	if err != nil {
+		// This table is added by a forward migration. Treat an older database
+		// that has not applied it yet as having an empty deny list.
+		if isUserBlockedGroupsTableMissing(err) {
+			return out, nil
+		}
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var userID, groupID int64
+		if err := rows.Scan(&userID, &groupID); err != nil {
+			return nil, err
+		}
+		out[userID] = append(out[userID], groupID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// syncUserBlockedGroupsWithClient replaces one user's public-group deny list
+// inside the caller's Ent transaction.  Invalid/non-positive IDs are ignored;
+// the admin UI only sends active public groups and authorization still checks
+// the group type at bind/request time.
+func (r *userRepository) syncUserBlockedGroupsWithClient(ctx context.Context, client *dbent.Client, userID int64, groupIDs []int64) error {
+	if client == nil || userID <= 0 {
+		return nil
+	}
+	if _, err := client.ExecContext(ctx,
+		`DELETE FROM user_blocked_groups WHERE user_id = $1`, userID); err != nil {
+		if isUserBlockedGroupsTableMissing(err) {
+			return nil
+		}
+		return err
+	}
+	desired := make(map[int64]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if groupID > 0 {
+			desired[groupID] = struct{}{}
+		}
+	}
+	for groupID := range desired {
+		if _, err := client.ExecContext(ctx, `
+			INSERT INTO user_blocked_groups (user_id, group_id)
+			SELECT $1, g.id
+			FROM groups AS g
+			WHERE g.id = $2
+			  AND g.is_exclusive = FALSE
+			  AND g.subscription_type = 'standard'
+			ON CONFLICT (user_id, group_id) DO NOTHING`, userID, groupID); err != nil {
+			if isUserBlockedGroupsTableMissing(err) {
+				return nil
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+func isUserBlockedGroupsTableMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "user_blocked_groups") &&
+		(strings.Contains(message, "does not exist") ||
+			strings.Contains(message, "no such table") ||
+			strings.Contains(message, "undefined table"))
 }
 
 // syncUserAllowedGroupsWithClient 在 ent client/事务内同步用户允许分组：
@@ -1425,6 +1567,8 @@ func applyUserEntityToService(dst *service.User, src *dbent.User) {
 	dst.LastActiveAt = src.LastActiveAt
 	dst.CreatedAt = src.CreatedAt
 	dst.UpdatedAt = src.UpdatedAt
+	// BlockedGroups is loaded from the auxiliary join table by the caller;
+	// preserve the input value on create/update rather than dropping it.
 }
 
 func userSignupSourceOrDefault(signupSource string) string {

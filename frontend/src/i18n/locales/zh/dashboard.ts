@@ -141,6 +141,7 @@ export default {
     clickToChangeGroup: '点击更换分组',
     groupChangedSuccess: '分组更换成功',
     failedToChangeGroup: '更换分组失败',
+    groupBlockedToast: '您已被禁用此分组，请联系站点管理员',
     groupRequired: '请选择分组',
     usage: '用量',
     today: '今日',

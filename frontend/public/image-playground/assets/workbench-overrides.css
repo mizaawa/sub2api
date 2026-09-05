@@ -12,10 +12,17 @@
   min-width: 0;
 }
 
+[data-image-params] > .grid > *,
+[data-image-params] > .grid > * > *,
+[data-image-params] > .grid > * > * > * {
+  min-width: 0;
+}
+
 [data-image-params] select,
 [data-image-params] input,
 [data-image-params] button {
   min-width: 0;
+  width: 100%;
   max-width: 100%;
 }
 

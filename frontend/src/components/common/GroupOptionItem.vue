@@ -6,13 +6,21 @@
       :title="description || undefined"
     >
       <!-- Row 1: platform badge (name bold) -->
-      <GroupBadge
-        :name="name"
-        :platform="platform"
-        :subscription-type="subscriptionType"
-        :show-rate="false"
-        class="groupOptionItemBadge"
-      />
+      <div class="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
+        <GroupBadge
+          :name="name"
+          :platform="platform"
+          :subscription-type="subscriptionType"
+          :show-rate="false"
+          class="groupOptionItemBadge"
+        />
+        <span
+          v-if="blocked"
+          class="inline-flex shrink-0 items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold leading-4 text-red-700 dark:bg-red-900/35 dark:text-red-300"
+        >
+          {{ t('common.groupBlocked') }}
+        </span>
+      </div>
       <!-- Row 2: description with top spacing -->
       <span
         v-if="description"
@@ -80,12 +88,14 @@ interface Props {
   peakRateMultiplier?: number
   description?: string | null
   selected?: boolean
+  blocked?: boolean
   showCheckmark?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   subscriptionType: 'standard',
   selected: false,
+  blocked: false,
   showCheckmark: true,
   userRateMultiplier: null,
   peakRateEnabled: false

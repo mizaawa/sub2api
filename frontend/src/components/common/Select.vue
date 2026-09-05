@@ -89,14 +89,15 @@
               :key="`${typeof getOptionValue(option)}:${String(getOptionValue(option) ?? '')}`"
               role="option"
               :aria-selected="isSelected(option)"
-              :aria-disabled="isOptionDisabled(option)"
-              @click.stop="!isOptionDisabled(option) && selectOption(option)"
+              :aria-disabled="isOptionDisabled(option) || isOptionBlocked(option)"
+              @click.stop="handleOptionClick(option)"
               @mouseenter="handleOptionMouseEnter(option, index)"
               :class="[
                 'select-option',
                 isGroupHeaderOption(option) && 'select-option-group',
                 isSelected(option) && 'select-option-selected',
                 isOptionDisabled(option) && !isGroupHeaderOption(option) && 'select-option-disabled',
+                isOptionBlocked(option) && 'select-option-blocked',
                 focusedIndex === index && !isGroupHeaderOption(option) && 'select-option-focused'
               ]"
             >
@@ -143,6 +144,7 @@ export interface SelectOption {
   value: string | number | boolean | null
   label: string
   disabled?: boolean
+  blocked?: boolean
   [key: string]: unknown
 }
 
@@ -169,6 +171,7 @@ interface Props {
 interface Emits {
   (e: 'update:modelValue', value: string | number | boolean | null): void
   (e: 'change', value: string | number | boolean | null, option: SelectOption | null): void
+  (e: 'blocked', option: SelectOption): void
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -271,6 +274,20 @@ const isOptionDisabled = (option: any): boolean => {
     return !!option.disabled
   }
   return false
+}
+
+const isOptionBlocked = (option: any): boolean => {
+  return typeof option === 'object' && option !== null && option.blocked === true
+}
+
+const handleOptionClick = (option: any) => {
+  if (isOptionBlocked(option)) {
+    emit('blocked', option as SelectOption)
+    return
+  }
+  if (!isOptionDisabled(option)) {
+    selectOption(option)
+  }
 }
 
 const isGroupHeaderOption = (option: any): boolean => {
@@ -444,7 +461,7 @@ const onDropdownKeyDown = (e: KeyboardEvent) => {
       e.preventDefault()
       if (focusedIndex.value >= 0 && focusedIndex.value < filteredOptions.value.length) {
         const opt = filteredOptions.value[focusedIndex.value]
-        if (!isOptionDisabled(opt)) selectOption(opt)
+        handleOptionClick(opt)
       }
       break
     case 'Escape':
@@ -587,6 +604,10 @@ onUnmounted(() => {
 
 .select-dropdown-portal .select-option-disabled {
   @apply cursor-not-allowed opacity-40;
+}
+
+.select-dropdown-portal .select-option-blocked {
+  @apply text-red-700 dark:text-red-300;
 }
 
 .select-dropdown-portal .select-option-group {

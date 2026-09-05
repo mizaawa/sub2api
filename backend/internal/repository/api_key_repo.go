@@ -84,7 +84,11 @@ func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIK
 		}
 		return nil, err
 	}
-	return apiKeyEntityToService(m), nil
+	out := apiKeyEntityToService(m)
+	if err := r.attachBlockedGroups(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // GetKeyAndOwnerID 根据 API Key ID 获取其 key 与所有者（用户）ID。
@@ -122,7 +126,11 @@ func (r *apiKeyRepository) GetByKey(ctx context.Context, key string) (*service.A
 		}
 		return nil, err
 	}
-	return apiKeyEntityToService(m), nil
+	out := apiKeyEntityToService(m)
+	if err := r.attachBlockedGroups(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*service.APIKey, error) {
@@ -225,7 +233,11 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 		}
 		return nil, err
 	}
-	return apiKeyEntityToService(m), nil
+	out := apiKeyEntityToService(m)
+	if err := r.attachBlockedGroups(ctx, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey, fields service.APIKeyUpdateFields) error {
@@ -898,6 +910,43 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		out.Group = groupEntityToService(m.Edges.Group)
 	}
 	return out
+}
+
+// attachBlockedGroups hydrates the per-user public-group deny list for API
+// key responses.  Auth queries intentionally use a narrow Ent projection, so
+// this small raw query keeps the auxiliary authorization table out of the
+// generated Ent graph while still making cached and uncached auth decisions
+// observe the latest admin change.
+func (r *apiKeyRepository) attachBlockedGroups(ctx context.Context, apiKey *service.APIKey) error {
+	if apiKey == nil || apiKey.User == nil || apiKey.User.ID <= 0 {
+		return nil
+	}
+	client := clientFromContext(ctx, r.client)
+	rows, err := client.QueryContext(ctx, `
+		SELECT group_id
+		FROM user_blocked_groups
+		WHERE user_id = $1
+		ORDER BY group_id`, apiKey.User.ID)
+	if err != nil {
+		if isUserBlockedGroupsTableMissing(err) {
+			return nil
+		}
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	blocked := make([]int64, 0)
+	for rows.Next() {
+		var groupID int64
+		if err := rows.Scan(&groupID); err != nil {
+			return err
+		}
+		blocked = append(blocked, groupID)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	apiKey.User.BlockedGroups = blocked
+	return nil
 }
 
 func userEntityToService(u *dbent.User) *service.User {

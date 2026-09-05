@@ -13,8 +13,9 @@ import type { Group } from '@/types'
  * - Subscription groups: user has active subscription
  * @returns List of available groups
  */
-export async function getAvailable(options?: { signal?: AbortSignal }): Promise<Group[]> {
+export async function getAvailable(options?: { signal?: AbortSignal; includeBlocked?: boolean }): Promise<Group[]> {
   const { data } = await apiClient.get<Group[]>('/groups/available', {
+    params: options?.includeBlocked ? { include_blocked: 'true' } : undefined,
     signal: options?.signal
   })
   return data

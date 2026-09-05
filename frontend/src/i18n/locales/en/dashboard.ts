@@ -141,6 +141,7 @@ export default {
     clickToChangeGroup: 'Click to change group',
     groupChangedSuccess: 'Group changed successfully',
     failedToChangeGroup: 'Failed to change group',
+    groupBlockedToast: 'You have been blocked from this group. Please contact the site administrator.',
     groupRequired: 'Please select a group',
     usage: 'Usage',
     today: 'Today',

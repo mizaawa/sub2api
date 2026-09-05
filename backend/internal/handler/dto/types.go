@@ -10,15 +10,19 @@ import (
 )
 
 type User struct {
-	ID            int64      `json:"id"`
-	Email         string     `json:"email"`
-	Username      string     `json:"username"`
-	Role          string     `json:"role"`
-	Balance       float64    `json:"balance"`
-	FrozenBalance float64    `json:"frozen_balance"`
-	Concurrency   int        `json:"concurrency"`
-	Status        string     `json:"status"`
-	AllowedGroups []int64    `json:"allowed_groups"`
+	ID            int64   `json:"id"`
+	Email         string  `json:"email"`
+	Username      string  `json:"username"`
+	Role          string  `json:"role"`
+	Balance       float64 `json:"balance"`
+	FrozenBalance float64 `json:"frozen_balance"`
+	Concurrency   int     `json:"concurrency"`
+	Status        string  `json:"status"`
+	AllowedGroups []int64 `json:"allowed_groups"`
+	// BlockedGroups contains public group IDs denied for this user. It is
+	// returned to administrators and to the authenticated profile so clients
+	// can label an existing key that was later blocked.
+	BlockedGroups []int64    `json:"blocked_groups,omitempty"`
 	LastActiveAt  *time.Time `json:"last_active_at,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
@@ -95,6 +99,7 @@ type Group struct {
 	RateMultiplier float64 `json:"rate_multiplier"`
 	IsExclusive    bool    `json:"is_exclusive"`
 	Status         string  `json:"status"`
+	BlockedForUser bool    `json:"is_blocked_for_user,omitempty"`
 
 	SubscriptionType string   `json:"subscription_type"`
 	DailyLimitUSD    *float64 `json:"daily_limit_usd"`

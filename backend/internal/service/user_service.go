@@ -113,6 +113,8 @@ type UserUpdateFields struct {
 	BalanceNotifyExtraEmails bool
 	// AllowedGroups 为 true 时才同步 user_allowed_groups 关联表。
 	AllowedGroups bool
+	// BlockedGroups 为 true 时同步 user_blocked_groups 关联表。
+	BlockedGroups bool
 }
 
 // BalanceChange 记录一次余额变更前后的值。

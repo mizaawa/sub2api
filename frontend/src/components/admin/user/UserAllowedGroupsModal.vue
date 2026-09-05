@@ -98,28 +98,48 @@
           <div class="mb-3 flex items-center gap-2">
             <div class="h-1.5 w-1.5 rounded-full bg-green-500"></div>
             <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-300">{{ t('admin.users.publicGroups') }}</h4>
-            <span class="text-xs text-gray-400">({{ publicGroupConfigs.length }})</span>
+            <span class="text-xs text-gray-400">({{ enabledPublicGroupCount }}/{{ publicGroupConfigs.length }})</span>
           </div>
           <div class="grid gap-3">
             <div
               v-for="config in publicGroupConfigs"
               :key="config.groupId"
-              class="relative overflow-hidden rounded-xl border-2 border-green-200 bg-green-50/50 p-4 dark:border-green-800/50 dark:bg-green-900/10"
+              class="relative overflow-hidden rounded-xl border-2 p-4 transition-colors"
+              :class="config.isBlocked
+                ? 'border-red-300 bg-red-50/70 dark:border-red-700/70 dark:bg-red-900/20'
+                : 'border-green-200 bg-green-50/50 dark:border-green-800/50 dark:bg-green-900/10'"
             >
-              <div class="flex items-center gap-4">
-                <!-- 复选框（禁用状态） -->
+              <div class="flex flex-wrap items-center gap-4">
+                <!-- 公开分组开关：勾选表示可用，点击后变为叉号并封禁该分组。 -->
                 <div class="flex-shrink-0">
-                  <div class="flex h-5 w-5 items-center justify-center rounded-md border-2 border-green-400 bg-green-500 dark:border-green-600 dark:bg-green-600">
-                    <svg class="h-full w-full text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                  <button
+                    type="button"
+                    class="flex h-6 w-6 items-center justify-center rounded-md border-2 text-white transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1"
+                    role="checkbox"
+                    :aria-checked="!config.isBlocked"
+                    :class="config.isBlocked
+                      ? 'border-red-500 bg-red-500 focus:ring-red-400 dark:border-red-500 dark:bg-red-600'
+                      : 'border-green-400 bg-green-500 focus:ring-green-400 dark:border-green-600 dark:bg-green-600'"
+                    :aria-label="config.isBlocked ? t('admin.users.enablePublicGroup') : t('admin.users.blockPublicGroup')"
+                    @click.stop="togglePublicGroup(config.groupId)"
+                  >
+                    <svg v-if="config.isBlocked" class="h-full w-full" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 6l12 12M18 6L6 18" />
+                    </svg>
+                    <svg v-else class="h-full w-full" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
-                  </div>
+                  </button>
                 </div>
 
                 <!-- 分组信息 -->
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center gap-2">
                     <span class="text-base font-semibold text-gray-900 dark:text-white">{{ config.groupName }}</span>
+                    <span
+                      v-if="config.isBlocked"
+                      class="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                    >{{ t('admin.users.groupBlocked') }}</span>
                   </div>
                   <div class="mt-1.5 flex items-center gap-3 text-sm">
                     <span class="inline-flex items-center gap-1 text-gray-500 dark:text-gray-400">
@@ -195,6 +215,7 @@ interface GroupRateConfig {
   defaultRate: number
   customRate: number | null
   isSelected: boolean
+  isBlocked: boolean
 }
 
 const props = defineProps<{ show: boolean; user: AdminUser | null }>()
@@ -205,6 +226,7 @@ const appStore = useAppStore()
 const groups = ref<Group[]>([])
 const groupConfigs = ref<GroupRateConfig[]>([])
 const originalGroupRates = ref<Record<number, number>>({}) // 记录原始专属倍率，用于检测删除
+const originalBlockedGroups = ref<number[]>([])
 const loading = ref(false)
 const submitting = ref(false)
 
@@ -214,6 +236,7 @@ const publicGroups = computed(() => groups.value.filter((g) => !g.is_exclusive))
 
 const exclusiveGroupConfigs = computed(() => groupConfigs.value.filter((c) => c.isExclusive))
 const publicGroupConfigs = computed(() => groupConfigs.value.filter((c) => !c.isExclusive))
+const enabledPublicGroupCount = computed(() => publicGroupConfigs.value.filter((c) => !c.isBlocked).length)
 
 watch(
   () => props.show,
@@ -233,10 +256,12 @@ const load = async () => {
 
     // 初始化配置
     const userAllowedGroups = props.user?.allowed_groups || []
+    const userBlockedGroups = props.user?.blocked_groups || []
     const userGroupRates = props.user?.group_rates || {}
 
     // 保存原始专属倍率，用于检测删除操作
     originalGroupRates.value = { ...userGroupRates }
+    originalBlockedGroups.value = [...userBlockedGroups]
 
     groupConfigs.value = groups.value.map((g) => ({
       groupId: g.id,
@@ -246,8 +271,9 @@ const load = async () => {
       defaultRate: g.rate_multiplier,
       customRate: userGroupRates[g.id] ?? null,
       // 专属分组：检查是否在 allowed_groups 中
-      // 公开分组：始终选中
-      isSelected: g.is_exclusive ? userAllowedGroups.includes(g.id) : true,
+      // 公开分组默认可用；blocked_groups 中的公开分组显示为叉号。
+      isSelected: g.is_exclusive ? userAllowedGroups.includes(g.id) : !userBlockedGroups.includes(g.id),
+      isBlocked: !g.is_exclusive && userBlockedGroups.includes(g.id),
     }))
   } catch (error) {
     console.error('Failed to load groups:', error)
@@ -260,6 +286,14 @@ const toggleExclusiveGroup = (groupId: number) => {
   const config = groupConfigs.value.find((c) => c.groupId === groupId)
   if (config && config.isExclusive) {
     config.isSelected = !config.isSelected
+  }
+}
+
+const togglePublicGroup = (groupId: number) => {
+  const config = groupConfigs.value.find((c) => c.groupId === groupId)
+  if (config && !config.isExclusive) {
+    config.isBlocked = !config.isBlocked
+    config.isSelected = !config.isBlocked
   }
 }
 
@@ -282,6 +316,14 @@ const handleSave = async () => {
   try {
     // 构建 allowed_groups（仅包含专属分组中被勾选的）
     const allowedGroups = groupConfigs.value.filter((c) => c.isExclusive && c.isSelected).map((c) => c.groupId)
+    const visiblePublicGroupIds = new Set(publicGroupConfigs.value.map((c) => c.groupId))
+    const blockedGroups = [
+      // Keep bans for groups that are temporarily inactive and therefore not
+      // present in this active-only editor; re-enabling a group must not
+      // silently restore access.
+      ...originalBlockedGroups.value.filter((id) => !visiblePublicGroupIds.has(id)),
+      ...publicGroupConfigs.value.filter((c) => c.isBlocked).map((c) => c.groupId),
+    ]
 
     // 构建 group_rates
     // - 有新专属倍率: 设置为该值
@@ -301,6 +343,7 @@ const handleSave = async () => {
 
     await adminAPI.users.update(props.user.id, {
       allowed_groups: allowedGroups,
+      blocked_groups: [...new Set(blockedGroups)],
       group_rates: Object.keys(groupRates).length > 0 ? groupRates : undefined,
     })
 
@@ -309,6 +352,7 @@ const handleSave = async () => {
     emit('close')
   } catch (error) {
     console.error('Failed to update user group config:', error)
+    appStore.showError(t('admin.users.failedToUpdate'))
   } finally {
     submitting.value = false
   }

@@ -66,6 +66,28 @@ afterEach(() => {
 })
 
 describe('Select dropdown viewport constraints', () => {
+  it('emits a blocked event without selecting a blocked option', async () => {
+    const wrapper = mount(Select, {
+      props: {
+        modelValue: null,
+        options: [
+          { value: 'blocked', label: 'Blocked group', blocked: true },
+          { value: 'allowed', label: 'Allowed group' },
+        ],
+      },
+    })
+
+    await wrapper.get('button').trigger('click')
+    await nextTick()
+    const options = document.body.querySelectorAll('[role="option"]')
+    expect(options).toHaveLength(2)
+    await (options[0] as HTMLElement).click()
+
+    expect(wrapper.emitted('blocked')).toHaveLength(1)
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('preserves the existing 200px minimum width when space is available', async () => {
     setViewportWidth(1024)
     mockTriggerRect(20, 80)

@@ -68,6 +68,7 @@ export default {
     searchPlaceholder: 'Search...',
     noOptionsFound: 'No options found',
     noGroupsAvailable: 'No groups available',
+    groupBlocked: 'Blocked',
     unknownError: 'Unknown error occurred',
     saving: 'Saving...',
     selectedCount: '({count} selected)',

@@ -25,6 +25,7 @@ import (
 var (
 	ErrAPIKeyNotFound       = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
 	ErrGroupNotAllowed      = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
+	ErrGroupBlocked         = infraerrors.Forbidden("GROUP_BLOCKED", "您已被禁用此分组，请联系站点管理员")
 	ErrAPIKeyExists         = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
 	ErrAPIKeyTooShort       = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
 	ErrAPIKeyInvalidChars   = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
@@ -417,6 +418,9 @@ func (s *APIKeyService) incrementAPIKeyErrorCount(ctx context.Context, userID in
 // 对于订阅类型分组：检查用户是否有有效订阅
 // 对于标准类型分组：使用原有的 AllowedGroups 和 IsExclusive 逻辑
 func (s *APIKeyService) canUserBindGroup(ctx context.Context, user *User, group *Group) bool {
+	if user == nil || group == nil || user.IsGroupBlocked(group.ID) {
+		return false
+	}
 	// 订阅类型分组：需要有效订阅
 	if group.IsSubscriptionType() {
 		_, err := s.userSubRepo.GetActiveByUserIDAndGroupID(ctx, user.ID, group.ID)
@@ -456,6 +460,9 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		}
 
 		// 检查用户是否可以绑定该分组
+		if user.IsGroupBlocked(group.ID) {
+			return nil, ErrGroupBlocked
+		}
 		if !s.canUserBindGroup(ctx, user, group) {
 			return nil, ErrGroupNotAllowed
 		}
@@ -538,6 +545,7 @@ func (s *APIKeyService) List(ctx context.Context, userID int64, params paginatio
 	if err != nil {
 		return nil, nil, fmt.Errorf("list api keys: %w", err)
 	}
+	s.markBlockedGroupsForKeys(ctx, userID, keys)
 	s.fillCurrentConcurrency(ctx, keys)
 	return keys, pagination, nil
 }
@@ -552,6 +560,7 @@ func (s *APIKeyService) listByCurrentConcurrency(ctx context.Context, userID int
 	if err != nil {
 		return nil, nil, fmt.Errorf("list api keys: %w", err)
 	}
+	s.markBlockedGroupsForKeys(ctx, userID, keys)
 	s.fillCurrentConcurrency(ctx, keys)
 	sortAPIKeysByCurrentConcurrency(keys, params.NormalizedSortOrder(pagination.SortOrderDesc))
 	return paginateAPIKeys(keys, params), apiKeyPaginationResult(int64(len(keys)), params), nil
@@ -641,6 +650,46 @@ func (s *APIKeyService) currentConcurrencyForAPIKey(ctx context.Context, apiKeyI
 	return counts[apiKeyID]
 }
 
+// markBlockedGroupsForKeys annotates user-facing API-key rows with the same
+// deny state used by the auth middleware. The repository list query does not
+// hydrate a User edge, so this one user lookup keeps the UI accurate even when
+// its profile refresh has not observed a just-applied admin change.
+func (s *APIKeyService) markBlockedGroupsForKeys(ctx context.Context, userID int64, keys []APIKey) {
+	if s == nil || s.userRepo == nil || len(keys) == 0 {
+		return
+	}
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil || user == nil {
+		return
+	}
+	for i := range keys {
+		if keys[i].Group != nil && user.IsGroupBlocked(keys[i].Group.ID) {
+			keys[i].Group.BlockedForUser = true
+		}
+	}
+}
+
+func (s *APIKeyService) markBlockedGroupForKey(ctx context.Context, userID int64, key *APIKey) {
+	if key == nil || key.Group == nil {
+		return
+	}
+	if key.User != nil {
+		if key.User.IsGroupBlocked(key.Group.ID) {
+			key.Group.BlockedForUser = true
+		}
+		if key.User.BlockedGroups != nil || s == nil || s.userRepo == nil {
+			return
+		}
+	}
+	if s == nil || s.userRepo == nil {
+		return
+	}
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err == nil && user != nil && user.IsGroupBlocked(key.Group.ID) {
+		key.Group.BlockedForUser = true
+	}
+}
+
 func (s *APIKeyService) VerifyOwnership(ctx context.Context, userID int64, apiKeyIDs []int64) ([]int64, error) {
 	if len(apiKeyIDs) == 0 {
 		return []int64{}, nil
@@ -661,6 +710,7 @@ func (s *APIKeyService) GetByID(ctx context.Context, id int64) (*APIKey, error) 
 	}
 	s.compileAPIKeyIPRules(apiKey)
 	if apiKey != nil {
+		s.markBlockedGroupForKey(ctx, apiKey.UserID, apiKey)
 		apiKey.CurrentConcurrency = s.currentConcurrencyForAPIKey(ctx, apiKey.ID)
 	}
 	return apiKey, nil
@@ -760,7 +810,7 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		fields.Name = true
 	}
 
-	if req.GroupID != nil {
+	if req.GroupID != nil && (apiKey.GroupID == nil || *apiKey.GroupID != *req.GroupID) {
 		// 验证分组权限
 		user, err := s.userRepo.GetByID(ctx, userID)
 		if err != nil {
@@ -772,6 +822,9 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 			return nil, fmt.Errorf("get group: %w", err)
 		}
 
+		if user.IsGroupBlocked(group.ID) {
+			return nil, ErrGroupBlocked
+		}
 		if !s.canUserBindGroup(ctx, user, group) {
 			return nil, ErrGroupNotAllowed
 		}
@@ -981,6 +1034,18 @@ func (s *APIKeyService) IncrementUsage(ctx context.Context, keyID int64) error {
 // - 标准类型分组：公开的（非专属）或用户被明确允许的
 // - 订阅类型分组：用户有有效订阅的
 func (s *APIKeyService) GetAvailableGroups(ctx context.Context, userID int64) ([]Group, error) {
+	return s.getAvailableGroups(ctx, userID, false)
+}
+
+// GetGroupOptions returns the groups that may be shown in a user's API-key
+// selector. It has the same authorization filtering as GetAvailableGroups,
+// but keeps explicitly blocked public groups in the result with
+// BlockedForUser=true so the UI can explain why they cannot be selected.
+func (s *APIKeyService) GetGroupOptions(ctx context.Context, userID int64) ([]Group, error) {
+	return s.getAvailableGroups(ctx, userID, true)
+}
+
+func (s *APIKeyService) getAvailableGroups(ctx context.Context, userID int64, includeBlocked bool) ([]Group, error) {
 	// 获取用户信息
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
@@ -1010,6 +1075,14 @@ func (s *APIKeyService) GetAvailableGroups(ctx context.Context, userID int64) ([
 	for _, group := range allGroups {
 		if s.canUserBindGroupInternal(user, &group, subscribedGroupIDs) {
 			availableGroups = append(availableGroups, group)
+			continue
+		}
+		// Keep only standard, non-exclusive public groups in the selector's
+		// disabled section. Exclusive/subscription groups remain hidden unless
+		// the user is actually authorized for them.
+		if includeBlocked && !group.IsExclusive && !group.IsSubscriptionType() && user.IsGroupBlocked(group.ID) {
+			group.BlockedForUser = true
+			availableGroups = append(availableGroups, group)
 		}
 	}
 
@@ -1018,6 +1091,9 @@ func (s *APIKeyService) GetAvailableGroups(ctx context.Context, userID int64) ([
 
 // canUserBindGroupInternal 内部方法，检查用户是否可以绑定分组（使用预加载的订阅数据）
 func (s *APIKeyService) canUserBindGroupInternal(user *User, group *Group, subscribedGroupIDs map[int64]bool) bool {
+	if user == nil || group == nil || user.IsGroupBlocked(group.ID) {
+		return false
+	}
 	// 订阅类型分组：需要有效订阅
 	if group.IsSubscriptionType() {
 		return subscribedGroupIDs[group.ID]
@@ -1048,6 +1124,21 @@ func (s *APIKeyService) GetUserAllowedGroupIDSet(ctx context.Context, userID int
 		allowed[id] = struct{}{}
 	}
 	return allowed, nil
+}
+
+// GetUserBlockedGroupIDSet returns the public groups explicitly denied to the
+// user. It is used by read-only catalogs (for example the model plaza) so
+// those views do not advertise a group that binding/authentication will reject.
+func (s *APIKeyService) GetUserBlockedGroupIDSet(ctx context.Context, userID int64) (map[int64]struct{}, error) {
+	user, err := s.userRepo.GetByID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user: %w", err)
+	}
+	blocked := make(map[int64]struct{}, len(user.BlockedGroups))
+	for _, id := range user.BlockedGroups {
+		blocked[id] = struct{}{}
+	}
+	return blocked, nil
 }
 
 // GetUserGroupRates 获取用户的专属分组倍率配置

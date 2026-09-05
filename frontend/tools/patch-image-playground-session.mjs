@@ -5,12 +5,17 @@ import { fileURLToPath } from 'node:url'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const bundlePath = resolve(root, 'public/image-playground/assets/index-rvKuKMn_.js')
 const source = readFileSync(bundlePath, 'utf8')
+// Repair an intermediate bundle created by older versions of this patch. The
+// thumbnail loader is asynchronous; an omitted keyword leaves `await` at
+// top-level inside the function and prevents the entire workbench from
+// parsing. Normalize it before applying the idempotent replacements below.
+const normalizedSource = source.replace('}function yb(a){', '}async function yb(a){')
 const startMarker = 'function oj(){'
 const endMarker = 'const cj="width=device-width'
-const start = source.indexOf(startMarker)
-const end = source.indexOf(endMarker, start)
+const start = normalizedSource.indexOf(startMarker)
+const end = normalizedSource.indexOf(endMarker, start)
 
-if (start < 0 || end < 0 || source.indexOf(startMarker, start + startMarker.length) >= 0) {
+if (start < 0 || end < 0 || normalizedSource.indexOf(startMarker, start + startMarker.length) >= 0) {
   throw new Error('Image playground session component markers are missing or ambiguous')
 }
 
@@ -42,7 +47,77 @@ const auditedReplacement = replacementWithVersionModal.replace(
   'S.tokenPresent&&S.userId===m&&S.userEmail===Bx()',
 )
 
-let patched = source.slice(0, start) + auditedReplacement + source.slice(end)
+let patched = normalizedSource.slice(0, start) + auditedReplacement + normalizedSource.slice(end)
+
+// Older patch runs may have spliced an async function's prefix into the
+// replacement boundary, leaving `function Qy/yb` with an illegal `await`.
+// Repair those generated artifacts before applying idempotent replacements.
+for (const [broken, fixed] of [
+  ['function Qy(a,l="upload"){return(await $y(a,l)).id}', 'async function Qy(a,l="upload"){return(await $y(a,l)).id}'],
+  ['function yb(a){const l=_0(a);', 'async function yb(a){const l=_0(a);'],
+]) {
+  if (patched.includes(broken)) replaceOnce('repair async image helper prefix', broken, fixed)
+}
+patched = patched.replace(/(?:async\s+){2,}function fr\(/g, 'async function fr(')
+patched = patched.replace(/(?:async\s+){2,}function Qy\(/g, 'async function Qy(')
+patched = patched.replace(/(?:async\s+){2,}function Tn\(/g, 'async function Tn(')
+patched = patched.replace(/(?:async\s+){2,}function yb\(/g, 'async function yb(')
+
+// Local IndexedDB is auxiliary state, not a prerequisite for sending an
+// image request. A corrupted/locked database used to reject the first task's
+// persistence promise before Rb() could reach the provider, leaving every
+// later click stuck in "生成中". Keep persistence best-effort so the network
+// request and its error handling remain usable.
+const resilientTaskPersistence = 'async function fr(a,l=Vn()){if(!He(l))return"";let i="";try{i=await O5(ck(a))}catch(d){console.warn("Failed to persist image task:",d);return""}if(!He(l)&&!z.getState().tasks.some(f=>f.id===a.id))try{return await v0(a.id)}catch(d){console.warn("Failed to remove stale image task:",d)}return i}'
+replaceFunctionOnce(
+  'best-effort image task persistence',
+  'async function fr(',
+  'function uk(',
+  resilientTaskPersistence,
+  'async function fr(',
+)
+
+// Generated and uploaded image bytes are also auxiliary persistence. Keep a
+// bounded in-memory copy when IndexedDB is unavailable so a successful
+// provider response can still be rendered in the current session.
+const resilientImageStorage = 'async function $y(a,l="upload"){const s=await B5(a);let i=null;try{i=await ai(s)}catch(d){console.warn("Failed to read image cache:",d)}if(i){i.dataUrl&&Yl(s,i.dataUrl);return{id:s,width:i.width,height:i.height}}const d=await Vy(a);try{await Py({id:s,dataUrl:a,createdAt:Date.now(),source:l,width:d.width,height:d.height}),d.thumbnailDataUrl&&await x0({id:s,thumbnailDataUrl:d.thumbnailDataUrl,width:d.width,height:d.height,thumbnailVersion:ni})}catch(f){console.warn("Failed to persist image data; using memory cache:",f)}return Yl(s,a),{id:s,width:d.width,height:d.height}}async '
+replaceFunctionOnce(
+  'best-effort image byte persistence',
+  'async function $y(',
+  'function Qy(',
+  resilientImageStorage,
+  'Failed to persist image data; using memory cache',
+)
+
+const resilientImageRead = 'async function Tn(a){const l=Zs(a);if(l)return l;try{const s=await ai(a);if(s)return s.dataUrl&&Yl(a,s.dataUrl),s.dataUrl}catch(i){console.warn("Failed to read image data:",i)}return void 0}async '
+replaceFunctionOnce(
+  'best-effort image byte reads',
+  'async function Tn(',
+  'function yb(',
+  resilientImageRead,
+  'Failed to read image data:',
+)
+
+// Restoring local workbench state is best-effort. A stale task or an image
+// record from an older IndexedDB schema must not turn an otherwise valid
+// bootstrap into the misleading "login expired" screen. Keep the identity
+// session alive and skip only the damaged record.
+const resilientTaskRestore = `async function hk(){const a=Vn();if(!He(a))return;let l=[];try{l=await I5()}catch(v){console.warn("Failed to load local image tasks:",v)}if(!He(a))return;const s=l.filter(Dx);s.length&&await Promise.allSettled(s.map(async v=>{try{await v0(v.id)}catch(x){console.warn("Failed to remove stale image task:",x)}}));if(!He(a))return;let i=[],d=[];try{const restored=ek(l.filter(v=>!Dx(v)),Date.now());i=restored.tasks||[],d=restored.interruptedTasks||[]}catch(v){console.warn("Failed to restore local image tasks:",v)}d.length&&await Promise.allSettled(d.map(async v=>{try{await fr(v)}catch(x){console.warn("Failed to persist interrupted image task:",x)}}));if(!He(a))return;const f=z.getState();let m;try{m=Z4(i,f.favoriteCollections,f.defaultFavoriteCollectionId)}catch(v){console.warn("Failed to normalize local image tasks:",v),m={tasks:[],collections:f.favoriteCollections,defaultFavoriteCollectionId:f.defaultFavoriteCollectionId,changed:!1}}z.setState({settings:tn(f.settings),tasks:m.tasks||[],favoriteCollections:m.collections||f.favoriteCollections,defaultFavoriteCollectionId:m.defaultFavoriteCollectionId,appMode:"gallery"});if(m.changed)await Promise.allSettled((m.tasks||[]).map(async v=>{try{await fr(v)}catch(x){console.warn("Failed to persist normalized image task:",x)}}));if(!He(a))return;const p=[];for(const v of z.getState().inputImages){if(!He(a))return;if(v.dataUrl){p.push(v),Yl(v.id,v.dataUrl);continue}let x=null;try{x=await Tn(v.id)}catch(S){console.warn("Failed to restore input image:",S)}if(!He(a))return;x&&p.push({...v,dataUrl:x})}if(!He(a))return;p.length!==z.getState().inputImages.length&&z.setState({inputImages:p});const g=new Set;z.getState().inputImages.forEach(v=>g.add(v.id)),(m.tasks||[]).forEach(v=>{var x,y;v.inputImageIds.forEach(S=>g.add(S)),v.outputImages.forEach(S=>g.add(S)),v.maskImageId&&g.add(v.maskImageId),(x=v.transparentOriginalImages)==null||x.forEach(S=>S&&g.add(S)),(y=v.streamPartialImageIds)==null||y.forEach(S=>g.add(S))});try{for(const v of await z5()){if(!He(a))return;g.has(v)||await Ky(v)}}catch(v){console.warn("Failed to clean orphaned image data:",v)}}`
+replaceFunctionOnce(
+  'resilient local task restore',
+  'async function hk(){',
+  'async function Ob',
+  resilientTaskRestore,
+  'Promise.allSettled(s.map',
+)
+
+// Initialization failures after identity validation are recoverable. Keep the
+// gallery mounted so the user can retry generation and inspect a useful toast;
+// reserve the signed-out screen for the explicit identity gate above.
+const initializationCatch = '.catch(H=>{console.warn("Failed to initialize image playground:",H),f(!1),nr(!1),zs()})'
+const initializationCatchFixed = '.catch(H=>{console.warn("Failed to initialize image playground:",H);if(!_){f(!1),nr(!1),zs();return}const ee=z.getState();A&&g&&ee.setSettings(_r(g.settings)),z.setState({appMode:"gallery"}),f(!0),nr(!0),ee.showToast&&ee.showToast("工作台已跳过损坏的本地任务，可继续使用","warning"),g&&clearImagePlaygroundBootstrap()})'
+if (patched.includes(initializationCatch)) replaceOnce('recoverable initialization error', initializationCatch, initializationCatchFixed)
+else if (!patched.includes(initializationCatchFixed)) throw new Error('recoverable initialization error marker is missing')
 
 function replaceOnce(label, from, to) {
   const occurrences = patched.split(from).length - 1
@@ -79,6 +154,14 @@ function replaceFunctionOnce(label, startMarker, endMarker, replacement, already
   patched = patched.slice(0, start) + replacement + patched.slice(end)
 }
 
+// Browser auth refreshes update several storage keys in sequence. Debounce a
+// missing token/parse result, but react immediately when a different user is
+// detected. This prevents a transient refresh gap from ejecting the gallery.
+const sessionWatch = 'b.useEffect(()=>{if(!s||m===null||!d)return;let g=!1;const v=()=>{const S=_o(),ownerEmail=Bx(),localUserPresent=!!window.localStorage.getItem("auth_user"),sessionValid=S.userId===m&&(!localUserPresent||S.tokenPresent)&&(!S.userEmail||!ownerEmail||S.userEmail===ownerEmail)||(!localUserPresent&&bk()===m&&ownerEmail===Bx());sessionValid||g||(g=!0,f(!1),nr(!1),Ab(),zs(),Lx())},x=S=>{(S.key===null||S.key==="auth_user")&&v()};window.addEventListener("storage",x);const y=window.setInterval(v,2e3);return v(),()=>{window.removeEventListener("storage",x),window.clearInterval(y)}},[s,m,d])'
+const sessionWatchFixed = 'b.useEffect(()=>{if(!s||m===null||!d)return;let g=!1,invalidSince=0;const v=()=>{const S=_o(),ownerEmail=Bx(),localUserPresent=!!window.localStorage.getItem("auth_user"),identityMismatch=S.userId!==null&&S.userId!==m||!!S.userEmail&&!!ownerEmail&&S.userEmail!==ownerEmail,sessionValid=!identityMismatch&&(S.userId===m&&(!localUserPresent||S.tokenPresent)||!localUserPresent&&S.tokenPresent&&bk()===m&&ownerEmail===Bx());if(sessionValid){invalidSince=0;return}if(!identityMismatch){if(!invalidSince)invalidSince=Date.now();if(Date.now()-invalidSince<8e3)return}g||(g=!0,f(!1),nr(!1),Ab(),zs(),Lx())},x=S=>{(S.key===null||S.key==="auth_user")&&v()};window.addEventListener("storage",x);const y=window.setInterval(v,2e3);return v(),()=>{window.removeEventListener("storage",x),window.clearInterval(y)}},[s,m,d])'
+if (patched.includes(sessionWatch)) replaceOnce('debounced standalone session watch', sessionWatch, sessionWatchFixed)
+else if (!patched.includes(sessionWatchFixed)) throw new Error('debounced standalone session watch marker is missing')
+
 // Keep provider requests same-origin so browser preflight policy cannot block
 // the Authorization and owner-email headers. Deployments on the zayu hostname
 // still resolve this to the same zayu `/v1` endpoint.
@@ -94,6 +177,17 @@ if (patched.includes(staleSameOriginBaseUrl)) replaceOnce('same-origin image API
 const imageDispatcher = 'async function v4(a,l,s){if(s&&s.submit)return a.params.n>1?M4(a,l,s,a.params.n):vb(a,l,s);return A4(a,l)}'
 if (!patched.includes('async function v4(')) {
   replaceOnce('image request dispatcher', 'const lk={', imageDispatcher + 'const lk={')
+}
+
+// The managed bundle was produced from a gallery-only build where the custom
+// provider helpers were tree-shaken even though the request functions still
+// reference them. Restore the complete helper set before the provider
+// definition so model loading and image generation cannot fail with a runtime
+// ReferenceError. Keep this in the patch script because the vendored bundle is
+// regenerated from upstream periodically.
+const customProviderHelpers = `function b4(a,l){return new Promise((s,i)=>{if(l.aborted){i(new DOMException("Aborted","AbortError"));return}const d=setTimeout(s,a);l.addEventListener("abort",()=>{clearTimeout(d),i(new DOMException("Aborted","AbortError"))},{once:!0})})}function w4(a,l){const s=zr(a,l.statusPath),i=typeof s=="string"?s:String(s??"");return l.successValues.includes(i)?"success":l.failureValues.includes(i)?"failure":"pending"}function Cx(a){if(typeof DOMException<"u"&&a instanceof DOMException&&a.name==="AbortError")return!0;const l=a instanceof Error?a.message:String(a);return/abort|network|failed to fetch|fetch failed|load failed|timeout|连接|断开|中断/i.test(l)}function k4(a){return a===408||a===429||a>=500}function S4(a,l){return a.replace(/\\{task_id\\}/g,encodeURIComponent(l)).replace(/\\{taskId\\}/g,encodeURIComponent(l))}function Qs(a,l){if(typeof a=="string"&&a.startsWith("$"))return zr(l,a.slice(1));if(Array.isArray(a))return a.map(s=>Qs(s,l)).filter(s=>s!=null);if(a&&typeof a=="object"){const s=Object.entries(a).map(([i,d])=>[i,Qs(d,l)]).filter(([,i])=>i!=null&&(!Array.isArray(i)||i.length>0));return Object.fromEntries(s)}return a}function j4(a,l){const s=l.codexCli&&!a.skipCodexCliSizePrompt?R0(a.prompt,a.params.size):a.prompt,i=l.codexCli&&!a.settings.allowPromptRewrite?\`\${T0}\\n\${s}\`:s,d={...a.params,...l.codexCli?{size:void 0,quality:void 0}:{},...a.nativeTransparentBackground?{background:"transparent"}:{}};return{profile:l,prompt:i,params:d,inputImages:{dataUrls:a.inputImageDataUrls.length?a.inputImageDataUrls:void 0,count:a.inputImageDataUrls.length},mask:{dataUrl:a.maskDataUrl}}}function T4(a,l){if(!a)return;const s=Object.entries(a).map(([i,d])=>[i,Qs(d,l)]).filter(([,i])=>i!=null&&String(i)!=="").map(([i,d])=>[i,String(d)]);return s.length?Object.fromEntries(s):void 0}async function N4(a,l,s){var v,x,y;const i=new FormData,d=Qs(a.body??{},s);if(d&&typeof d=="object"&&!Array.isArray(d)){for(const[S,E]of Object.entries(d))if(E!=null)if(Array.isArray(E))for(const A of E)i.append(S,String(A));else i.append(S,String(E))}const f=(v=a.files)==null?void 0:v.some(S=>S.source==="inputImages"),m=(x=a.files)==null?void 0:x.some(S=>S.source==="mask"),p=[];if(f)for(let S=0;S<l.inputImageDataUrls.length;S++){const E=l.inputImageDataUrls[S],A=l.maskDataUrl&&S===0?await b0(E):await y0(E);p.push(A)}const g=m&&l.maskDataUrl?await Zy(l.maskDataUrl):null;l.maskDataUrl&&(f||m)&&(Bl("遮罩主图文件",((y=p[0])==null?void 0:y.size)??0),Bl("遮罩文件",(g==null?void 0:g.size)??0)),Go(p.reduce((S,E)=>S+E.size,0)+((g==null?void 0:g.size)??0));for(const S of a.files??[])if(S.source==="inputImages")for(let E=0;E<p.length;E++){const A=p[E],R=A.type.split("/")[1]||"png";i.append(S.field,A,\`input-\${E+1}.\${R}\`)}else S.source==="mask"&&g&&i.append(S.field,g,"mask.png");return i}`
+if (!patched.includes('function j4(')) {
+  replaceOnce('custom provider request helpers', 'const lk={', customProviderHelpers + 'const lk={')
 }
 
 // zayu rejects an explicit null output_compression field. Omit optional nulls
@@ -172,12 +266,18 @@ if (toolbar.includes(toolbarSignature)) {
   throw new Error('toolbar signature marker is missing')
 }
 const moderationControl = 'o.jsxs("label",{className:"relative flex flex-col gap-0.5",onMouseEnter:D.show,onMouseLeave:D.hide,onTouchStart:D.startTouch,onTouchEnd:D.clearTimer,onTouchCancel:D.hide,onClick:D.show,children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500 ml-1",children:"审核"}),o.jsx(Gs,{value:N?"auto":l.moderation,onChange:V=>{N||s({moderation:V})},options:[{label:"auto",value:"auto"},{label:"low",value:"low"}],disabled:N,showValueTooltips:!1,className:N?"px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed text-xs transition-all duration-200 shadow-sm":g}),o.jsx(rr,{visible:N&&D.visible,text:"fal.ai 不支持审核参数"})]})'
-const modelControl = 'o.jsxs("div",{className:"relative flex min-w-0 flex-col gap-0.5",children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500 ml-1",children:"配置 / 模型"}),o.jsxs("div",{className:"grid min-w-0 grid-cols-1 gap-1 sm:grid-cols-2",children:[o.jsx("select",{value:i.id,onChange:V=>pc&&pc(V.target.value),className:`${g} min-w-0 w-full`,"aria-label":"当前配置",children:(po??[]).map(V=>o.jsx("option",{value:V.id,children:V.name},V.id))}),o.jsx("select",{value:i.model,onFocus:()=>mr&&mr(),onChange:V=>mc&&mc(V.target.value),className:`${g} min-w-0 w-full`,"aria-label":"选择模型",children:[...new Set((i.modelOptions??[]).concat(i.model||[]))].filter(V=>V).map(V=>o.jsx("option",{value:V,children:V},V))})]})]})'
-const legacyModelControl = 'o.jsxs("div",{className:"relative flex flex-col gap-0.5",children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500 ml-1",children:"配置 / 模型"}),o.jsxs("div",{className:"flex gap-1",children:[o.jsx("select",{value:i.id,onChange:V=>pc&&pc(V.target.value),className:g,"aria-label":"当前配置",children:(po??[]).map(V=>o.jsx("option",{value:V.id,children:V.name},V.id))}),o.jsx("select",{value:i.model,onFocus:()=>mr&&mr(),onChange:V=>mc&&mc(V.target.value),className:g,"aria-label":"选择模型",children:[...new Set((i.modelOptions??[]).concat(i.model||[]))].filter(V=>V).map(V=>o.jsx("option",{value:V,children:V},V))})]})]})'
+const modelControl = 'o.jsxs("div",{className:"relative flex min-w-0 flex-col gap-0.5",children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500 ml-1",children:"配置 / 模型"}),o.jsxs("div",{className:"grid min-w-0 grid-cols-1 gap-1 sm:grid-cols-2",children:[o.jsx("select",{value:i.id,onChange:V=>pc&&pc(V.target.value),className:`${g} min-w-0 w-full`,"aria-label":"当前配置",children:(po??[]).map(V=>o.jsx("option",{value:V.id,children:V.name},V.id))}),o.jsx("select",{value:i.model,onFocus:()=>mr&&mr(),onClick:()=>mr&&mr(),onChange:V=>mc&&mc(V.target.value),className:`${g} min-w-0 w-full`,"aria-label":"选择模型",children:[...new Set((i.modelOptions??[]).concat(i.model||[]))].filter(V=>V).map(V=>o.jsx("option",{value:V,children:V},V))})]})]})'
+const modelControlWithoutClick = modelControl.replace('onClick:()=>mr&&mr(),', '')
+const legacyModelControl = 'o.jsxs("div",{className:"relative flex flex-col gap-0.5",children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500 ml-1",children:"配置 / 模型"}),o.jsxs("div",{className:"flex gap-1",children:[o.jsx("select",{value:i.id,onChange:V=>pc&&pc(V.target.value),className:g,"aria-label":"当前配置",children:(po??[]).map(V=>o.jsx("option",{value:V.id,children:V.name},V.id))}),o.jsx("select",{value:i.model,onFocus:()=>mr&&mr(),onClick:()=>mr&&mr(),onChange:V=>mc&&mc(V.target.value),className:g,"aria-label":"选择模型",children:[...new Set((i.modelOptions??[]).concat(i.model||[]))].filter(V=>V).map(V=>o.jsx("option",{value:V,children:V},V))})]})]})'
 if (toolbar.includes(legacyModelControl)) toolbar = toolbar.replace(legacyModelControl, modelControl)
+else if (toolbar.includes(modelControlWithoutClick)) toolbar = toolbar.replace(modelControlWithoutClick, modelControl)
 if (toolbar.includes(moderationControl)) toolbar = toolbar.replace(moderationControl, modelControl)
 else if (!toolbar.includes(modelControl)) throw new Error('toolbar model control marker is missing')
 patched = patched.slice(0, toolbarStart) + toolbar + patched.slice(toolbarEnd)
+
+const modelFocusOnly = 'onFocus:()=>mr&&mr(),onChange:V=>mc&&mc(V.target.value)'
+const modelFocusAndClick = 'onFocus:()=>mr&&mr(),onClick:()=>mr&&mr(),onChange:V=>mc&&mc(V.target.value)'
+if (patched.includes(modelFocusOnly)) replaceOnce('model selector click refresh', modelFocusOnly, modelFocusAndClick)
 
 // Add stable hooks for the responsive action and parameter rows. The vendor
 // bundle is minified, so semantic data attributes keep CSS overrides readable.

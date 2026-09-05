@@ -141,18 +141,23 @@
                 class="-mx-2 -my-1 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-dark-700"
                 :title="t('keys.clickToChangeGroup')"
               >
-                <GroupBadge
-                  v-if="row.group"
-                  :name="row.group.name"
-                  :platform="row.group.platform"
-                  :subscription-type="row.group.subscription_type"
-                  :rate-multiplier="row.group.rate_multiplier"
-                  :user-rate-multiplier="userGroupRates[row.group.id]"
-                  :peak-rate-enabled="row.group.peak_rate_enabled"
-                  :peak-start="row.group.peak_start"
-                  :peak-end="row.group.peak_end"
-                  :peak-rate-multiplier="row.group.peak_rate_multiplier"
-                />
+                <div v-if="row.group" class="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <GroupBadge
+                    :name="row.group.name"
+                    :platform="row.group.platform"
+                    :subscription-type="row.group.subscription_type"
+                    :rate-multiplier="row.group.rate_multiplier"
+                    :user-rate-multiplier="userGroupRates[row.group.id]"
+                    :peak-rate-enabled="row.group.peak_rate_enabled"
+                    :peak-start="row.group.peak_start"
+                    :peak-end="row.group.peak_end"
+                    :peak-rate-multiplier="row.group.peak_rate_multiplier"
+                  />
+                  <span
+                    v-if="row.group.is_blocked_for_user === true || isBlockedGroupId(row.group.id)"
+                    class="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                  >{{ t('common.groupBlocked') }}</span>
+                </div>
                 <span v-else class="text-sm text-gray-400 dark:text-dark-500">{{
                   t('keys.noGroup')
                 }}</span>
@@ -474,20 +479,26 @@
             :searchable="true"
             :search-placeholder="t('keys.searchGroup')"
             data-tour="key-form-group"
+            @blocked="handleBlockedGroupOption"
           >
             <template #selected="{ option }">
-              <GroupBadge
-                v-if="option"
-                :name="(option as unknown as GroupOption).label"
-                :platform="(option as unknown as GroupOption).platform"
-                :subscription-type="(option as unknown as GroupOption).subscriptionType"
-                :rate-multiplier="(option as unknown as GroupOption).rate"
-                :user-rate-multiplier="(option as unknown as GroupOption).userRate"
-                :peak-rate-enabled="(option as unknown as GroupOption).peakRateEnabled"
-                :peak-start="(option as unknown as GroupOption).peakStart"
-                :peak-end="(option as unknown as GroupOption).peakEnd"
-                :peak-rate-multiplier="(option as unknown as GroupOption).peakRateMultiplier"
-              />
+              <div v-if="option" class="flex min-w-0 flex-wrap items-center gap-1.5">
+                <GroupBadge
+                  :name="(option as unknown as GroupOption).label"
+                  :platform="(option as unknown as GroupOption).platform"
+                  :subscription-type="(option as unknown as GroupOption).subscriptionType"
+                  :rate-multiplier="(option as unknown as GroupOption).rate"
+                  :user-rate-multiplier="(option as unknown as GroupOption).userRate"
+                  :peak-rate-enabled="(option as unknown as GroupOption).peakRateEnabled"
+                  :peak-start="(option as unknown as GroupOption).peakStart"
+                  :peak-end="(option as unknown as GroupOption).peakEnd"
+                  :peak-rate-multiplier="(option as unknown as GroupOption).peakRateMultiplier"
+                />
+                <span
+                  v-if="(option as unknown as GroupOption).blocked"
+                  class="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                >{{ t('common.groupBlocked') }}</span>
+              </div>
               <span v-else class="text-gray-400">{{ t('keys.selectGroup') }}</span>
             </template>
             <template #option="{ option, selected }">
@@ -503,6 +514,7 @@
                 :peak-rate-multiplier="(option as unknown as GroupOption).peakRateMultiplier"
                 :description="(option as unknown as GroupOption).description"
                 :selected="selected"
+                :blocked="(option as unknown as GroupOption).blocked"
               />
             </template>
           </Select>
@@ -1085,14 +1097,16 @@
           <button
             v-for="option in filteredGroupOptions"
             :key="option.value ?? 'null'"
-            @click="changeGroup(selectedKeyForGroup!, option.value)"
+            @click="handleBlockedGroupDropdownOption(option)"
             :class="[
               'flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-colors',
               'border-b border-gray-100 last:border-0 dark:border-dark-700',
-              selectedKeyForGroup?.group_id === option.value ||
-              (!selectedKeyForGroup?.group_id && option.value === null)
-                ? 'bg-primary-50 dark:bg-primary-900/20'
-                : 'hover:bg-gray-100 dark:hover:bg-dark-700'
+              option.blocked
+                ? 'bg-red-50/70 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/30'
+                : selectedKeyForGroup?.group_id === option.value ||
+                    (!selectedKeyForGroup?.group_id && option.value === null)
+                  ? 'bg-primary-50 dark:bg-primary-900/20'
+                  : 'hover:bg-gray-100 dark:hover:bg-dark-700'
             ]"
             :title="option.description || undefined"
           >
@@ -1107,6 +1121,7 @@
               :peak-end="option.peakEnd"
               :peak-rate-multiplier="option.peakRateMultiplier"
               :description="option.description"
+              :blocked="option.blocked"
               :selected="
                 selectedKeyForGroup?.group_id === option.value ||
                 (!selectedKeyForGroup?.group_id && option.value === null)
@@ -1179,6 +1194,7 @@ interface GroupOption {
   peakRateMultiplier: number
   subscriptionType: SubscriptionType
   platform: GroupPlatform
+  blocked?: boolean
 }
 
 const appStore = useAppStore()
@@ -1288,6 +1304,10 @@ const now = ref(new Date())
 let resetTimer: ReturnType<typeof setInterval> | null = null
 const usageStats = ref<Record<string, BatchApiKeyUsageStats>>({})
 const userGroupRates = ref<Record<number, number>>({})
+const blockedGroupIds = computed(() => new Set(
+  groups.value.filter((group) => group.is_blocked_for_user === true).map((group) => group.id)
+))
+const isBlockedGroupId = (groupId: number) => blockedGroupIds.value.has(groupId)
 
 const pagination = ref({
   page: 1,
@@ -1431,7 +1451,8 @@ const groupOptions = computed(() =>
     peakEnd: group.peak_end,
     peakRateMultiplier: group.peak_rate_multiplier,
     subscriptionType: group.subscription_type,
-    platform: group.platform
+    platform: group.platform,
+    blocked: group.is_blocked_for_user === true || isBlockedGroupId(group.id)
   }))
 )
 
@@ -1518,7 +1539,7 @@ const loadApiKeys = async () => {
 
 const loadGroups = async () => {
   try {
-    groups.value = await userGroupsAPI.getAvailable()
+    groups.value = await userGroupsAPI.getAvailable({ includeBlocked: true })
   } catch (error) {
     console.error('Failed to load groups:', error)
   }
@@ -1651,8 +1672,27 @@ const changeGroup = async (key: ApiKey, newGroupId: number | null) => {
     appStore.showSuccess(t('keys.groupChangedSuccess'))
     loadApiKeys()
   } catch (error) {
-    appStore.showError(t('keys.failedToChangeGroup'))
+    const typedError = error as any
+    const detail = typedError?.response?.data?.detail || typedError?.message
+    appStore.showError(
+      (typedError?.code === 'GROUP_BLOCKED' || typedError?.reason === 'GROUP_BLOCKED')
+        ? t('keys.groupBlockedToast')
+        : detail || t('keys.failedToChangeGroup')
+    )
   }
+}
+
+const handleBlockedGroupOption = () => {
+  appStore.showError(t('keys.groupBlockedToast'))
+}
+
+const handleBlockedGroupDropdownOption = (option: GroupOption) => {
+  if (option.blocked) {
+    handleBlockedGroupOption()
+    return
+  }
+  const key = selectedKeyForGroup.value
+  if (key) void changeGroup(key, option.value)
 }
 
 const closeGroupSelector = (event: MouseEvent) => {
@@ -1771,7 +1811,9 @@ const handleSubmit = async () => {
     }
     loadApiKeys()
   } catch (error: any) {
-    const errorMsg = error.response?.data?.detail || t('keys.failedToSave')
+    const errorMsg = (error?.code === 'GROUP_BLOCKED' || error?.reason === 'GROUP_BLOCKED')
+      ? t('keys.groupBlockedToast')
+      : error.response?.data?.detail || error.message || t('keys.failedToSave')
     appStore.showError(errorMsg)
     // Don't advance tour on error
   } finally {

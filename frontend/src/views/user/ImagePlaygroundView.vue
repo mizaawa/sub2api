@@ -95,7 +95,11 @@ const imagePlaygroundEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.
 
 function keyAllowsImageGeneration(key: ApiKey): boolean {
   return key.status === 'active'
-    && (key.group_id == null || key.group?.allow_image_generation === true)
+    // The image gateway resolves its handler and upstream platform from the
+    // bound group. An ungrouped key has no platform target and would be
+    // accepted by the launcher only to fail with a 404 in `/v1/images/*`.
+    && key.group_id != null
+    && key.group?.allow_image_generation === true
 }
 
 function currentUserId(): number | null {

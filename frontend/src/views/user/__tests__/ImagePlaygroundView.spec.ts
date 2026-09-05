@@ -31,7 +31,8 @@ describe('Image playground launcher', () => {
     expect(componentSource).not.toContain('window.name = `${STANDALONE_CONFIG_PREFIX}${JSON.stringify(settings)}`')
     expect(componentSource).toContain('window.location.replace(STANDALONE_IMAGE_PLAYGROUND_PATH)')
     expect(componentSource).toContain('userGroupsAPI.getAvailable({ signal: context.controller.signal })')
-    expect(componentSource).toContain('key.group_id == null || key.group?.allow_image_generation === true')
+    expect(componentSource).toContain('key.group_id != null')
+    expect(componentSource).toContain('key.group?.allow_image_generation === true')
     expect(componentSource).toContain("const IMAGE_PLAYGROUND_API_BASE_URL = '/v1'")
     expect(componentSource).toContain('imagePlaygroundEnabled')
   })
@@ -79,6 +80,8 @@ describe('Image playground launcher', () => {
     expect(sessionComponent).toContain('sessionValid=')
     expect(sessionComponent).toContain('localUserPresent=')
     expect(sessionComponent).toContain('S.key===null||S.key==="auth_user"')
+    expect(sessionComponent).toContain('invalidSince=0')
+    expect(sessionComponent).toContain('工作台已跳过损坏的本地任务，可继续使用')
     expect(sessionComponent).not.toContain('ij()')
     expect(sessionComponent).not.toContain('auth_token')
     expect(sessionComponent).not.toContain('refresh_token')
@@ -87,6 +90,11 @@ describe('Image playground launcher', () => {
 
   it('keeps a failed bootstrap available for a later standalone mount', () => {
     expect(standaloneScript).toContain('function clearImagePlaygroundBootstrap')
+    expect(standaloneScript).toContain('Promise.allSettled(s.map')
+    expect(standaloneScript).toContain('Failed to persist image data; using memory cache')
+    expect(standaloneScript).toContain('Failed to persist image task:')
+    expect(standaloneScript).toContain('return Yl(s,a)')
+    expect(standaloneScript).toContain('async function yb(')
     expect(standaloneScript).toContain('window.sessionStorage.getItem(zx)')
     expect(standaloneScript).not.toContain('window.sessionStorage.getItem(zx),window.sessionStorage.removeItem(zx)')
     expect(standaloneScript).toContain('g&&clearImagePlaygroundBootstrap()')
@@ -108,9 +116,26 @@ describe('Image playground launcher', () => {
     expect(standaloneScript).toContain('https://api.zayuapi.com/v1')
     expect(standaloneScript).toContain('window.location.origin}/v1')
     expect(standaloneScript).toContain('async function v4')
+    for (const helper of [
+      'function b4(',
+      'function w4(',
+      'function Cx(',
+      'function k4(',
+      'function S4(',
+      'function Qs(',
+      'function j4(',
+      'function T4(',
+      'async function N4(',
+    ]) {
+      expect(standaloneScript).toContain(helper)
+    }
     expect(standaloneScript).toContain('output_compression==null&&delete')
+    expect(standaloneScript).toContain('Failed to persist image task:')
+    expect(standaloneScript).toContain('Failed to persist image data; using memory cache')
+    expect(standaloneScript).toContain('Failed to read image data:')
     expect(standaloneScript).toContain('aria-label":"当前配置"')
     expect(standaloneScript).toContain('aria-label":"选择模型"')
+    expect(standaloneScript).toContain('onClick:()=>mr&&mr()')
     expect(standaloneScript).toContain('N=_r(tn(z.getState().settings)),ee=N.profiles.find')
     expect(standaloneScript).toContain('x=z(j=>j.settings),j=z(j=>j.setSettings),y=z(j=>j.setShowSettings)')
     expect(standaloneScript).toContain('[modelPulling,setModelPulling]=b.useState(!1)')
@@ -129,6 +154,8 @@ describe('Image playground launcher', () => {
     expect(standaloneScript).toContain('data-image-params')
     expect(responsiveOverride).toContain('@media (max-width: 639px)')
     expect(responsiveOverride).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))')
+    expect(responsiveOverride).toContain('[data-image-params] > .grid > *')
+    expect(responsiveOverride).toContain('width: 100%')
   })
 
   it('keeps the API key creation return path', () => {
