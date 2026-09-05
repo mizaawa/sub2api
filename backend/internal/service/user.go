@@ -90,15 +90,29 @@ func (u *User) IsGroupBlocked(groupID int64) bool {
 	return false
 }
 
+// IsPublicGroupBlocked limits the deny-list semantics to public standard
+// groups.  Blocked rows are intentionally ignored when a group is later
+// converted to an exclusive or subscription group, so a historical row cannot
+// silently revoke a different permission model.
+func (u *User) IsPublicGroupBlocked(groupID int64, isExclusive bool, subscriptionType string) bool {
+	return !isExclusive && subscriptionType != SubscriptionTypeSubscription && u.IsGroupBlocked(groupID)
+}
+
 // CanBindGroup checks whether a user can bind to a given group.
 // For standard groups:
-// - Public groups (non-exclusive): all users can bind
+// - Public standard groups (non-exclusive): all users can bind unless blocked
+// - Subscription groups: callers pass the subscription type and handle the
+//   subscription entitlement separately
 // - Exclusive groups: only users with the group in AllowedGroups can bind
-func (u *User) CanBindGroup(groupID int64, isExclusive bool) bool {
+func (u *User) CanBindGroup(groupID int64, isExclusive bool, subscriptionType ...string) bool {
 	if u == nil {
 		return false
 	}
-	if u.IsGroupBlocked(groupID) {
+	subscription := ""
+	if len(subscriptionType) > 0 {
+		subscription = subscriptionType[0]
+	}
+	if u.IsPublicGroupBlocked(groupID, isExclusive, subscription) {
 		return false
 	}
 	// 公开分组（非专属）：所有用户都可以绑定

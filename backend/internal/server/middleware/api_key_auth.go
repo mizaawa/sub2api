@@ -419,7 +419,7 @@ func abortIfAPIKeyGroupNotAllowed(c *gin.Context, apiKey *service.APIKey) bool {
 	}
 	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable)
 	MarkIngressRejected(c, IngressRejectGroupNotAllowed)
-	if apiKey != nil && apiKey.User != nil && apiKey.Group != nil && apiKey.User.IsGroupBlocked(apiKey.Group.ID) {
+	if apiKey != nil && apiKey.User != nil && apiKey.Group != nil && apiKey.User.IsPublicGroupBlocked(apiKey.Group.ID, apiKey.Group.IsExclusive, apiKey.Group.SubscriptionType) {
 		AbortWithError(c, 403, "GROUP_BLOCKED", "您已被禁用此分组，请联系站点管理员")
 		return true
 	}
@@ -432,13 +432,13 @@ func validateAPIKeyGroupAllowed(apiKey *service.APIKey) bool {
 		return true
 	}
 	group := apiKey.Group
-	if apiKey.User.IsGroupBlocked(group.ID) {
+	if apiKey.User.IsPublicGroupBlocked(group.ID, group.IsExclusive, group.SubscriptionType) {
 		return false
 	}
 	if group.IsSubscriptionType() {
 		return true
 	}
-	return apiKey.User.CanBindGroup(group.ID, group.IsExclusive)
+	return apiKey.User.CanBindGroup(group.ID, group.IsExclusive, group.SubscriptionType)
 }
 
 func validateAPIKeyGroupAvailable(apiKey *service.APIKey) (string, string, bool) {

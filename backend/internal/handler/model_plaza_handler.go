@@ -153,7 +153,7 @@ func filterPlazaVisibleGroups(
 	}
 	visible := make([]service.PlazaGroup, 0, len(groups))
 	for _, g := range groups {
-		if blockedGroups != nil {
+		if blockedGroups != nil && !g.IsExclusive && g.SubscriptionType != service.SubscriptionTypeSubscription {
 			if _, blocked := blockedGroups[g.ID]; blocked {
 				continue
 			}

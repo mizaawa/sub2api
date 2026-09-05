@@ -29,9 +29,13 @@ const replacement = `function oj(){const a=z(g=>g.filterFavorite),l=z(g=>g.activ
 
 // Logout can remove only auth_token before auth_user is cleared. Keep the
 // standalone page bound to a live session while still allowing token rotation.
-const sessionIdentityReplacement = replacement.replace(
+const replacementWithInitReenable = replacement.replace(
+  '.then(H=>{if(!H)return;const ee=z.getState();',
+  '.then(H=>{if(!H)return;nr(!0);const ee=z.getState();',
+)
+const sessionIdentityReplacement = replacementWithInitReenable.replace(
   'const g=wk(),v=_o(),x=v.userId,y=v.tokenPresent,S=bk(),E=Bx(),A=!!(g&&x&&y&&g.userId===x&&g.userEmail&&Xl(g.userEmail)===v.userEmail),R=!!(!g&&x&&y&&S===x&&E===v.userEmail),_=A||R,U=x===null||!y||S!==x||E!==v.userEmail,O=A&&(S!==x||E!==v.userEmail)||!_&&(!!g||U),D=O?zs():Promise.resolve();',
-  'const g=wk(),v=_o(),x=g?.userId??v.userId,y=g?.userEmail??v.userEmail,S=bk(),E=Bx(),A=!!(g&&g.userId===x&&g.userEmail&&Xl(g.userEmail)===Xl(y)),R=!!(!g&&x&&v.tokenPresent&&S===x&&E===v.userEmail),_=A||R,U=!x||!y||(!g&&(S!==x||E!==v.userEmail)),O=!_&&U,D=O?zs():Promise.resolve();',
+  'const g=wk(),v=_o(),localIdentityPresent=v.userId!==null||v.userEmail!==null,x=v.userId??g?.userId,y=v.userEmail??g?.userEmail,S=bk(),E=Bx(),bootstrapMatches=!localIdentityPresent||!!(g&&g.userId===v.userId&&(!v.userEmail||Xl(g.userEmail)===v.userEmail)),ownerMismatch=!g&&x!==null&&y!==null&&((S!==null&&S!==x)||(E!==null&&E!==y)),A=!!(g&&bootstrapMatches&&v.tokenPresent&&g.userId===x&&g.userEmail&&Xl(g.userEmail)===Xl(y)),R=!!(!g&&x&&y&&v.tokenPresent),_=A||R,U=!x||!y||!v.tokenPresent||!!(g&&!bootstrapMatches),O=!_&&U,D=O||ownerMismatch?zs().then(()=>_):Promise.resolve(!0);',
 )
   .replace('_&&x?(yk(x,v.userEmail)', '_&&x?(yk(x,y)')
   .replace(

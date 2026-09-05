@@ -418,7 +418,7 @@ func (s *APIKeyService) incrementAPIKeyErrorCount(ctx context.Context, userID in
 // 对于订阅类型分组：检查用户是否有有效订阅
 // 对于标准类型分组：使用原有的 AllowedGroups 和 IsExclusive 逻辑
 func (s *APIKeyService) canUserBindGroup(ctx context.Context, user *User, group *Group) bool {
-	if user == nil || group == nil || user.IsGroupBlocked(group.ID) {
+	if user == nil || group == nil || user.IsPublicGroupBlocked(group.ID, group.IsExclusive, group.SubscriptionType) {
 		return false
 	}
 	// 订阅类型分组：需要有效订阅
@@ -427,7 +427,7 @@ func (s *APIKeyService) canUserBindGroup(ctx context.Context, user *User, group 
 		return err == nil // 有有效订阅则允许
 	}
 	// 标准类型分组：使用原有逻辑
-	return user.CanBindGroup(group.ID, group.IsExclusive)
+	return user.CanBindGroup(group.ID, group.IsExclusive, group.SubscriptionType)
 }
 
 // Create 创建API Key
@@ -460,7 +460,7 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		}
 
 		// 检查用户是否可以绑定该分组
-		if user.IsGroupBlocked(group.ID) {
+		if user.IsPublicGroupBlocked(group.ID, group.IsExclusive, group.SubscriptionType) {
 			return nil, ErrGroupBlocked
 		}
 		if !s.canUserBindGroup(ctx, user, group) {
@@ -663,7 +663,7 @@ func (s *APIKeyService) markBlockedGroupsForKeys(ctx context.Context, userID int
 		return
 	}
 	for i := range keys {
-		if keys[i].Group != nil && user.IsGroupBlocked(keys[i].Group.ID) {
+		if keys[i].Group != nil && user.IsPublicGroupBlocked(keys[i].Group.ID, keys[i].Group.IsExclusive, keys[i].Group.SubscriptionType) {
 			keys[i].Group.BlockedForUser = true
 		}
 	}
@@ -674,7 +674,7 @@ func (s *APIKeyService) markBlockedGroupForKey(ctx context.Context, userID int64
 		return
 	}
 	if key.User != nil {
-		if key.User.IsGroupBlocked(key.Group.ID) {
+		if key.User.IsPublicGroupBlocked(key.Group.ID, key.Group.IsExclusive, key.Group.SubscriptionType) {
 			key.Group.BlockedForUser = true
 		}
 		if key.User.BlockedGroups != nil || s == nil || s.userRepo == nil {
@@ -685,7 +685,7 @@ func (s *APIKeyService) markBlockedGroupForKey(ctx context.Context, userID int64
 		return
 	}
 	user, err := s.userRepo.GetByID(ctx, userID)
-	if err == nil && user != nil && user.IsGroupBlocked(key.Group.ID) {
+	if err == nil && user != nil && user.IsPublicGroupBlocked(key.Group.ID, key.Group.IsExclusive, key.Group.SubscriptionType) {
 		key.Group.BlockedForUser = true
 	}
 }
@@ -822,7 +822,7 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 			return nil, fmt.Errorf("get group: %w", err)
 		}
 
-		if user.IsGroupBlocked(group.ID) {
+		if user.IsPublicGroupBlocked(group.ID, group.IsExclusive, group.SubscriptionType) {
 			return nil, ErrGroupBlocked
 		}
 		if !s.canUserBindGroup(ctx, user, group) {
@@ -1080,7 +1080,7 @@ func (s *APIKeyService) getAvailableGroups(ctx context.Context, userID int64, in
 		// Keep only standard, non-exclusive public groups in the selector's
 		// disabled section. Exclusive/subscription groups remain hidden unless
 		// the user is actually authorized for them.
-		if includeBlocked && !group.IsExclusive && !group.IsSubscriptionType() && user.IsGroupBlocked(group.ID) {
+		if includeBlocked && user.IsPublicGroupBlocked(group.ID, group.IsExclusive, group.SubscriptionType) {
 			group.BlockedForUser = true
 			availableGroups = append(availableGroups, group)
 		}
@@ -1091,7 +1091,7 @@ func (s *APIKeyService) getAvailableGroups(ctx context.Context, userID int64, in
 
 // canUserBindGroupInternal 内部方法，检查用户是否可以绑定分组（使用预加载的订阅数据）
 func (s *APIKeyService) canUserBindGroupInternal(user *User, group *Group, subscribedGroupIDs map[int64]bool) bool {
-	if user == nil || group == nil || user.IsGroupBlocked(group.ID) {
+	if user == nil || group == nil || user.IsPublicGroupBlocked(group.ID, group.IsExclusive, group.SubscriptionType) {
 		return false
 	}
 	// 订阅类型分组：需要有效订阅
@@ -1099,7 +1099,7 @@ func (s *APIKeyService) canUserBindGroupInternal(user *User, group *Group, subsc
 		return subscribedGroupIDs[group.ID]
 	}
 	// 标准类型分组：使用原有逻辑
-	return user.CanBindGroup(group.ID, group.IsExclusive)
+	return user.CanBindGroup(group.ID, group.IsExclusive, group.SubscriptionType)
 }
 
 func (s *APIKeyService) SearchAPIKeys(ctx context.Context, userID int64, keyword string, limit int) ([]APIKey, error) {

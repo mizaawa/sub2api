@@ -50,6 +50,14 @@ func TestFilterPlazaVisibleGroups_AuthedEmptySetSeesNoExclusive(t *testing.T) {
 	require.Len(t, visible, 2)
 }
 
+func TestFilterPlazaVisibleGroups_BlockedIDsOnlyHidePublicStandardGroups(t *testing.T) {
+	blocked := map[int64]struct{}{1: {}, 2: {}, 3: {}, 4: {}}
+	visible := filterPlazaVisibleGroups(plazaGroups(), map[int64]struct{}{2: {}, 4: {}}, blocked)
+	// A stale deny row must not hide an exclusive or subscription group after
+	// its type changes; only the public standard group is removed.
+	require.ElementsMatch(t, []int64{2, 3, 4}, []int64{visible[0].ID, visible[1].ID, visible[2].ID})
+}
+
 func TestModelPlazaHandler_NilSettingServiceFailsClosed404(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := &ModelPlazaHandler{} // settingService == nil → fail-closed

@@ -127,7 +127,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 		if !validateAPIKeyGroupAllowed(apiKey) {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable)
 			MarkIngressRejected(c, IngressRejectGroupNotAllowed)
-			if apiKey != nil && apiKey.User != nil && apiKey.Group != nil && apiKey.User.IsGroupBlocked(apiKey.Group.ID) {
+			if apiKey != nil && apiKey.User != nil && apiKey.Group != nil && apiKey.User.IsPublicGroupBlocked(apiKey.Group.ID, apiKey.Group.IsExclusive, apiKey.Group.SubscriptionType) {
 				abortWithGoogleError(c, 403, "您已被禁用此分组，请联系站点管理员")
 				return
 			}
