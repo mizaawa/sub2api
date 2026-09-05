@@ -160,6 +160,8 @@ describe('Image playground launcher', () => {
     expect(standaloneScript).toContain('Failed to read image data:')
     expect(standaloneScript).toContain('aria-label":"当前配置"')
     expect(standaloneScript).toContain('aria-label":"选择模型"')
+    expect(standaloneScript).toContain('children:"配置"')
+    expect(standaloneScript).toContain('children:"模型"')
     expect(standaloneScript).toContain('onClick:()=>mr&&mr()')
     expect(standaloneScript).toContain('changeProfile=b.useCallback')
     expect(standaloneScript).toContain('P=_r(tn(z.getState().settings));P.profiles.some')
