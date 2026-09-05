@@ -104,8 +104,12 @@ func (u *User) IsPublicGroupBlocked(groupID int64, isExclusive bool, subscriptio
 //   - Subscription groups: callers pass the subscription type and handle the
 //     subscription entitlement separately
 //   - Exclusive groups: only users with the group in AllowedGroups can bind
-func (u *User) CanBindGroup(groupID int64, isExclusive bool) bool {
-	return u.canBindGroup(groupID, isExclusive, "")
+func (u *User) CanBindGroup(groupID int64, isExclusive bool, subscriptionType ...string) bool {
+	subscription := ""
+	if len(subscriptionType) > 0 {
+		subscription = subscriptionType[0]
+	}
+	return u.canBindGroup(groupID, isExclusive, subscription)
 }
 
 // CanBindGroupWithSubscriptionType applies the same binding rules while also

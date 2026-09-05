@@ -65,6 +65,10 @@ interface LoadContext {
 const STANDALONE_IMAGE_PLAYGROUND_PATH = '/image-playground/'
 const STANDALONE_CONFIG_PREFIX = 'sub2api-image-playground:'
 const STANDALONE_CONFIG_STORAGE_KEY = 'sub2api-image-playground:bootstrap'
+// Mobile browsers may create a fresh sessionStorage partition when the
+// standalone route is opened from an installed/PWA context. Keep a short-lived
+// same-origin fallback so the selected key profile survives that handoff.
+const STANDALONE_CONFIG_FALLBACK_STORAGE_KEY = `${STANDALONE_CONFIG_STORAGE_KEY}:fallback`
 // Browser requests stay same-origin. When Sub2API is deployed at the zayu
 // hostname this still resolves to the zayu `/v1` endpoint, while local/dev
 // deployments avoid a cross-origin preflight for the auth headers.
@@ -93,8 +97,41 @@ const selectedKey = computed(() =>
 )
 const imagePlaygroundEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.imagePlayground))
 
+function normalizeNumericId(value: unknown): number | null {
+  const id = typeof value === 'number' ? value : typeof value === 'string' ? Number(value.trim()) : NaN
+  return Number.isSafeInteger(id) && id > 0 ? id : null
+}
+
+function readPersistedIdentity(): { userId: number | null; userEmail: string | null } {
+  try {
+    const raw = localStorage.getItem('auth_user')
+    if (!raw) return { userId: null, userEmail: null }
+    const parsed = JSON.parse(raw) as { id?: unknown; email?: unknown }
+    const email = typeof parsed.email === 'string' ? parsed.email.trim().toLowerCase() : ''
+    return {
+      userId: normalizeNumericId(parsed.id),
+      userEmail: email || null,
+    }
+  } catch {
+    return { userId: null, userEmail: null }
+  }
+}
+
+function currentAuthToken(): string | null {
+  const inMemoryToken = typeof authStore.token === 'string' ? authStore.token.trim() : ''
+  if (inMemoryToken) return inMemoryToken
+  try {
+    const persistedToken = localStorage.getItem('auth_token')?.trim() || ''
+    return persistedToken || null
+  } catch {
+    return null
+  }
+}
+
 function keyAllowsImageGeneration(key: ApiKey): boolean {
-  return key.status === 'active'
+  return typeof key.key === 'string'
+    && key.key.trim().length > 0
+    && String(key.status).toLowerCase() === 'active'
     // The image gateway resolves its handler and upstream platform from the
     // bound group. An ungrouped key has no platform target and would be
     // accepted by the launcher only to fail with a 404 in `/v1/images/*`.
@@ -103,15 +140,21 @@ function keyAllowsImageGeneration(key: ApiKey): boolean {
 }
 
 function currentUserId(): number | null {
-  const id = Number(authStore.user?.id)
-  return Number.isSafeInteger(id) && id > 0 ? id : null
+  return normalizeNumericId(authStore.user?.id) ?? readPersistedIdentity().userId
 }
 
 function currentUserEmail(): string | null {
   const email = authStore.user?.email
-  if (typeof email !== 'string') return null
-  const normalized = email.trim().toLowerCase()
-  return normalized || null
+  if (typeof email === 'string' && email.trim()) return email.trim().toLowerCase()
+  return readPersistedIdentity().userEmail
+}
+
+async function waitForSessionIdentity(timeoutMs = 1500): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (currentUserId() !== null && currentUserEmail() !== null && currentAuthToken() !== null) return
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 50))
+  }
 }
 
 function beginLoad(): LoadContext | null {
@@ -126,7 +169,7 @@ function beginLoad(): LoadContext | null {
     generation: loadGeneration,
     userId,
     userEmail,
-    tokenPresent: Boolean(authStore.token),
+    tokenPresent: Boolean(currentAuthToken()),
     controller,
   }
 }
@@ -136,7 +179,7 @@ function isCurrentLoad(context: LoadContext): boolean {
     && !context.controller.signal.aborted
     && currentUserId() === context.userId
     && currentUserEmail() === context.userEmail
-    && Boolean(authStore.token) === context.tokenPresent
+    && Boolean(currentAuthToken()) === context.tokenPresent
 }
 
 function isAbortError(error: unknown): boolean {
@@ -174,6 +217,24 @@ function defaultModelForKey(key: ApiKey): string {
   return key.group?.platform === 'grok' ? 'grok-imagine' : 'gpt-image-2'
 }
 
+function normalizeApiKeyRecord(raw: unknown): ApiKey | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const record = raw as ApiKey & { id?: unknown; api_key?: unknown; apiKey?: unknown; group?: { id?: unknown } }
+  const id = normalizeNumericId(record.id)
+  if (id === null) return null
+  const key = typeof record.key === 'string' && record.key.trim()
+    ? record.key.trim()
+    : typeof record.api_key === 'string'
+      ? record.api_key.trim()
+      : typeof record.apiKey === 'string'
+        ? record.apiKey.trim()
+        : ''
+  const groupId = record.group_id == null
+    ? normalizeNumericId(record.group?.id)
+    : normalizeNumericId(record.group_id)
+  return { ...record, id, key, group_id: groupId }
+}
+
 function keyHasRemainingQuota(key: ApiKey): boolean {
   const quota = Number(key.quota)
   const used = Number(key.quota_used)
@@ -204,7 +265,7 @@ async function loadKeys(context: LoadContext | null = beginLoad()): Promise<void
     let page = 1
     const availableGroups = await userGroupsAPI.getAvailable({ signal: context.controller.signal })
     if (!isCurrentLoad(context)) return
-    const groupsById = new Map(availableGroups.map((group) => [group.id, group]))
+    const groupsById = new Map(availableGroups.map((group) => [String(group.id), group]))
     while (true) {
       const response = await keysAPI.list(page, 100, {
         status: 'active',
@@ -212,11 +273,34 @@ async function loadKeys(context: LoadContext | null = beginLoad()): Promise<void
         sort_order: 'desc',
       }, { signal: context.controller.signal })
       if (!isCurrentLoad(context)) return
-      keys.push(...(response.items || []).map((key) => ({
-        ...key,
-        group: key.group_id != null ? groupsById.get(key.group_id) : undefined,
-      })).filter((key) => keyAllowsImageGeneration(key)))
-      if (page >= response.pages || !response.items?.length) break
+      const responseRecord = response as unknown as {
+        items?: unknown
+        data?: { items?: unknown; pages?: unknown } | unknown[]
+        pages?: unknown
+      }
+      const rawItems = Array.isArray(responseRecord.items)
+        ? responseRecord.items
+        : Array.isArray(responseRecord.data)
+          ? responseRecord.data
+          : responseRecord.data && !Array.isArray(responseRecord.data) && Array.isArray(responseRecord.data.items)
+          ? responseRecord.data.items
+          : []
+      const normalizedItems = rawItems
+        .map((raw) => normalizeApiKeyRecord(raw))
+        .filter((key): key is ApiKey => key !== null)
+        .map((key) => ({
+          ...key,
+          // Keep the embedded group as a fallback. Some mobile WebViews
+          // return the group ID as a string while the group catalogue uses a
+          // number, and dropping it would make a valid key disappear.
+          group: key.group_id != null ? groupsById.get(String(key.group_id)) ?? key.group : key.group,
+        }))
+        .filter((key) => keyAllowsImageGeneration(key))
+      keys.push(...normalizedItems)
+      const pages = Number(responseRecord.pages ?? (
+        responseRecord.data && !Array.isArray(responseRecord.data) ? responseRecord.data.pages : undefined
+      ))
+      if (page >= (Number.isFinite(pages) && pages > 0 ? pages : 1) || !rawItems.length) break
       page += 1
     }
     if (!isCurrentLoad(context)) return
@@ -255,8 +339,13 @@ async function loadModels(context: LoadContext): Promise<void> {
     // Only the selected key is sent to the provider. Other keys are carried to
     // the local standalone selector but are never probed in parallel.
     const response = await fetch(`${IMAGE_PLAYGROUND_API_BASE_URL}/models`, {
-      headers: { Authorization: `Bearer ${key.key}`, 'X-Sub2API-User-Email': context.userEmail },
+      headers: {
+        Authorization: `Bearer ${key.key}`,
+        'X-API-Key': key.key,
+        'X-Sub2API-User-Email': context.userEmail,
+      },
       cache: 'no-store',
+      credentials: 'include',
       signal: context.controller.signal,
     })
     if (!isCurrentLoad(context) || selectedKey.value?.id !== key.id) return
@@ -327,9 +416,31 @@ function redirectToStandalone(context: LoadContext, key: ApiKey, model: string):
   try {
     redirecting.value = true
     const settings = buildStandaloneSettings(context, key, model)
-    // Use same-origin session storage as a one-time carrier. Unlike window.name,
-    // it is scoped to this tab and never travels with a new window or referrer.
-    sessionStorage.setItem(STANDALONE_CONFIG_STORAGE_KEY, `${STANDALONE_CONFIG_PREFIX}${JSON.stringify({ userId: context.userId, userEmail: context.userEmail, settings })}`)
+    const payload = `${STANDALONE_CONFIG_PREFIX}${JSON.stringify({
+      version: 1,
+      issuedAt: Date.now(),
+      userId: context.userId,
+      userEmail: context.userEmail,
+      settings,
+    })}`
+    let stored = false
+    // Use same-origin session storage as the primary one-time carrier. Unlike
+    // window.name, it is scoped to this tab and never travels with a referrer.
+    try {
+      sessionStorage.setItem(STANDALONE_CONFIG_STORAGE_KEY, payload)
+      stored = true
+    } catch (error) {
+      console.warn('Failed to persist image playground session bootstrap:', error)
+    }
+    // A short-lived local fallback covers mobile WebViews/PWA transitions that
+    // recreate the sessionStorage namespace during navigation.
+    try {
+      localStorage.setItem(STANDALONE_CONFIG_FALLBACK_STORAGE_KEY, payload)
+      stored = true
+    } catch (error) {
+      console.warn('Failed to persist image playground fallback bootstrap:', error)
+    }
+    if (!stored) throw new Error('Browser storage is unavailable for image playground bootstrap')
     window.name = ''
     window.location.replace(STANDALONE_IMAGE_PLAYGROUND_PATH)
   } catch (error) {
@@ -343,6 +454,8 @@ async function refreshAll(): Promise<void> {
   if (refreshing.value) return
   refreshing.value = true
   try {
+    if (!authStore.token || !authStore.user) authStore.checkAuth()
+    await waitForSessionIdentity()
     // Refresh the authenticated identity before building the one-time
     // bootstrap payload. This prevents a stale/empty user id from being
     // carried when a session was restored just before opening the launcher.
@@ -366,6 +479,8 @@ onMounted(async () => {
     loadingKeys.value = false
     return
   }
+  if (!authStore.token || !authStore.user) authStore.checkAuth()
+  await waitForSessionIdentity()
   // The standalone page binds its local cache to this identity. Resolve the
   // current user first so the bootstrap cannot be attributed to an older
   // session during a refresh or account switch.

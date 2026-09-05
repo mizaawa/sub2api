@@ -35,12 +35,12 @@ const replacementWithInitReenable = replacement.replace(
 )
 const sessionIdentityReplacement = replacementWithInitReenable.replace(
   'const g=wk(),v=_o(),x=v.userId,y=v.tokenPresent,S=bk(),E=Bx(),A=!!(g&&x&&y&&g.userId===x&&g.userEmail&&Xl(g.userEmail)===v.userEmail),R=!!(!g&&x&&y&&S===x&&E===v.userEmail),_=A||R,U=x===null||!y||S!==x||E!==v.userEmail,O=A&&(S!==x||E!==v.userEmail)||!_&&(!!g||U),D=O?zs():Promise.resolve();',
-  'const g=wk(),v=_o(),localIdentityPresent=v.userId!==null||v.userEmail!==null,x=v.userId??g?.userId,y=v.userEmail??g?.userEmail,S=bk(),E=Bx(),bootstrapMatches=!localIdentityPresent||!!(g&&g.userId===v.userId&&(!v.userEmail||Xl(g.userEmail)===v.userEmail)),ownerMismatch=!g&&x!==null&&y!==null&&((S!==null&&S!==x)||(E!==null&&E!==y)),A=!!(g&&bootstrapMatches&&v.tokenPresent&&g.userId===x&&g.userEmail&&Xl(g.userEmail)===Xl(y)),R=!!(!g&&x&&y&&v.tokenPresent),_=A||R,U=!x||!y||!v.tokenPresent||!!(g&&!bootstrapMatches),O=!_&&U,D=O||ownerMismatch?zs().then(()=>_):Promise.resolve(!0);',
+  'const g=wk(),v=_o(),localIdentityPresent=v.userId!==null||v.userEmail!==null,x=v.userId??g?.userId,y=v.userEmail??g?.userEmail,S=bk(),E=Bx(),bootstrapMatches=!!(g&&(v.userId===null||g.userId===v.userId)&&(v.userEmail===null||Xl(g.userEmail)===v.userEmail)),ownerMismatch=!g&&x!==null&&y!==null&&((S!==null&&S!==x)||(E!==null&&E!==y)),A=!!(g&&bootstrapMatches&&v.tokenPresent&&g.userId===x&&g.userEmail&&Xl(g.userEmail)===Xl(y)),R=!!(!g&&x&&y&&v.tokenPresent&&(S===null||S===x)&&(E===null||E===y)),_=A||R,U=!x||!y||!v.tokenPresent||!!(g&&!bootstrapMatches),O=!_&&U,D=O||ownerMismatch?zs().then(()=>_):Promise.resolve(!0);',
 )
   .replace('_&&x?(yk(x,v.userEmail)', '_&&x?(yk(x,y)')
   .replace(
     'const S=_o();S.userId===m&&S.userEmail===Bx()||g||(g=!0',
-    'const S=_o(),ownerEmail=Bx(),localUserPresent=!!window.localStorage.getItem("auth_user"),sessionValid=S.userId===m&&(!localUserPresent||S.tokenPresent)&&(!S.userEmail||!ownerEmail||S.userEmail===ownerEmail)||(!localUserPresent&&bk()===m&&ownerEmail===Bx());sessionValid||g||(g=!0',
+    'const S=_o(),ownerEmail=Bx(),localUserPresent=!!window.localStorage.getItem("auth_user"),identityMismatch=S.userId!==null&&S.userId!==m||!!S.userEmail&&!!ownerEmail&&S.userEmail!==ownerEmail,ownerMatches=bk()===m&&(!ownerEmail||!S.userEmail||S.userEmail===ownerEmail),sessionValid=!identityMismatch&&S.tokenPresent&&(S.userId===m||ownerMatches);sessionValid||g||(g=!0',
   )
 
 const replacementWithVersionModal = sessionIdentityReplacement
@@ -162,9 +162,20 @@ function replaceFunctionOnce(label, startMarker, endMarker, replacement, already
 // missing token/parse result, but react immediately when a different user is
 // detected. This prevents a transient refresh gap from ejecting the gallery.
 const sessionWatch = 'b.useEffect(()=>{if(!s||m===null||!d)return;let g=!1;const v=()=>{const S=_o(),ownerEmail=Bx(),localUserPresent=!!window.localStorage.getItem("auth_user"),sessionValid=S.userId===m&&(!localUserPresent||S.tokenPresent)&&(!S.userEmail||!ownerEmail||S.userEmail===ownerEmail)||(!localUserPresent&&bk()===m&&ownerEmail===Bx());sessionValid||g||(g=!0,f(!1),nr(!1),Ab(),zs(),Lx())},x=S=>{(S.key===null||S.key==="auth_user")&&v()};window.addEventListener("storage",x);const y=window.setInterval(v,2e3);return v(),()=>{window.removeEventListener("storage",x),window.clearInterval(y)}},[s,m,d])'
-const sessionWatchFixed = 'b.useEffect(()=>{if(!s||m===null||!d)return;let g=!1,invalidSince=0;const v=()=>{const S=_o(),ownerEmail=Bx(),localUserPresent=!!window.localStorage.getItem("auth_user"),identityMismatch=S.userId!==null&&S.userId!==m||!!S.userEmail&&!!ownerEmail&&S.userEmail!==ownerEmail,sessionValid=!identityMismatch&&(S.userId===m&&(!localUserPresent||S.tokenPresent)||!localUserPresent&&S.tokenPresent&&bk()===m&&ownerEmail===Bx());if(sessionValid){invalidSince=0;return}if(!identityMismatch){if(!invalidSince)invalidSince=Date.now();if(Date.now()-invalidSince<8e3)return}g||(g=!0,f(!1),nr(!1),Ab(),zs(),Lx())},x=S=>{(S.key===null||S.key==="auth_user")&&v()};window.addEventListener("storage",x);const y=window.setInterval(v,2e3);return v(),()=>{window.removeEventListener("storage",x),window.clearInterval(y)}},[s,m,d])'
+const sessionWatchPreviousFixed = 'b.useEffect(()=>{if(!s||m===null||!d)return;let g=!1,invalidSince=0;const v=()=>{const S=_o(),ownerEmail=Bx(),localUserPresent=!!window.localStorage.getItem("auth_user"),identityMismatch=S.userId!==null&&S.userId!==m||!!S.userEmail&&!!ownerEmail&&S.userEmail!==ownerEmail,sessionValid=!identityMismatch&&(S.userId===m&&(!localUserPresent||S.tokenPresent)||!localUserPresent&&S.tokenPresent&&bk()===m&&ownerEmail===Bx());if(sessionValid){invalidSince=0;return}if(!identityMismatch){if(!invalidSince)invalidSince=Date.now();if(Date.now()-invalidSince<8e3)return}g||(g=!0,f(!1),nr(!1),Ab(),zs(),Lx())},x=S=>{(S.key===null||S.key==="auth_user")&&v()};window.addEventListener("storage",x);const y=window.setInterval(v,2e3);return v(),()=>{window.removeEventListener("storage",x),window.clearInterval(y)}},[s,m,d])'
+const sessionWatchLegacyFixed = 'b.useEffect(()=>{if(!s||m===null||!d)return;let g=!1,invalidSince=0;const v=()=>{const S=_o(),ownerEmail=Bx(),localUserPresent=!!window.localStorage.getItem("auth_user"),identityMismatch=S.userId!==null&&S.userId!==m||!!S.userEmail&&!!ownerEmail&&S.userEmail!==ownerEmail,sessionValid=!identityMismatch&&(S.userId===m&&(!localUserPresent||S.tokenPresent)||!localUserPresent&&S.tokenPresent&&bk()===m&&ownerEmail===Bx());if(sessionValid){invalidSince=0;return}if(!identityMismatch){if(!invalidSince)invalidSince=Date.now();if(Date.now()-invalidSince<8e3)return}g||(g=!0,f(!1),nr(!1),Ab(),zs(),Lx())},x=S=>{(S.key===null||S.key==="auth_user")&&v()};window.addEventListener("storage",x);const y=window.setInterval(v,2e3);return v(),()=>{window.removeEventListener("storage",x),window.clearInterval(y)}},[s,m,d])'
+const sessionWatchFixed = 'b.useEffect(()=>{if(!s||m===null||!d)return;let g=!1,invalidSince=0;const v=()=>{const S=_o(),ownerEmail=Bx(),localUserPresent=!!window.localStorage.getItem("auth_user"),identityMismatch=S.userId!==null&&S.userId!==m||!!S.userEmail&&!!ownerEmail&&S.userEmail!==ownerEmail,ownerMatches=bk()===m&&(!ownerEmail||!S.userEmail||S.userEmail===ownerEmail),sessionValid=!identityMismatch&&S.tokenPresent&&(S.userId===m||ownerMatches);if(sessionValid){invalidSince=0;return}if(!identityMismatch){if(!invalidSince)invalidSince=Date.now();if(Date.now()-invalidSince<8e3)return}g||(g=!0,f(!1),nr(!1),Ab(),zs(),Lx())},x=S=>{(S.key===null||S.key==="auth_user")&&v()};window.addEventListener("storage",x);const y=window.setInterval(v,2e3);return v(),()=>{window.removeEventListener("storage",x),window.clearInterval(y)}},[s,m,d])'
 if (patched.includes(sessionWatch)) replaceOnce('debounced standalone session watch', sessionWatch, sessionWatchFixed)
-else if (!patched.includes(sessionWatchFixed)) throw new Error('debounced standalone session watch marker is missing')
+else if (patched.includes(sessionWatchPreviousFixed)) replaceOnce('updated standalone session watch', sessionWatchPreviousFixed, sessionWatchFixed)
+else if (patched.includes(sessionWatchLegacyFixed)) replaceOnce('legacy standalone session watch', sessionWatchLegacyFixed, sessionWatchFixed)
+else if (!patched.includes(sessionWatchFixed)) {
+  // Accept minor vendor/minifier differences by replacing the effect bounded
+  // by its stable dependency tuple rather than relying on one exact body.
+  const watchStart = patched.indexOf('b.useEffect(()=>{if(!s||m===null||!d)return;')
+  const watchEnd = patched.indexOf('},[s,m,d])', watchStart)
+  if (watchStart < 0 || watchEnd < watchStart) throw new Error('debounced standalone session watch marker is missing')
+  patched = `${patched.slice(0, watchStart)}${sessionWatchFixed}${patched.slice(watchEnd + '},[s,m,d])'.length)}`
+}
 
 // Keep provider requests same-origin so browser preflight policy cannot block
 // the Authorization and owner-email headers. Deployments on the zayu hostname
@@ -174,6 +185,13 @@ const sameOriginBaseUrl = 'Yo=typeof window>"u"?"https://api.zayuapi.com/v1":`${
 if (patched.includes(remoteBaseUrl)) replaceOnce('same-origin image API base URL', remoteBaseUrl, sameOriginBaseUrl)
 const staleSameOriginBaseUrl = 'Yo=typeof window<"u"?"https://api.zayuapi.com/v1":`${window.location.origin}/v1`'
 if (patched.includes(staleSameOriginBaseUrl)) replaceOnce('same-origin image API base URL condition', staleSameOriginBaseUrl, sameOriginBaseUrl)
+
+// Some mobile WebViews drop an Authorization header when a navigation or
+// embedded fetch crosses their request boundary. The gateway accepts the
+// equivalent X-API-Key header, so emit both from the same selected profile.
+const bearerHeaders = 'const l={Authorization:`Bearer ${a.apiKey}`}'
+const bearerHeadersFixed = 'const l={Authorization:`Bearer ${a.apiKey}`,"X-API-Key":a.apiKey}'
+if (patched.includes(bearerHeaders)) replaceOnce('dual image API key headers', bearerHeaders, bearerHeadersFixed)
 
 // The vendored build references v4 from the task runner but the function was
 // omitted by the upstream production bundle. Dispatch managed image profiles
@@ -201,14 +219,17 @@ const jsonBodyBuildFixed = 'const A=Qs(a.body??{},p);A&&typeof A=="object"&&!Arr
 if (patched.includes(jsonBodyBuild)) replaceOnce('omit null image compression', jsonBodyBuild, jsonBodyBuildFixed)
 
 // Keep the bootstrap carrier until the standalone app has finished restoring
-// its settings. A malformed or interrupted first mount must be retryable.
-const bootstrapReaderReplacement = 'function wk(){if(typeof window>"u")return null;let a=null;try{a=window.sessionStorage.getItem(zx)}catch{return null}if(!a||!a.startsWith(_x))return null;try{const l=JSON.parse(a.slice(_x.length));if(!l||typeof l!=="object"||Array.isArray(l))return null;const s=F0(l.userId),i=l.settings;if(!s||!i||typeof i!=="object"||Array.isArray(i))return null;const d=Xl(l.userEmail);return{settings:i,userId:s,...d?{userEmail:d}:{}}}catch{return null}}function clearImagePlaygroundBootstrap(){try{window.sessionStorage.removeItem(zx)}catch{}}'
+// its settings. Mobile WebViews/PWA launches can recreate sessionStorage, so
+// the launcher also writes a short-lived same-origin localStorage fallback.
+// Prefer a candidate matching the local auth snapshot when both stores contain
+// data; this prevents an older tab's carrier from hiding a fresh handoff.
+const bootstrapReaderReplacement = 'function wk(){if(typeof window>"u")return null;const a=[];try{const l=window.sessionStorage.getItem(zx);l&&a.push({value:l,fallback:!1})}catch{}try{const l=window.localStorage.getItem(zx+":fallback");l&&a.push({value:l,fallback:!0})}catch{}const l=_o();for(const s of a){const i=s.value;if(!i.startsWith(_x))continue;try{const d=JSON.parse(i.slice(_x.length));if(!d||typeof d!=="object"||Array.isArray(d))continue;const f=F0(d.userId),m=d.settings;if(!f||!m||typeof m!=="object"||Array.isArray(m))continue;const p=Number(d.issuedAt);if(s.fallback&&(!Number.isFinite(p)||Date.now()-p>120000||Date.now()-p< -30000))continue;if(l.userId!==null&&l.userId!==f)continue;const g=Xl(d.userEmail);if(l.userEmail!==null&&g!==l.userEmail)continue;return{settings:m,userId:f,...g?{userEmail:g}:{}}}catch{}}return null}function clearImagePlaygroundBootstrap(){try{window.sessionStorage.removeItem(zx)}catch{}try{window.localStorage.removeItem(zx+":fallback")}catch{}}'
 replaceFunctionOnce(
   'durable standalone bootstrap carrier',
   'function wk(){',
   'const Yb=',
   bootstrapReaderReplacement,
-  'function clearImagePlaygroundBootstrap',
+  'localStorage.getItem(zx+":fallback")',
 )
 
 // The scroll lock helper must receive the dialog container so wheel and touch
@@ -216,11 +237,11 @@ replaceFunctionOnce(
 const settingsScrollLock = 'Aa(a,()=>i(!1)),aa(a),!a)return'
 const settingsScrollLockFixed = 'Aa(a,()=>i(!1)),aa(a,y),!a)return'
 if (patched.includes(settingsScrollLock)) replaceOnce('settings scroll lock container', settingsScrollLock, settingsScrollLockFixed)
-else if (!patched.includes(settingsScrollLockFixed)) throw new Error('settings scroll lock container: marker is missing')
+else if (!patched.includes(settingsScrollLockFixed) && !patched.includes('data-image-settings-dialog')) throw new Error('settings scroll lock container: marker is missing')
 const settingsDialog = 'o.jsxs("section",{role:"dialog","aria-modal":"true","aria-label":"设置",className:'
 const settingsDialogFixed = 'o.jsxs("section",{ref:y,role:"dialog","aria-modal":"true","aria-label":"设置",className:'
 if (patched.includes(settingsDialog)) replaceOnce('settings dialog scroll ref', settingsDialog, settingsDialogFixed)
-else if (!patched.includes(settingsDialogFixed)) throw new Error('settings dialog scroll ref: marker is missing')
+else if (!patched.includes(settingsDialogFixed) && !patched.includes('data-image-settings-dialog')) throw new Error('settings dialog scroll ref: marker is missing')
 
 // Always refresh the selected profile's image models when the main model
 // selector receives focus. The launcher may already have a default list, but
@@ -270,11 +291,13 @@ if (toolbar.includes(toolbarSignature)) {
   throw new Error('toolbar signature marker is missing')
 }
 const moderationControl = 'o.jsxs("label",{className:"relative flex flex-col gap-0.5",onMouseEnter:D.show,onMouseLeave:D.hide,onTouchStart:D.startTouch,onTouchEnd:D.clearTimer,onTouchCancel:D.hide,onClick:D.show,children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500 ml-1",children:"审核"}),o.jsx(Gs,{value:N?"auto":l.moderation,onChange:V=>{N||s({moderation:V})},options:[{label:"auto",value:"auto"},{label:"low",value:"low"}],disabled:N,showValueTooltips:!1,className:N?"px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed text-xs transition-all duration-200 shadow-sm":g}),o.jsx(rr,{visible:N&&D.visible,text:"fal.ai 不支持审核参数"})]})'
-const modelControl = 'o.jsxs("div",{className:"relative flex min-w-0 flex-col gap-0.5",children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500 ml-1",children:"配置 / 模型"}),o.jsxs("div",{className:"grid min-w-0 grid-cols-1 gap-1 sm:grid-cols-2",children:[o.jsx("select",{value:i.id,onChange:V=>pc&&pc(V.target.value),className:`${g} min-w-0 w-full`,"aria-label":"当前配置",children:(po??[]).map(V=>o.jsx("option",{value:V.id,children:V.name},V.id))}),o.jsx("select",{value:i.model,onFocus:()=>mr&&mr(),onClick:()=>mr&&mr(),onChange:V=>mc&&mc(V.target.value),className:`${g} min-w-0 w-full`,"aria-label":"选择模型",children:[...new Set((i.modelOptions??[]).concat(i.model||[]))].filter(V=>V).map(V=>o.jsx("option",{value:V,children:V},V))})]})]})'
+const modelControl = 'o.jsxs("div",{"data-image-profile-model":!0,className:"relative flex min-w-0 flex-col gap-0.5",children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500 ml-1",children:"配置 / 模型"}),o.jsxs("div",{className:"grid min-w-0 grid-cols-1 gap-1 sm:grid-cols-2",children:[o.jsx("select",{value:i.id,onChange:V=>pc&&pc(V.target.value),className:`${g} min-w-0 w-full`,"aria-label":"当前配置",children:(po??[]).map(V=>o.jsx("option",{value:V.id,children:V.name},V.id))}),o.jsx("select",{value:i.model,onFocus:()=>mr&&mr(),onClick:()=>mr&&mr(),onChange:V=>mc&&mc(V.target.value),className:`${g} min-w-0 w-full`,"aria-label":"选择模型",children:[...new Set((i.modelOptions??[]).concat(i.model||[]))].filter(V=>V).map(V=>o.jsx("option",{value:V,children:V},V))})]})]})'
 const modelControlWithoutClick = modelControl.replace('onClick:()=>mr&&mr(),', '')
+const modelControlWithoutHook = modelControl.replace('"data-image-profile-model":!0,', '')
 const legacyModelControl = 'o.jsxs("div",{className:"relative flex flex-col gap-0.5",children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500 ml-1",children:"配置 / 模型"}),o.jsxs("div",{className:"flex gap-1",children:[o.jsx("select",{value:i.id,onChange:V=>pc&&pc(V.target.value),className:g,"aria-label":"当前配置",children:(po??[]).map(V=>o.jsx("option",{value:V.id,children:V.name},V.id))}),o.jsx("select",{value:i.model,onFocus:()=>mr&&mr(),onClick:()=>mr&&mr(),onChange:V=>mc&&mc(V.target.value),className:g,"aria-label":"选择模型",children:[...new Set((i.modelOptions??[]).concat(i.model||[]))].filter(V=>V).map(V=>o.jsx("option",{value:V,children:V},V))})]})]})'
 if (toolbar.includes(legacyModelControl)) toolbar = toolbar.replace(legacyModelControl, modelControl)
 else if (toolbar.includes(modelControlWithoutClick)) toolbar = toolbar.replace(modelControlWithoutClick, modelControl)
+else if (toolbar.includes(modelControlWithoutHook)) toolbar = toolbar.replace(modelControlWithoutHook, modelControl)
 if (toolbar.includes(moderationControl)) toolbar = toolbar.replace(moderationControl, modelControl)
 else if (!toolbar.includes(modelControl)) throw new Error('toolbar model control marker is missing')
 patched = patched.slice(0, toolbarStart) + toolbar + patched.slice(toolbarEnd)
@@ -328,7 +351,7 @@ if (patched.includes('U=D=>{var H;const N=A.profiles.find(ee=>ee.id===D);')) {
     'U=D=>{var H;const N=A.profiles.find(ee=>ee.id===D);N&&(S.current+=1,(H=y.current)==null||H.abort(),y.current=null,x(!1),g(!1),s(_r({...A,activeProfileId:N.id})))}',
     'U=D=>{var H;const N=_r(tn(z.getState().settings)),ee=N.profiles.find($=>$.id===D);ee&&(S.current+=1,(H=y.current)==null||H.abort(),y.current=null,x(!1),g(!1),s(_r({...N,activeProfileId:ee.id})))}',
   )
-} else if (!patched.includes('N=_r(tn(z.getState().settings)),ee=N.profiles.find')) {
+} else if (!patched.includes('N=_r(tn(z.getState().settings)),ee=N.profiles.find') && !patched.includes('data-image-settings-dialog')) {
   throw new Error('settings profile switch marker is missing')
 }
 
@@ -373,7 +396,7 @@ if (patched.includes(ssModelStateMarker) && !patched.includes('[modelPulling,set
     '[modelPulling,setModelPulling]=b.useState(!1),[Ke,_t]=b.useState(!1),[Ee,lt]=b.useState(!0)',
   )
 }
-const modelHooks = 'const modelProfiles=b.useMemo(()=>tn(x),[x]),changeProfile=b.useCallback(M=>{const P=_r(tn(z.getState().settings));P.profiles.some(le=>le.id===M)&&j(_r({...P,activeProfileId:M}))},[j]),changeModel=b.useCallback(M=>{const P=_r(tn(z.getState().settings)),le=P.profiles.find(V=>V.id===P.activeProfileId);le&&j(_r({...P,profiles:P.profiles.map(V=>V.id===le.id?{...V,model:M,modelOptions:[...new Set((V.modelOptions??[]).concat(M))]}:V)}))},[j]),pullModels=b.useCallback(async()=>{if(modelPulling)return;const M=_r(tn(z.getState().settings)),P=M.profiles.find(le=>le.id===M.activeProfileId);if(!P||!P.apiKey.trim())return;const V=_o().userEmail;if(!V){S("当前登录用户缺少邮箱信息","error");return}setModelPulling(!0);try{const ye=await fetch(`${Yo}/models`,{headers:{Authorization:`Bearer ${P.apiKey}`,"X-Sub2API-User-Email":V},cache:"no-store"});if(!ye.ok)throw new Error(`HTTP ${ye.status}`);const T=await ye.json(),C=Array.isArray(T)?T:T.data??T.models??[],B=[...new Set(C.map(G=>typeof(G==null?void 0:G.id)==="string"?G.id.trim():"").filter(G=>G&&!/video/i.test(G)&&/image|imagine|dall[-_ ]?e/i.test(G)))];if(!B.length)throw new Error("接口没有返回可用的图片模型");const G=_r(tn(z.getState().settings)),Y=G.profiles.find(X=>X.id===P.id);Y&&Y.apiKey===P.apiKey&&j(_r({...G,profiles:G.profiles.map(X=>X.id===P.id?{...X,modelOptions:B,model:B.includes(X.model)?X.model:B[0]}:X)})),S(`已拉取 ${B.length} 个图片模型`,`success`)}catch(M){console.warn("Failed to pull image models:",M),S(M instanceof Error?`模型拉取失败：${M.message}`:"模型拉取失败","error")}finally{setModelPulling(!1)}},[S,j,modelPulling]);'
+const modelHooks = 'const modelProfiles=b.useMemo(()=>tn(x),[x]),changeProfile=b.useCallback(M=>{const P=_r(tn(z.getState().settings));P.profiles.some(le=>le.id===M)&&j(_r({...P,activeProfileId:M}))},[j]),changeModel=b.useCallback(M=>{const P=_r(tn(z.getState().settings)),le=P.profiles.find(V=>V.id===P.activeProfileId);le&&j(_r({...P,profiles:P.profiles.map(V=>V.id===le.id?{...V,model:M,modelOptions:[...new Set((V.modelOptions??[]).concat(M))]}:V)}))},[j]),pullModels=b.useCallback(async()=>{if(modelPulling)return;const M=_r(tn(z.getState().settings)),P=M.profiles.find(le=>le.id===M.activeProfileId);if(!P||!P.apiKey.trim())return;const V=_o().userEmail;if(!V){S("当前登录用户缺少邮箱信息","error");return}setModelPulling(!0);try{const ye=await fetch(`${Yo}/models`,{headers:{Authorization:`Bearer ${P.apiKey}`,"X-API-Key":P.apiKey,"X-Sub2API-User-Email":V},cache:"no-store",credentials:"include"});if(!ye.ok)throw new Error(`HTTP ${ye.status}`);const T=await ye.json(),C=Array.isArray(T)?T:T.data??T.models??[],B=[...new Set(C.map(G=>typeof(G==null?void 0:G.id)==="string"?G.id.trim():"").filter(G=>G&&!/video/i.test(G)&&/image|imagine|dall[-_ ]?e/i.test(G)))];if(!B.length)throw new Error("接口没有返回可用的图片模型");const G=_r(tn(z.getState().settings)),Y=G.profiles.find(X=>X.id===P.id);Y&&Y.apiKey===P.apiKey&&j(_r({...G,profiles:G.profiles.map(X=>X.id===P.id?{...X,modelOptions:B,model:B.includes(X.model)?X.model:B[0]}:X)})),S(`已拉取 ${B.length} 个图片模型`,`success`)}catch(M){console.warn("Failed to pull image models:",M),S(M instanceof Error?`模型拉取失败：${M.message}`:"模型拉取失败","error")}finally{setModelPulling(!1)}},[S,j,modelPulling]);'
 const modelHooksWithEmailFallback = modelHooks.replace('const V=_o().userEmail;', 'const V=_o().userEmail||P.userEmail;')
 const toolbarHookMarker = 'const ra=async()=>{if(!he){if(!gn){y(!0);return}if(a.trim()){se(!0);try{await Ob()}finally{se(!1)}}}},la=()=>{'
 for (const staleHook of [
@@ -410,6 +433,88 @@ if (patched.includes('const T=await ye.json(),C=Array.isArray(T)?T:T.data??[]'))
 const settingsModelEmail = 'const D=R.id,N=R.apiKey,H=_o().userEmail;'
 const settingsModelEmailFixed = 'const D=R.id,N=R.apiKey,H=_o().userEmail||R.userEmail;'
 if (patched.includes(settingsModelEmail)) replaceOnce('settings model email fallback', settingsModelEmail, settingsModelEmailFixed)
+
+// The managed workbench exposes API-key profiles through the home toolbar.
+// The settings dialog is intentionally limited to browser-local preferences;
+// keeping a second API configuration editor there made mobile navigation
+// ambiguous and allowed stale credentials to be selected accidentally.
+const settingsStart = patched.indexOf('function OS(){')
+const settingsEnd = patched.indexOf('function i1(', settingsStart)
+if (settingsStart < 0 || settingsEnd < 0) throw new Error('settings dialog markers are missing')
+const settingsDialogReplacement = `function OS(){const a=z(D=>D.showSettings),l=z(D=>D.settings),s=z(D=>D.setSettings),i=z(D=>D.setShowSettings),[f,m]=b.useState("local"),y=b.useRef(null),A=b.useMemo(()=>_r(tn(l)),[l]);return Aa(a,()=>i(!1)),aa(a,y),!a?null:vr.createPortal(o.jsxs("div",{"data-no-drag-select":!0,"data-image-settings-dialog":!0,className:"fixed inset-0 z-[100] flex items-center justify-center p-4",onClick:()=>i(!1),children:[o.jsx("div",{className:"absolute inset-0 bg-black/30 backdrop-blur-sm"}),o.jsxs("section",{ref:y,role:"dialog","aria-modal":"true","aria-label":"设置",className:"relative z-10 flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-white/50 bg-white/95 shadow-2xl dark:border-white/[0.08] dark:bg-gray-900/95",onClick:D=>D.stopPropagation(),children:[o.jsxs("header",{className:"flex items-center justify-between border-b border-gray-200/80 px-5 py-4 dark:border-white/[0.08]",children:[o.jsx("h2",{className:"text-base font-semibold text-gray-800 dark:text-gray-100",children:"设置"}),o.jsx("button",{type:"button",onClick:()=>i(!1),className:"rounded-lg p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-white/[0.06]","aria-label":"关闭",children:"×"})]}),o.jsxs("div",{className:"flex min-h-0 flex-1 flex-col sm:flex-row",children:[o.jsx("nav",{className:"flex shrink-0 gap-1 overflow-x-auto border-b border-gray-200/80 p-2 sm:w-40 sm:flex-col sm:border-b-0 sm:border-r dark:border-white/[0.08]","aria-label":"设置分类",children:[["local","本地数据"],["about","关于"]].map(([D,N])=>o.jsx("button",{type:"button",onClick:()=>m(D),className:\`whitespace-nowrap rounded-xl px-3 py-2.5 text-left text-sm transition-colors \${f===D?"bg-blue-50 font-medium text-blue-600 dark:bg-blue-500/10 dark:text-blue-400":"text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-white/[0.04]"}\`,children:N},D))}),o.jsx("div",{className:"min-h-0 flex-1 overflow-y-auto p-5",children:[f==="local"&&o.jsxs("div",{className:"space-y-4 text-sm text-gray-600 dark:text-gray-300",children:[o.jsx("p",{className:"rounded-xl bg-gray-50 p-4 leading-relaxed dark:bg-white/[0.03]",children:"配置、任务记录和图片仅写入当前浏览器的本地存储，不会创建云端配置记录。"}),o.jsxs("label",{className:"flex items-center justify-between gap-4 rounded-xl border border-gray-200/70 p-4 dark:border-white/[0.08]",children:[o.jsx("span",{children:"提交后清空提示词"}),o.jsx("input",{type:"checkbox",checked:A.clearInputAfterSubmit,onChange:D=>s({clearInputAfterSubmit:D.target.checked})})]}),o.jsxs("label",{className:"flex items-center justify-between gap-4 rounded-xl border border-gray-200/70 p-4 dark:border-white/[0.08]",children:[o.jsx("span",{children:"重新打开页面时保留输入内容"}),o.jsx("input",{type:"checkbox",checked:A.persistInputOnRestart,onChange:D=>s({persistInputOnRestart:D.target.checked})})]})]}),f==="about"&&o.jsxs("div",{className:"space-y-3 text-sm text-gray-600 dark:text-gray-300",children:[o.jsx("h3",{className:"text-base font-semibold text-gray-800 dark:text-gray-100",children:"小杂鱼の生图"}),o.jsx("p",{children:"仅提供图片画廊和图片生成能力。"}),o.jsx("p",{className:"text-xs text-gray-500 dark:text-gray-400",children:"基于 GPT Image Playground（MIT License）构建。"})]})]})]})]})]}),document.body)}`
+if (patched.slice(settingsStart, settingsEnd) !== settingsDialogReplacement) {
+  patched = patched.slice(0, settingsStart) + settingsDialogReplacement + patched.slice(settingsEnd)
+}
+
+// Keep the prompt compact and predictable on touch screens. The full-screen
+// toggle consumed the same row as the prompt and frequently obscured text.
+const hasCompactPromptRow = patched.includes('data-image-prompt-row')
+const promptStart = hasCompactPromptRow ? -1 : patched.indexOf('o.jsxs("div",{className:"relative",children:[rn&&', patched.indexOf('function SS(){'))
+const actionStart = hasCompactPromptRow ? -1 : patched.indexOf('o.jsxs("div",{"data-image-actions"', promptStart)
+if (!hasCompactPromptRow && (promptStart < 0 || actionStart < 0)) throw new Error('image prompt markers are missing')
+const promptBlock = hasCompactPromptRow ? '' : patched.slice(promptStart, actionStart)
+const expandButton = 'o.jsx("button",{type:"button",className:"absolute bottom-2 right-2 rounded p-1 text-gray-400 hover:bg-gray-100",onClick:()=>le(j=>!j),"aria-label":P?"收起输入框":"展开输入框",children:P?o.jsx(Ok,{className:"h-4 w-4"}):o.jsx(Ik,{className:"h-4 w-4"})})'
+const addButton = 'o.jsx("button",{"data-image-add":!0,type:"button",className:"flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-2xl border border-gray-200/60 bg-white/50 text-xl leading-none text-gray-500 shadow-sm transition hover:bg-white hover:text-gray-700 dark:border-white/[0.1] dark:bg-white/[0.03] dark:text-gray-300 dark:hover:bg-white/[0.08]","aria-label":"添加图片",onClick:()=>{var j;return(j=ft.current)==null?void 0:j.click()},children:"+"})'
+// Older runs could leave a separator after the removed expand button. Repair
+// that exact prompt-only sequence before validating the generated JavaScript.
+if (patched.includes('data-image-prompt-row') && patched.includes('})}),]})')) {
+  patched = patched.replace('})}),]})', '})})]})')
+}
+if (!hasCompactPromptRow) {
+  let compactPrompt = promptBlock
+  if (compactPrompt.includes(expandButton)) compactPrompt = compactPrompt.replace(expandButton, '')
+  compactPrompt = compactPrompt.replace(',]})', ']})')
+  compactPrompt = compactPrompt.replace('})}),]})', '})})]})')
+  const trailingComma = compactPrompt.endsWith(',') ? ',' : ''
+  if (trailingComma) compactPrompt = compactPrompt.slice(0, -1)
+  const wrappedPrompt = `o.jsxs("div",{"data-image-prompt-row":!0,className:"flex min-w-0 items-stretch gap-2",children:[${compactPrompt},${addButton}]})${trailingComma}`
+  patched = patched.slice(0, promptStart) + wrappedPrompt + patched.slice(actionStart)
+}
+const promptContainer = 'o.jsxs("div",{className:"relative",children:[rn&&'
+const flexiblePromptContainer = 'o.jsxs("div",{className:"relative min-w-0 flex-1",children:[rn&&'
+if (patched.includes(promptContainer)) replaceOnce('flexible image prompt container', promptContainer, flexiblePromptContainer)
+const legacyPrompt = '描述你想生成的图片，可输入 @ 来指定参考图...'
+if (patched.includes(legacyPrompt)) replaceOnce('image prompt placeholder', legacyPrompt, '描述你所想的图片')
+const legacyTransparentHint = '实现方式可在设置的 API 配置中选择'
+if (patched.includes(legacyTransparentHint)) replaceOnce('transparent output hint', legacyTransparentHint, '透明背景由当前分组接口配置决定')
+
+// The old action row had a second settings button and a wide reference-image
+// button. Both are now represented by the compact add-image control beside
+// the prompt; leave the generation action and home parameter selectors here.
+const toolbarSettingsButton = 'o.jsx("button",{type:"button",className:"rounded-xl border border-gray-200 p-2.5 text-gray-600 hover:bg-gray-100 dark:border-white/[0.1] dark:text-gray-300",onClick:()=>y(!0),"aria-label":"打开设置",children:o.jsx(Gb,{className:"h-5 w-5"})}),'
+if (patched.includes(toolbarSettingsButton)) replaceOnce('input toolbar settings button', toolbarSettingsButton, '')
+const toolbarAddButton = 'o.jsx("button",{type:"button",className:"rounded-xl border border-gray-200 p-2.5 text-gray-600 hover:bg-gray-100 dark:border-white/[0.1] dark:text-gray-300",onClick:()=>{var j;return(j=ft.current)==null?void 0:j.click()},"aria-label":"添加参考图",children:"＋"}),'
+if (patched.includes(toolbarAddButton)) replaceOnce('input toolbar add button', toolbarAddButton, '')
+const generateButtonPrefix = 'o.jsx("button",{type:"button",className:"flex-1 rounded-xl bg-blue-600 px-4 py-3'
+const generateButtonFixedPrefix = 'o.jsx("button",{"data-image-generate":!0,type:"button",className:"flex-1 rounded-xl bg-blue-600 px-4 py-3'
+if (patched.includes(generateButtonPrefix)) replaceOnce('generation action hook', generateButtonPrefix, generateButtonFixedPrefix)
+const staleToolbarSettingsState = 'x=z(j=>j.settings),j=z(j=>j.setSettings),y=z(j=>j.setShowSettings),S='
+const compactToolbarSettingsState = 'x=z(j=>j.settings),j=z(j=>j.setSettings),S='
+if (patched.includes(staleToolbarSettingsState)) replaceOnce('unused input toolbar settings state', staleToolbarSettingsState, compactToolbarSettingsState)
+
+// A missing profile/model selector must remain visible on desktop. Give the
+// profile/model pair two grid tracks while keeping the other controls compact.
+const actionClass = 'className:"mt-3 flex items-end gap-2"'
+const responsiveActionClass = 'className:"mt-3 flex flex-wrap items-end gap-2"'
+if (patched.includes(actionClass)) replaceOnce('responsive action row wrapping', actionClass, responsiveActionClass)
+
+// Requests with incomplete managed profile data should show a toast instead
+// of opening a settings page that no longer contains API configuration.
+const openSettingsOnInvalidApi = 'l.showToast(`请先完善请求 API 配置：${f}`,"error"),l.setShowSettings(!0);'
+const invalidManagedProfileToast = 'l.showToast(`当前分组密钥不可用：${f}`,"error");'
+if (patched.includes(openSettingsOnInvalidApi)) replaceOnce('invalid profile settings redirect', openSettingsOnInvalidApi, invalidManagedProfileToast)
+const staleInvalidManagedProfileToast = 'l.showToast(`请先完善请求 API 配置：${f}`,"error");'
+if (patched.includes(staleInvalidManagedProfileToast)) replaceOnce('invalid profile toast copy', staleInvalidManagedProfileToast, invalidManagedProfileToast)
+
+if (patched.includes('aria-label":"打开设置"')) throw new Error('input toolbar settings action remains in standalone bundle')
+if (patched.includes(legacyPrompt)) throw new Error('legacy image prompt placeholder remains in standalone bundle')
+if (patched.includes('aria-label":P?"收起输入框":"展开输入框"')) throw new Error('fullscreen prompt action remains in standalone bundle')
+if (!patched.includes('描述你所想的图片')) throw new Error('new image prompt placeholder is missing')
+if (!patched.includes('data-image-prompt-row') || !patched.includes('data-image-add')) throw new Error('compact image prompt row is missing')
+if (!patched.includes('data-image-profile-model')) throw new Error('profile and model layout hook is missing')
+if (!patched.includes('data-image-generate')) throw new Error('generation action hook is missing')
+if (patched.includes('children:"＋"')) throw new Error('legacy wide image add action remains in standalone bundle')
+if (patched.includes('["api","API 配置"]')) throw new Error('API configuration tab remains in settings dialog')
 
 if (patched.includes('moderation')) {
   let cursor = 0
