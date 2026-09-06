@@ -393,12 +393,21 @@ if (patched.includes('re=b.useRef([]),[modelPulling,setModelPulling]=b.useState(
   )
 }
 const ssModelStateMarker = '[Ke,_t]=b.useState(!1),[Ee,lt]=b.useState(!0)'
-if (patched.includes(ssModelStateMarker) && !patched.includes('[modelPulling,setModelPulling]=b.useState(!1),[Ke,_t]')) {
+if (patched.includes(ssModelStateMarker) && !patched.includes('[modelPulling,setModelPulling]=b.useState(!1)')) {
   replaceOnce(
     'input toolbar model loading state',
     ssModelStateMarker,
     '[modelPulling,setModelPulling]=b.useState(!1),[Ke,_t]=b.useState(!1),[Ee,lt]=b.useState(!0)',
   )
+}
+const inputCollapseStateMarker = '[modelPulling,setModelPulling]=b.useState(!1),[Ke,_t]=b.useState(!1)'
+const inputCollapseStateFixed = '[modelPulling,setModelPulling]=b.useState(!1),[inputPanelCollapsed,setInputPanelCollapsed]=b.useState(!1),[Ke,_t]=b.useState(!1)'
+if (!patched.includes('[inputPanelCollapsed,setInputPanelCollapsed]=b.useState(!1)')) {
+  if (patched.includes(inputCollapseStateMarker)) {
+    replaceOnce('input panel collapse state', inputCollapseStateMarker, inputCollapseStateFixed)
+  } else {
+    throw new Error('input panel collapse state marker is missing')
+  }
 }
 const modelHooks = 'const modelProfiles=b.useMemo(()=>tn(x),[x]),changeProfile=b.useCallback(M=>{const P=_r(tn(z.getState().settings));P.profiles.some(le=>le.id===M)&&j(_r({...P,activeProfileId:M}))},[j]),changeModel=b.useCallback(M=>{const P=_r(tn(z.getState().settings)),le=P.profiles.find(V=>V.id===P.activeProfileId);le&&j(_r({...P,profiles:P.profiles.map(V=>V.id===le.id?{...V,model:M,modelOptions:[...new Set((V.modelOptions??[]).concat(M))]}:V)}))},[j]),pullModels=b.useCallback(async()=>{if(modelPulling)return;const M=_r(tn(z.getState().settings)),P=M.profiles.find(le=>le.id===M.activeProfileId);if(!P||!P.apiKey.trim())return;const V=_o().userEmail;if(!V){S("当前登录用户缺少邮箱信息","error");return}setModelPulling(!0);try{const ye=await fetch(`${Yo}/models`,{headers:{Authorization:`Bearer ${P.apiKey}`,"X-API-Key":P.apiKey,"X-Sub2API-User-Email":V},cache:"no-store",credentials:"include"});if(!ye.ok)throw new Error(`HTTP ${ye.status}`);const T=await ye.json(),C=Array.isArray(T)?T:T.data??T.models??[],B=[...new Set(C.map(G=>typeof(G==null?void 0:G.id)==="string"?G.id.trim():"").filter(G=>G&&!/video/i.test(G)&&/image|imagine|dall[-_ ]?e/i.test(G)))];if(!B.length)throw new Error("接口没有返回可用的图片模型");const G=_r(tn(z.getState().settings)),Y=G.profiles.find(X=>X.id===P.id);Y&&Y.apiKey===P.apiKey&&j(_r({...G,profiles:G.profiles.map(X=>X.id===P.id?{...X,modelOptions:B,model:B.includes(X.model)?X.model:B[0]}:X)})),S(`已拉取 ${B.length} 个图片模型`,`success`)}catch(M){console.warn("Failed to pull image models:",M),S(M instanceof Error?`模型拉取失败：${M.message}`:"模型拉取失败","error")}finally{setModelPulling(!1)}},[S,j,modelPulling]);'
 const modelHooksWithEmailFallback = modelHooks.replace('const V=_o().userEmail;', 'const V=_o().userEmail||P.userEmail;')
@@ -502,6 +511,17 @@ const actionClass = 'className:"mt-3 flex items-end gap-2"'
 const responsiveActionClass = 'className:"mt-3 flex flex-wrap items-end gap-2"'
 if (patched.includes(actionClass)) replaceOnce('responsive action row wrapping', actionClass, responsiveActionClass)
 
+// Keep a compact control at the input surface's upper-left corner so the
+// prompt, parameters, and generation action can be hidden without losing the
+// in-memory draft. The button remains mounted while the panel is collapsed.
+const inputPanel = 'o.jsxs("div",{className:"rounded-2xl border border-white/50 bg-white/80 p-3 shadow-[0_8px_30px_rgb(0,0,0,0.08)] backdrop-blur-2xl dark:border-white/[0.08] dark:bg-gray-900/80 sm:rounded-3xl sm:p-4",children:'
+const collapsibleInputPanel = 'o.jsx("button",{"data-input-collapse-toggle":!0,type:"button",onClick:()=>setInputPanelCollapsed(V=>!V),"aria-expanded":!inputPanelCollapsed,"aria-controls":"image-playground-input-panel","aria-label":inputPanelCollapsed?"展开输入栏":"折叠输入栏",title:inputPanelCollapsed?"展开输入栏":"折叠输入栏",className:"mb-2 flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-xl border border-gray-200/70 bg-white/90 text-gray-500 shadow-sm transition hover:bg-gray-50 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-white/[0.1] dark:bg-gray-900/90 dark:text-gray-300 dark:hover:bg-white/[0.08]",children:o.jsx(_k,{className:`h-4 w-4 transition-transform duration-200 ${inputPanelCollapsed?"rotate-180":""}`})}),!inputPanelCollapsed&&o.jsxs("div",{id:"image-playground-input-panel","data-input-panel-content":!0,className:"rounded-2xl border border-white/50 bg-white/80 p-3 shadow-[0_8px_30px_rgb(0,0,0,0.08)] backdrop-blur-2xl dark:border-white/[0.08] dark:bg-gray-900/80 sm:rounded-3xl sm:p-4",children:'
+if (patched.includes(inputPanel)) {
+  replaceOnce('collapsible image input panel', inputPanel, collapsibleInputPanel)
+} else if (!patched.includes('data-input-collapse-toggle')) {
+  throw new Error('collapsible image input panel marker is missing')
+}
+
 // Requests with incomplete managed profile data should show a toast instead
 // of opening a settings page that no longer contains API configuration.
 const openSettingsOnInvalidApi = 'l.showToast(`请先完善请求 API 配置：${f}`,"error"),l.setShowSettings(!0);'
@@ -517,6 +537,7 @@ if (!patched.includes('描述你所想的图片')) throw new Error('new image pr
 if (!patched.includes('data-image-prompt-row') || !patched.includes('data-image-add')) throw new Error('compact image prompt row is missing')
 if (!patched.includes('data-image-profile-model')) throw new Error('profile and model layout hook is missing')
 if (!patched.includes('data-image-generate')) throw new Error('generation action hook is missing')
+if (!patched.includes('data-input-collapse-toggle') || !patched.includes('data-input-panel-content')) throw new Error('input panel collapse controls are missing')
 if (patched.includes('children:"＋"')) throw new Error('legacy wide image add action remains in standalone bundle')
 if (patched.includes('["api","API 配置"]')) throw new Error('API configuration tab remains in settings dialog')
 

@@ -79,6 +79,12 @@ describe('Image playground launcher', () => {
     expect(standaloneScript).toContain('data-image-add')
     expect(standaloneScript).toContain('aria-label":"添加图片"')
     expect(standaloneScript).toContain('描述你所想的图片')
+    expect(standaloneScript).toContain('data-input-collapse-toggle')
+    expect(standaloneScript).toContain('data-input-panel-content')
+    expect(standaloneScript).toContain('[inputPanelCollapsed,setInputPanelCollapsed]=b.useState(!1)')
+    expect(standaloneScript).toContain('"aria-label":inputPanelCollapsed?"展开输入栏":"折叠输入栏"')
+    expect(standaloneScript).toContain('h-[42px] w-[42px] shrink-0')
+    expect(standaloneScript).toContain('!inputPanelCollapsed&&o.jsxs("div"')
   })
 
   it('binds the standalone cache to user identity without treating token rotation as logout', () => {
@@ -188,6 +194,7 @@ describe('Image playground launcher', () => {
     expect(responsiveOverride).toContain('grid-template-columns: repeat(8, minmax(0, 1fr))')
     expect(responsiveOverride).toContain('[data-image-prompt-row] > div')
     expect(responsiveOverride).toContain('[data-image-profile-model]')
+    expect(responsiveOverride).toContain('[data-input-collapse-toggle]')
     expect(responsiveOverride).toContain('grid-column: 1 / -1')
     expect(responsiveOverride).toContain('[data-image-params] > .grid > *')
     expect(responsiveOverride).toContain('width: 100%')
