@@ -559,7 +559,7 @@ if (patched.includes('moderation')) {
 // at a fixed commit; the upstream release tag is irrelevant here and the badge
 // makes users think the whole sub2api deployment is outdated.
 const versionCheckFn = 'function jk(){const[a,l]=b.useState(null),[s,i]=b.useState(()=>sessionStorage.getItem("version-dismissed")==="true");return b.useEffect(()=>{let m=!1;return fetch(kk,{headers:{Accept:"application/vnd.github.v3+json"}}).then(p=>{if(!p.ok)throw new Error(`HTTP ${p.status}`);return p.json()}).then(p=>{if(m)return;const g=p.tag_name??"",v=g.replace(/^v/,"");v&&Sk(v,"0.7.8")>0&&l({tag:g,url:p.html_url??`https://github.com/${Yb}/releases/latest`})}).catch(()=>{}),()=>{m=!0}},[]),{hasUpdate:a!==null&&!s,latestRelease:a,dismiss:()=>{i(!0),sessionStorage.setItem("version-dismissed","true")}}}'
-const versionCheckStub = 'function jk(){return{hasUpdate:!1,latestRelease:null,dismiss:()={}}}'
+const versionCheckStub = 'function jk(){return{hasUpdate:!1,latestRelease:null,dismiss:()=>{}}}'
 if (patched.includes(versionCheckFn)) replaceOnce('version check stub', versionCheckFn, versionCheckStub)
 else if (!patched.includes(versionCheckStub) && !patched.includes('function jk(){return{hasUpdate:!1')) throw new Error('version check function marker is missing')
 
