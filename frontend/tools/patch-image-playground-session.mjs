@@ -302,8 +302,13 @@ else if (toolbar.includes(legacyPatchedModelControl)) toolbar = toolbar.replace(
 else if (toolbar.includes(legacyNativeSplitModelControl)) toolbar = toolbar.replace(legacyNativeSplitModelControl, modelControl)
 else if (toolbar.includes(modelControlWithoutClick)) toolbar = toolbar.replace(modelControlWithoutClick, modelControl)
 else if (toolbar.includes(modelControlWithoutHook)) toolbar = toolbar.replace(modelControlWithoutHook, modelControl)
+// Also recognise the already-patched form where onChange handlers pass the value
+// directly (V) instead of via V.target.value — produced by the onChange fix patches.
+const modelControlFixed = modelControl
+  .replace('onChange:V=>pc&&pc(V.target.value)', 'onChange:V=>pc&&pc(V)')
+  .replace('onChange:V=>mc&&mc(V.target.value),onOpenChange:V=>{V&&mr&&mr()}', 'onChange:V=>mc&&mc(V),onOpenChange:V=>{V&&(i.modelOptions??[]).filter(m=>m).length<=1&&mr&&mr()}')
 if (toolbar.includes(moderationControl)) toolbar = toolbar.replace(moderationControl, modelControl)
-else if (!toolbar.includes(modelControl)) throw new Error('toolbar model control marker is missing')
+else if (!toolbar.includes(modelControl) && !toolbar.includes(modelControlFixed)) throw new Error('toolbar model control marker is missing')
 patched = patched.slice(0, toolbarStart) + toolbar + patched.slice(toolbarEnd)
 
 const modelFocusOnly = 'onFocus:()=>mr&&mr(),onChange:V=>mc&&mc(V.target.value)'
@@ -549,5 +554,36 @@ if (patched.includes('moderation')) {
   }
   throw new Error('moderation controls or request fields remain in the standalone bundle')
 }
+
+// Remove the upstream version-check badge. The embedded workbench is vendored
+// at a fixed commit; the upstream release tag is irrelevant here and the badge
+// makes users think the whole sub2api deployment is outdated.
+const versionCheckFn = 'function jk(){const[a,l]=b.useState(null),[s,i]=b.useState(()=>sessionStorage.getItem("version-dismissed")==="true");return b.useEffect(()=>{let m=!1;return fetch(kk,{headers:{Accept:"application/vnd.github.v3+json"}}).then(p=>{if(!p.ok)throw new Error(`HTTP ${p.status}`);return p.json()}).then(p=>{if(m)return;const g=p.tag_name??"",v=g.replace(/^v/,"");v&&Sk(v,"0.7.8")>0&&l({tag:g,url:p.html_url??`https://github.com/${Yb}/releases/latest`})}).catch(()=>{}),()=>{m=!0}},[]),{hasUpdate:a!==null&&!s,latestRelease:a,dismiss:()=>{i(!0),sessionStorage.setItem("version-dismissed","true")}}}'
+const versionCheckStub = 'function jk(){return{hasUpdate:!1,latestRelease:null,dismiss:()={}}}'
+if (patched.includes(versionCheckFn)) replaceOnce('version check stub', versionCheckFn, versionCheckStub)
+else if (!patched.includes(versionCheckStub) && !patched.includes('function jk(){return{hasUpdate:!1')) throw new Error('version check function marker is missing')
+
+// The toolbar model/profile selectors use the custom Gs (Select) component which
+// calls onChange(optionValue) directly — not onChange(event). The wiring
+// onChange:V=>pc&&pc(V.target.value) therefore passes undefined to changeProfile/
+// changeModel, breaking both selectors silently. Fix to pass V directly.
+const profileOnChangeBroken = 'onChange:V=>pc&&pc(V.target.value)'
+const profileOnChangeFixed = 'onChange:V=>pc&&pc(V)'
+if (patched.includes(profileOnChangeBroken)) replaceOnce('profile selector onChange', profileOnChangeBroken, profileOnChangeFixed)
+else if (!patched.includes(profileOnChangeFixed)) throw new Error('profile selector onChange marker is missing')
+
+const modelOnChangeBroken = 'onChange:V=>mc&&mc(V.target.value)'
+const modelOnChangeFixed = 'onChange:V=>mc&&mc(V)'
+if (patched.includes(modelOnChangeBroken)) replaceOnce('model selector onChange', modelOnChangeBroken, modelOnChangeFixed)
+else if (!patched.includes(modelOnChangeFixed)) throw new Error('model selector onChange marker is missing')
+
+// The model selector onOpenChange fires pullModels on every dropdown open, causing
+// repeated API calls for the same profile. Guard it so models are only fetched when
+// the current profile has no cached options yet (i.e. modelOptions list is empty or
+// contains only the one bootstrap placeholder model).
+const modelOnOpenBroken = 'onOpenChange:V=>{V&&mr&&mr()}'
+const modelOnOpenFixed = 'onOpenChange:V=>{V&&(i.modelOptions??[]).filter(m=>m).length<=1&&mr&&mr()}'
+if (patched.includes(modelOnOpenBroken)) replaceOnce('model selector onOpenChange guard', modelOnOpenBroken, modelOnOpenFixed)
+else if (!patched.includes(modelOnOpenFixed)) throw new Error('model selector onOpenChange marker is missing')
 
 writeFileSync(bundlePath, patched)

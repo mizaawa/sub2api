@@ -168,7 +168,7 @@ describe('Image playground launcher', () => {
     expect(standaloneScript).toContain('children:"模型"')
     expect(standaloneScript).toContain('o.jsx(Gs,{value:i.id')
     expect(standaloneScript).toContain('o.jsx(Gs,{value:i.model')
-    expect(standaloneScript).toContain('onOpenChange:V=>{V&&mr&&mr()}')
+    expect(standaloneScript).toContain('onOpenChange:V=>{V&&(i.modelOptions??[]).filter(m=>m).length<=1&&mr&&mr()}')
     expect(standaloneScript).toContain('changeProfile=b.useCallback')
     expect(standaloneScript).toContain('P=_r(tn(z.getState().settings));P.profiles.some')
     expect(standaloneScript).toContain('X-API-Key')
