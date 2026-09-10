@@ -447,6 +447,10 @@ func applyOpenAIImagesDefaults(req *OpenAIImagesRequest) {
 	if req.N <= 0 {
 		req.N = 1
 	}
+	// Default to url format for browser compatibility and image playground downloads
+	if req.ResponseFormat == "" {
+		req.ResponseFormat = "url"
+	}
 	if strings.TrimSpace(req.Model) != "" {
 		req.Model = strings.TrimSpace(req.Model)
 		return
