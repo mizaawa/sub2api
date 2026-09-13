@@ -17,6 +17,12 @@
   height: 42px;
 }
 
+/* Keep the model family/version visible when a provider-prefixed id is long. */
+.image-model-select > span:first-child {
+  direction: rtl;
+  text-align: left;
+}
+
 [data-input-collapse-toggle] {
   width: 42px;
   min-width: 42px;

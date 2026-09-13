@@ -130,6 +130,13 @@ describe('Image playground launcher', () => {
     expect(standaloneScript).toContain('g&&clearImagePlaygroundBootstrap()')
   })
 
+  it('keeps the plus-button upload bridge in the generated bundle', () => {
+    expect(standaloneScript).toContain('async function Io(a,l="upload",s=Vn())')
+    expect(standaloneScript).toContain('const i=await Io(s,"upload",l)')
+    expect(standaloneScript).toContain('data-image-add')
+    expect(standaloneScript).toContain('type:"file",accept:"image/*",multiple:!0')
+  })
+
   it('passes the selected Sub2API async profile to the standalone project', () => {
     expect(componentSource).toContain("provider: 'sb2api-async'")
     expect(componentSource).toContain("baseUrl: IMAGE_PLAYGROUND_API_BASE_URL")
@@ -198,6 +205,37 @@ describe('Image playground launcher', () => {
     expect(responsiveOverride).toContain('grid-column: 1 / -1')
     expect(responsiveOverride).toContain('[data-image-params] > .grid > *')
     expect(responsiveOverride).toContain('width: 100%')
+  })
+
+  it('keeps image downloads usable when provider URLs reject CORS blob reads', () => {
+    // Generated output may be represented by an image ID whose cached value is
+    // either a data URL or the original provider URL. The downloader must read
+    // that cache before attempting the network request.
+    expect(standaloneScript).toContain('async function e1(')
+    expect(standaloneScript).toContain('const s=await Tn(a);s&&(l=s)')
+    expect(standaloneScript).toContain('async function sub2apiImageResponse')
+
+    // Hosts can expose an authenticated same-origin proxy without changing the
+    // vendored bundle; the built-in /v1 path rewrite covers reverse-proxied
+    // provider URLs as well.
+    expect(standaloneScript).toContain('globalThis.__SUB2API_IMAGE_DOWNLOAD_PROXY__')
+    expect(standaloneScript).toContain('i.pathname.startsWith("/v1/")')
+    expect(standaloneScript).toContain('f&&f!==l&&(d=await sub2apiImageResponse(f,!0))')
+
+    // If neither fetch path can expose bytes, a direct navigation still gives
+    // the browser a chance to honor the provider's Content-Disposition header.
+    expect(standaloneScript).toContain('sub2apiImageNavigationError')
+    expect(standaloneScript).toContain('downloadNavigationUrl')
+    expect(standaloneScript).toContain('sub2apiImageDownloadByNavigation')
+    expect(standaloneScript).toContain('target="_blank"')
+    expect(standaloneScript).toContain('downloadUrl:s[d]')
+    expect(standaloneScript).toContain('l.rawImageUrls??[]')
+    expect(standaloneScript).toContain('or([{imageId:Ke,downloadUrl:xt[_t]}]')
+
+    // ZIP downloads include only readable bytes; navigation fallbacks are
+    // counted as successful individual downloads and never produce an empty ZIP.
+    expect(standaloneScript).toContain('if(s>0){const m=uS')
+    expect(standaloneScript).toContain('return{successCount:s+direct,failCount:i}')
   })
 
   it('keeps the API key creation return path', () => {

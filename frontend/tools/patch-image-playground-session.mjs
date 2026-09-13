@@ -66,6 +66,19 @@ patched = patched.replace(/(?:async\s+){2,}function fr\(/g, 'async function fr('
 patched = patched.replace(/(?:async\s+){2,}function Qy\(/g, 'async function Qy(')
 patched = patched.replace(/(?:async\s+){2,}function Tn\(/g, 'async function Tn(')
 patched = patched.replace(/(?:async\s+){2,}function yb\(/g, 'async function yb(')
+patched = patched.replace(/(?:async\s+){2,}function e1\(/g, 'async function e1(')
+
+// The image input flow uploads a data URL through Io before adding it to the
+// Zustand input list. Some generated bundles lost this bridge while replacing
+// the session component, so the plus-button path raised a ReferenceError.
+// Keep the bridge adjacent to the task/image cleanup helpers it coordinates.
+const imagePersistenceBridge = 'async function Io(a,l="upload",s=Vn()){if(!He(s))return null;const i=await Qy(a,l);return He(s)?i:(await Br(i),null)}'
+if (!patched.includes('async function Io(')) {
+  const bridgeMarker = 'const Jf='
+  const bridgeIndex = patched.indexOf(bridgeMarker)
+  if (bridgeIndex < 0) throw new Error('image persistence bridge marker is missing')
+  patched = `${patched.slice(0, bridgeIndex)}${imagePersistenceBridge}${patched.slice(bridgeIndex)}`
+}
 
 // Local IndexedDB is auxiliary state, not a prerequisite for sending an
 // image request. A corrupted/locked database used to reject the first task's
@@ -101,6 +114,67 @@ replaceFunctionOnce(
   resilientImageRead,
   'Failed to read image data:',
 )
+
+// A generated task can retain a provider URL when the provider does not allow
+// CORS blob reads. Prefer the in-memory/IndexedDB value first, then try an
+// optional same-origin proxy (configured by the host), and finally let the
+// browser navigate to the original URL so a server Content-Disposition header
+// can still trigger a download. The navigation marker is handled by both the
+// single-image and ZIP download paths below.
+const imageDownloadFallback = `function sub2apiImageIsSameOrigin(a){if(typeof window==="undefined")return!1;try{return new URL(a,window.location.href).origin===window.location.origin}catch{return!1}}function sub2apiImageProxyUrl(a){if(typeof window==="undefined")return"";try{const l=globalThis.__SUB2API_IMAGE_DOWNLOAD_PROXY__,s=typeof l==="function"?l(a):typeof l==="string"?l.includes("{url}")?l.replace("{url}",encodeURIComponent(a)):l:"";if(s){const i=new URL(s,window.location.href);if(i.origin===window.location.origin)return i.href}const i=new URL(a,window.location.href);return i.origin!==window.location.origin&&i.pathname.startsWith("/v1/")?new URL(i.pathname+i.search,window.location.origin).href:""}catch{return""}}function sub2apiImageExtension(a){try{const l=new URL(a,typeof window!=="undefined"?window.location.href:void 0).pathname.match(/\\.([a-z0-9]+)$/i),s=(l==null?void 0:l[1]??"").toLowerCase();return s==="jpeg"?"jpg":["png","jpg","webp","gif"].includes(s)?s:"png"}catch{return"png"}}function sub2apiImageDownloadByNavigation(a,l){if(typeof document==="undefined"||!a)return!1;const s=document.createElement("a"),i=document.body||document.documentElement;if(!i)return!1;s.href=a,s.download=l,s.target="_blank",s.rel="noopener noreferrer",s.style.display="none",i.appendChild(s);try{s.click();return!0}catch{return!1}finally{s.remove()}}function sub2apiImageNavigationError(a,l){const s=new Error(l instanceof Error?l.message:String(l));return s.downloadNavigationUrl=a,s}async function sub2apiImageResponse(a,l){try{const s=await fetch(a,{cache:"no-store",credentials:l?"include":"omit"});return s.ok||a.startsWith("data:")?s:null}catch{return null}}`
+replaceFunctionOnce(
+  'image download fallback helpers',
+  'async function e1(',
+  'function t1(',
+  imageDownloadFallback + 'async function e1(',
+  'sub2apiImageNavigationError',
+)
+
+const imageDownloadReader = 'async function e1(a){let l=a;if(typeof a==="string"&&!a.startsWith("data:")&&!a.startsWith("http://")&&!a.startsWith("https://")){const s=await Tn(a);s&&(l=s)}if(typeof l!=="string"||!l)throw new Error("图片地址为空");const s=l.startsWith("data:"),i=/^https?:\\/\\//i.test(l);let d=await sub2apiImageResponse(l,i&&sub2apiImageIsSameOrigin(l));if(!d&&i){const f=sub2apiImageProxyUrl(l);f&&f!==l&&(d=await sub2apiImageResponse(f,!0))}if(!d){if(i)throw sub2apiImageNavigationError(l,new Error("图片 URL 下载失败：跨域或网络异常"));throw new Error("读取图片失败："+a)}const f=await d.blob();if(!f.size&&!f.type&&i)throw sub2apiImageNavigationError(l,new Error("图片 URL 返回空内容"));if(!d.ok&&!s)throw new Error("读取图片失败："+a);return f}'
+replaceFunctionOnce(
+  'cache-first image download reader',
+  'async function e1(',
+  'function t1(',
+  imageDownloadReader,
+  'sub2apiImageNavigationError',
+)
+
+const imageDownloadSingle = 'async function or(a,l="images"){if(a.length===0)return{successCount:0,failCount:0};let s=0,i=0;const d=a.length>1;for(let f=0;f<a.length;f++){const m=a[f],p=typeof m==="string"?m:m==null?"":m.imageId,g=typeof m==="string"?"":m==null?"":m.downloadUrl;try{const v=await e1(p),x=String(f+1).padStart(2,"0"),y=d?l+"-"+x+"."+s0(v):l+"."+s0(v);t1(v,y),s++,d&&await mS(100)}catch(v){const x=typeof(v==null?void 0:v.downloadNavigationUrl)==="string"?v.downloadNavigationUrl:g;if(typeof x==="string"&&x){const y=String(f+1).padStart(2,"0"),S=d?l+"-"+y+"."+sub2apiImageExtension(x):l+"."+sub2apiImageExtension(x);if(sub2apiImageDownloadByNavigation(x,S)){s++,d&&await mS(100);continue}}console.error(v),i++}}return{successCount:s,failCount:i}}'
+replaceFunctionOnce(
+  'single image download navigation fallback',
+  'async function or(',
+  'async function Ws(',
+  imageDownloadSingle,
+  'downloadNavigationUrl',
+)
+
+const imageDownloadZip = 'async function Ws(a,l="images"){if(a.length===0)return{successCount:0,failCount:0};let s=0,i=0,direct=0;const d={},f=new Set;for(let m=0;m<a.length;m++){const p=a[m],g=typeof p==="string"?p:p==null?"":p.imageId,v=typeof p==="string"?"":p==null?"":p.downloadUrl;try{const x=await e1(g),y=String(m+1).padStart(2,"0"),S=ly(typeof p==="string"?"":p==null?"":p.fileNameBase||("image-"+y))||("image-"+y),E=s0(x);let A=S+"."+E,R=2;for(;f.has(A);)A=S+"-"+String(R).padStart(2,"0")+"."+E,R++;f.add(A),d[A]=[new Uint8Array(await x.arrayBuffer()),{mtime:new Date}],s++}catch(x){const y=typeof(x==null?void 0:x.downloadNavigationUrl)==="string"?x.downloadNavigationUrl:v;if(typeof y==="string"&&y){const S=ly(typeof p==="string"?"":p==null?"":p.fileNameBase||("image-"+String(m+1).padStart(2,"0")))||("image-"+String(m+1).padStart(2,"0"));if(sub2apiImageDownloadByNavigation(y,S+"."+sub2apiImageExtension(y))){direct++;continue}}console.error(x),i++}}if(s>0){const m=uS(d,{level:6}),p=m.buffer.slice(m.byteOffset,m.byteOffset+m.byteLength);t1(new Blob([p],{type:"application/zip"}),(ly(l)||"images")+".zip")}return{successCount:s+direct,failCount:i}}'
+replaceFunctionOnce(
+  'ZIP image download navigation fallback',
+  'async function Ws(',
+  'function sy(',
+  imageDownloadZip,
+  'downloadNavigationUrl',
+)
+
+// Keep the provider URL alongside each cached image id. If an older task was
+// restored without its IndexedDB bytes, the download action can still use the
+// URL returned by the provider instead of failing on the synthetic id.
+const imageDownloadMetadata = 'function sy(a){return[...a].sort((l,s)=>s.createdAt-l.createdAt).flatMap(l=>Bo(l.outputImages||[],`task-${l.id}`))}function Bo(a,l="image"){return a.map((s,i)=>({imageId:s,fileNameBase:dS(l,i,a.length)}))}'
+const imageDownloadMetadataFixed = 'function sy(a){return[...a].sort((l,s)=>s.createdAt-l.createdAt).flatMap(l=>Bo(l.outputImages||[],`task-${l.id}`,l.rawImageUrls??[]))}function Bo(a,l="image",s=[]){return a.map((i,d)=>({imageId:i,fileNameBase:dS(l,d,a.length),downloadUrl:s[d]}))}'
+if (patched.includes(imageDownloadMetadata)) replaceOnce('image download URL metadata', imageDownloadMetadata, imageDownloadMetadataFixed)
+else if (!patched.includes(imageDownloadMetadataFixed)) throw new Error('image download URL metadata marker is missing')
+
+const imageDownloadCallFallbacks = [
+  ['or([Ke],`task-${w.id}`)', 'or([{imageId:Ke,downloadUrl:xt[_t]}],`task-${w.id}`)'],
+  ['Ws(Bo(w.outputImages,ve),ve)', 'Ws(Bo(w.outputImages,ve,w.rawImageUrls??[]),ve)'],
+  ['or(w.outputImages,ve)', 'or(Bo(w.outputImages,ve,w.rawImageUrls??[]),ve)'],
+  ['or(ne,ve)', 'or(sy(j),ve)'],
+  ['or(je.map(ke=>ke.imageId),`favorites-${ve.name}`)', 'or(je,`favorites-${ve.name}`)'],
+]
+for (const [from, to] of imageDownloadCallFallbacks) {
+  if (patched.includes(from)) replaceOnce('image download URL fallback call', from, to)
+}
 
 // Restoring local workbench state is best-effort. A stale task or an image
 // record from an older IndexedDB schema must not turn an otherwise valid
@@ -291,7 +365,8 @@ if (toolbar.includes(toolbarSignature)) {
   throw new Error('toolbar signature marker is missing')
 }
 const moderationControl = 'o.jsxs("label",{className:"relative flex flex-col gap-0.5",onMouseEnter:D.show,onMouseLeave:D.hide,onTouchStart:D.startTouch,onTouchEnd:D.clearTimer,onTouchCancel:D.hide,onClick:D.show,children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500 ml-1",children:"审核"}),o.jsx(Gs,{value:N?"auto":l.moderation,onChange:V=>{N||s({moderation:V})},options:[{label:"auto",value:"auto"},{label:"low",value:"low"}],disabled:N,showValueTooltips:!1,className:N?"px-3 py-1.5 rounded-xl border border-gray-200/60 dark:border-white/[0.08] bg-gray-100/50 dark:bg-white/[0.05] opacity-50 cursor-not-allowed text-xs transition-all duration-200 shadow-sm":g}),o.jsx(rr,{visible:N&&D.visible,text:"fal.ai 不支持审核参数"})]})'
-const modelControl = 'o.jsxs("div",{"data-image-profile-model":!0,className:"relative min-w-0 grid grid-cols-1 gap-1 sm:grid-cols-2",children:[o.jsxs("label",{className:"flex min-w-0 flex-col gap-0.5",children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500 ml-1",children:"配置"}),o.jsx(Gs,{value:i.id,onChange:V=>pc&&pc(V.target.value),options:(po??[]).map(V=>({label:V.name,value:V.id})),showValueTooltips:!1,className:g})]}),o.jsxs("label",{className:"flex min-w-0 flex-col gap-0.5",children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500 ml-1",children:"模型"}),o.jsx(Gs,{value:i.model,onChange:V=>mc&&mc(V.target.value),onOpenChange:V=>{V&&mr&&mr()},options:[...new Set((i.modelOptions??[]).concat(i.model||[]))].filter(V=>V).map(V=>({label:V,value:V})),showValueTooltips:!1,className:g})]})]})'
+const modelControlBase = 'o.jsxs("div",{"data-image-profile-model":!0,className:"relative min-w-0 grid grid-cols-1 gap-1 sm:grid-cols-2",children:[o.jsxs("label",{className:"flex min-w-0 flex-col gap-0.5",children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500 ml-1",children:"配置"}),o.jsx(Gs,{value:i.id,onChange:V=>pc&&pc(V.target.value),options:(po??[]).map(V=>({label:V.name,value:V.id})),showValueTooltips:!1,className:g})]}),o.jsxs("label",{className:"flex min-w-0 flex-col gap-0.5",children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500 ml-1",children:"模型"}),o.jsx(Gs,{value:i.model,onChange:V=>mc&&mc(V.target.value),onOpenChange:V=>{V&&mr&&mr()},options:[...new Set((i.modelOptions??[]).concat(i.model||[]))].filter(V=>V).map(V=>({label:V,value:V})),showValueTooltips:!1,className:g})]})]})'
+const modelControl = modelControlBase
 const modelControlWithoutClick = modelControl.replace('onClick:()=>mr&&mr(),', '')
 const modelControlWithoutHook = modelControl.replace('"data-image-profile-model":!0,', '')
 const legacyPatchedModelControl = 'o.jsxs("div",{"data-image-profile-model":!0,className:"relative flex min-w-0 flex-col gap-0.5",children:[o.jsx("span",{className:"text-gray-400 dark:text-gray-500 ml-1",children:"配置 / 模型"}),o.jsxs("div",{className:"grid min-w-0 grid-cols-1 gap-1 sm:grid-cols-2",children:[o.jsx("select",{value:i.id,onChange:V=>pc&&pc(V.target.value),className:`${g} min-w-0 w-full`,"aria-label":"当前配置",children:(po??[]).map(V=>o.jsx("option",{value:V.id,children:V.name},V.id))}),o.jsx("select",{value:i.model,onFocus:()=>mr&&mr(),onClick:()=>mr&&mr(),onChange:V=>mc&&mc(V.target.value),className:`${g} min-w-0 w-full`,"aria-label":"选择模型",children:[...new Set((i.modelOptions??[]).concat(i.model||[]))].filter(V=>V).map(V=>o.jsx("option",{value:V,children:V},V))})]})]})'
@@ -307,8 +382,25 @@ else if (toolbar.includes(modelControlWithoutHook)) toolbar = toolbar.replace(mo
 const modelControlFixed = modelControl
   .replace('onChange:V=>pc&&pc(V.target.value)', 'onChange:V=>pc&&pc(V)')
   .replace('onChange:V=>mc&&mc(V.target.value),onOpenChange:V=>{V&&mr&&mr()}', 'onChange:V=>mc&&mc(V),onOpenChange:V=>{V&&(i.modelOptions??[]).filter(m=>m).length<=1&&mr&&mr()}')
+const modelControlAlreadyPatched = toolbar.includes('data-image-profile-model":!0') &&
+  toolbar.includes('onChange:V=>pc&&pc(V)') &&
+  toolbar.includes('onChange:V=>mc&&mc(V)')
 if (toolbar.includes(moderationControl)) toolbar = toolbar.replace(moderationControl, modelControl)
-else if (!toolbar.includes(modelControl) && !toolbar.includes(modelControlFixed)) throw new Error('toolbar model control marker is missing')
+else if (!toolbar.includes(modelControl) && !toolbar.includes(modelControlFixed) && !modelControlAlreadyPatched) throw new Error('toolbar model control marker is missing')
+
+// Model identifiers are often prefixed with a provider path. Mark only the
+// model trigger so its constrained label uses a leading ellipsis and keeps the
+// useful suffix visible (for example, the actual model family and version).
+const modelLabelMarker = 'children:"模型"}),o.jsx(Gs,{value:i.model,'
+const modelLabelStart = toolbar.indexOf(modelLabelMarker)
+if (modelLabelStart < 0) throw new Error('model selector label marker is missing')
+const modelLabelClassMarker = 'showValueTooltips:!1,className:g'
+const modelLabelClassStart = toolbar.indexOf(modelLabelClassMarker, modelLabelStart)
+if (modelLabelClassStart < 0) throw new Error('model selector class marker is missing')
+const modelLabelClassFixed = `${modelLabelClassMarker}+" image-model-select"`
+if (!toolbar.includes(modelLabelClassFixed, modelLabelClassStart)) {
+  toolbar = `${toolbar.slice(0, modelLabelClassStart)}${modelLabelClassFixed}${toolbar.slice(modelLabelClassStart + modelLabelClassMarker.length)}`
+}
 patched = patched.slice(0, toolbarStart) + toolbar + patched.slice(toolbarEnd)
 
 const modelFocusOnly = 'onFocus:()=>mr&&mr(),onChange:V=>mc&&mc(V.target.value)'
