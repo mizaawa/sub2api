@@ -288,6 +288,14 @@ if (!patched.includes('function j4(')) {
 
 // zayu rejects an explicit null output_compression field. Omit optional nulls
 // from the resolved JSON body while preserving zero and positive values.
+// Preserve the managed profile's Base64 response preference while normalizing
+// settings. Without this field j5() silently drops the launcher hint and the
+// browser falls back to downloading a provider URL across origins.
+const profileBase64Response = 'transparentBackgroundMethod:"api"}}function tn('
+const profileBase64ResponseFixed = 'transparentBackgroundMethod:"api",responseFormatB64Json:s.responseFormatB64Json===true}}function tn('
+if (patched.includes(profileBase64Response)) replaceOnce('preserve Base64 image response preference', profileBase64Response, profileBase64ResponseFixed)
+else if (!patched.includes(profileBase64ResponseFixed)) throw new Error('Base64 image response preference marker is missing')
+
 const jsonBodyBuild = 'const A=Qs(a.body??{},p);s.responseFormatB64Json&&A&&typeof A=="object"&&!Array.isArray(A)&&(A.response_format="b64_json"),S=JSON.stringify(A)'
 const jsonBodyBuildFixed = 'const A=Qs(a.body??{},p);A&&typeof A=="object"&&!Array.isArray(A)&&A.output_compression==null&&delete A.output_compression,s.responseFormatB64Json&&A&&typeof A=="object"&&!Array.isArray(A)&&(A.response_format="b64_json"),S=JSON.stringify(A)'
 if (patched.includes(jsonBodyBuild)) replaceOnce('omit null image compression', jsonBodyBuild, jsonBodyBuildFixed)

@@ -398,6 +398,10 @@ function buildStandaloneSettings(context: LoadContext, key: ApiKey, model: strin
     userEmail: context.userEmail,
     model: candidate.id === key.id ? model : defaultModelForKey(candidate),
     modelOptions: modelsByKeyId.value[candidate.id] || [defaultModelForKey(candidate)],
+    // Ask the synchronous Images API for inline bytes. Provider-hosted image
+    // URLs are often displayable but reject browser blob downloads because of
+    // CORS, while Base64 results remain available to the workbench downloader.
+    responseFormatB64Json: true,
     isDefault: candidate.id === key.id,
     timeout: 600,
     apiMode: 'images',
