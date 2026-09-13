@@ -145,7 +145,7 @@ replaceFunctionOnce(
   'async function or(',
   'async function Ws(',
   imageDownloadSingle,
-  'downloadNavigationUrl',
+  'const m=a[f],p=typeof m==="string"?m:m==null?"":m.imageId',
 )
 
 const imageDownloadZip = 'async function Ws(a,l="images"){if(a.length===0)return{successCount:0,failCount:0};let s=0,i=0,direct=0;const d={},f=new Set;for(let m=0;m<a.length;m++){const p=a[m],g=typeof p==="string"?p:p==null?"":p.imageId,v=typeof p==="string"?"":p==null?"":p.downloadUrl;try{const x=await e1(g),y=String(m+1).padStart(2,"0"),S=ly(typeof p==="string"?"":p==null?"":p.fileNameBase||("image-"+y))||("image-"+y),E=s0(x);let A=S+"."+E,R=2;for(;f.has(A);)A=S+"-"+String(R).padStart(2,"0")+"."+E,R++;f.add(A),d[A]=[new Uint8Array(await x.arrayBuffer()),{mtime:new Date}],s++}catch(x){const y=typeof(x==null?void 0:x.downloadNavigationUrl)==="string"?x.downloadNavigationUrl:v;if(typeof y==="string"&&y){const S=ly(typeof p==="string"?"":p==null?"":p.fileNameBase||("image-"+String(m+1).padStart(2,"0")))||("image-"+String(m+1).padStart(2,"0"));if(sub2apiImageDownloadByNavigation(y,S+"."+sub2apiImageExtension(y))){direct++;continue}}console.error(x),i++}}if(s>0){const m=uS(d,{level:6}),p=m.buffer.slice(m.byteOffset,m.byteOffset+m.byteLength);t1(new Blob([p],{type:"application/zip"}),(ly(l)||"images")+".zip")}return{successCount:s+direct,failCount:i}}'
@@ -154,7 +154,7 @@ replaceFunctionOnce(
   'async function Ws(',
   'function sy(',
   imageDownloadZip,
-  'downloadNavigationUrl',
+  'const p=a[m],g=typeof p==="string"?p:p==null?"":p.imageId',
 )
 
 // Keep the provider URL alongside each cached image id. If an older task was
@@ -231,6 +231,19 @@ function replaceFunctionOnce(label, startMarker, endMarker, replacement, already
   if (current.includes(alreadyMarker)) return
   patched = patched.slice(0, start) + replacement + patched.slice(end)
 }
+
+// Cached reference images are data URLs. Calling fetch(dataUrl) is needlessly
+// dependent on the browser's URL loader and can fail with a generic
+// "Failed to fetch" for large images before the multipart request is sent.
+// Decode data URLs locally and keep fetch only for blob/http URLs.
+const dataUrlBlobReader = 'async function y0(a,l="image/png"){if(typeof a==="string"&&/^data:/i.test(a)){const i=a.indexOf(",");if(i<0)throw new Error("图片 data URL 格式无效");const d=a.slice(5,i),f=a.slice(i+1),m=(d.match(/^([^;,\\s]+)/)?.[1]||l).toLowerCase();try{if(/(?:^|;)base64$/i.test(d)){const p=f.replace(/\\s+/g,"");const g=atob(p),v=new Uint8Array(g.length);for(let x=0;x<g.length;x++)v[x]=g.charCodeAt(x);return new Blob([v],{type:m})}return new Blob([decodeURIComponent(f)],{type:m})}catch{throw new Error("图片 data URL 解码失败")}}const i=await(await fetch(a)).blob();return i.type?i:new Blob([await i.arrayBuffer()],{type:l})}'
+replaceFunctionOnce(
+  'local data URL image decoding',
+  'async function y0(',
+  'async function b0(',
+  dataUrlBlobReader,
+  '图片 data URL 解码失败',
+)
 
 // Browser auth refreshes update several storage keys in sequence. Debounce a
 // missing token/parse result, but react immediately when a different user is

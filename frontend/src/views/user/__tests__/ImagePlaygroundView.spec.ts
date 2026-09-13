@@ -209,6 +209,22 @@ describe('Image playground launcher', () => {
     expect(responsiveOverride).toContain('width: 100%')
   })
 
+  it('keeps reference-image multipart uploads independent of data URL fetch', () => {
+    // Reference images are stored as data URLs. Decode them locally before
+    // constructing FormData so WebViews cannot fail before the request starts.
+    expect(standaloneScript).toContain('async function y0(a,l="image/png")')
+    expect(standaloneScript).toContain('^data:/i')
+    expect(standaloneScript).toContain('图片 data URL 格式无效')
+    expect(standaloneScript).toContain('图片 data URL 解码失败')
+
+    // The edit provider receives every selected image as image[] and asks for
+    // base64 output so the result remains usable without a cross-origin fetch.
+    expect(standaloneScript).toContain('path:"images/edits"')
+    expect(standaloneScript).toContain('field:"image[]",source:"inputImages",array:!0')
+    expect(standaloneScript).toContain('i.append(S.field,A,`input-${E+1}.${R}`)')
+    expect(standaloneScript).toContain('s.responseFormatB64Json&&A.append("response_format","b64_json")')
+  })
+
   it('keeps image downloads usable when provider URLs reject CORS blob reads', () => {
     // Generated output may be represented by an image ID whose cached value is
     // either a data URL or the original provider URL. The downloader must read
