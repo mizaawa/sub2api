@@ -38,7 +38,7 @@ func (h *SettingHandler) SetNotificationEmailService(notificationEmailService *s
 // GET /api/v1/settings/public
 func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 	// Public settings include feature flags that can change at runtime. Do not
-	// let a browser, CDN, or shared proxy retain a stale playground gate.
+	// let a browser, CDN, or shared proxy retain stale runtime configuration.
 	c.Header("Cache-Control", "no-store")
 	settings, err := h.settingService.GetPublicSettings(c.Request.Context())
 	if err != nil {

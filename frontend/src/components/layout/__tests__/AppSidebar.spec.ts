@@ -72,16 +72,9 @@ describe('AppSidebar grouped navigation', () => {
   })
 })
 
-describe('AppSidebar image playground navigation', () => {
-  it('keeps the view tool in the launcher tab so the key bootstrap is preserved', () => {
-    expect(componentSource).toContain("path: '/image-playground', label: t('nav.imagePlayground'), icon: ViewToolIcon, featureFlag: flagImagePlayground")
-    expect(componentSource).not.toContain("path: '/image-playground', label: t('nav.imagePlayground'), icon: ViewToolIcon, openInNewWindow: true")
-    expect(componentSource).toContain(":target=\"item.openInNewWindow ? '_blank' : undefined\"")
-    expect(componentSource).toContain(":rel=\"item.openInNewWindow ? 'noopener noreferrer' : undefined\"")
-  })
-
+describe('AppSidebar feature management navigation', () => {
   it('exposes a direct administrator entry for feature management', () => {
-    expect(componentSource).toContain("path: '/admin/features', label: t('nav.featureManagement'), icon: ViewToolIcon")
+    expect(componentSource).toContain("path: '/admin/features', label: t('nav.featureManagement'), icon: CogIcon")
   })
 })
 

@@ -677,61 +677,6 @@ func TestFrontendServer_Middleware(t *testing.T) {
 		assert.Equal(t, staticAssetsCacheControl, assetWriter.Header().Get("Cache-Control"))
 	})
 
-	t.Run("serves_nested_directory_index", func(t *testing.T) {
-		provider := &mockSettingsProvider{
-			settings: map[string]any{"test": "value", "image_playground_enabled": true},
-		}
-
-		server, err := NewFrontendServer(provider)
-		require.NoError(t, err)
-
-		router := gin.New()
-		router.Use(server.Middleware())
-
-		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/image-playground/", nil)
-		router.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
-		assert.Equal(t, imagePlaygroundCacheControl, w.Header().Get("Cache-Control"))
-		assert.Equal(t, "no-cache", w.Header().Get("Pragma"))
-		assert.Contains(t, w.Body.String(), "小杂鱼の生图")
-		assert.NotContains(t, w.Body.String(), "<div id=\"app\">")
-	})
-
-	t.Run("blocks_image_playground_when_feature_disabled", func(t *testing.T) {
-		provider := &mockSettingsProvider{
-			settings: map[string]any{"image_playground_enabled": false},
-		}
-
-		server, err := NewFrontendServer(provider)
-		require.NoError(t, err)
-
-		router := gin.New()
-		router.Use(server.Middleware())
-
-		for _, path := range []string{"/image-playground", "/image-playground/", "/image-playground/assets/index.js"} {
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodGet, path, nil)
-			router.ServeHTTP(w, req)
-			assert.Equal(t, http.StatusNotFound, w.Code, "path=%s", path)
-		}
-	})
-
-	t.Run("blocks_image_playground_without_settings_provider", func(t *testing.T) {
-		server, err := NewFrontendServer(nil)
-		require.NoError(t, err)
-
-		router := gin.New()
-		router.Use(server.Middleware())
-
-		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/image-playground/", nil)
-		router.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusNotFound, w.Code)
-	})
 }
 
 func TestEmbeddedFrontendBypassesBareVideoAPIRoutes(t *testing.T) {
@@ -811,19 +756,6 @@ func TestServeEmbeddedFrontend(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Contains(t, w.Header().Get("Content-Type"), "text/html")
 		assert.Contains(t, w.Body.String(), "<!doctype html>")
-	})
-
-	t.Run("blocks_image_playground_without_settings_provider", func(t *testing.T) {
-		middleware := ServeEmbeddedFrontend()
-
-		router := gin.New()
-		router.Use(middleware)
-
-		w := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodGet, "/image-playground/", nil)
-		router.ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 
 	t.Run("serves_index_html_for_spa_routes", func(t *testing.T) {

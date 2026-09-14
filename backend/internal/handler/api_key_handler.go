@@ -21,9 +21,8 @@ type APIKeyHandler struct {
 	apiKeyService *service.APIKeyService
 }
 
-// API keys are returned in these responses so the image playground can build
-// an in-browser profile. They must never be stored by a browser or an
-// intermediary cache.
+// API key responses contain credentials and must never be stored by a browser
+// or an intermediary cache.
 const apiKeyResponseCacheControl = "private, no-store"
 
 func setAPIKeyResponseNoStore(c *gin.Context) {

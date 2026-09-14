@@ -1073,7 +1073,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 func (h *GatewayHandler) Models(c *gin.Context) {
 	// The model catalogue is scoped to the authenticated key/group. Prevent
 	// browsers, CDNs, and shared proxies from reusing one user's catalogue for
-	// another request (the image playground calls this endpoint directly).
+	// another request.
 	c.Header("Cache-Control", "no-store")
 	apiKey, _ := middleware2.GetAPIKeyFromContext(c)
 

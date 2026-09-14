@@ -30,7 +30,10 @@ function initThemeClass() {
   document.documentElement.classList.toggle('dark', shouldUseDark)
 }
 
-async function invalidateLegacyImagePlaygroundWorker(): Promise<void> {
+// Retire client-side state from releases that shipped the standalone image
+// workbench. This is a one-time compatibility migration, not a feature entry
+// point: old cache-first workers can otherwise keep serving the removed bundle.
+async function clearRetiredImageClientState(): Promise<void> {
   try {
     if ('serviceWorker' in navigator) {
       const registrations = await navigator.serviceWorker.getRegistrations()
@@ -51,8 +54,8 @@ async function invalidateLegacyImagePlaygroundWorker(): Promise<void> {
         .map((key) => caches.delete(key)))
     }
   } catch {
-    // Private browsing may disable Service Worker/Cache APIs; route and
-    // server-side feature gates remain authoritative in that case.
+    // Private browsing may disable Service Worker/Cache APIs; the retired
+    // route and removed assets remain unavailable on the server.
   }
 }
 
@@ -60,8 +63,7 @@ async function bootstrap() {
   // Apply theme class globally before app mount to keep all routes consistent.
   initThemeClass()
   initIOSViewportZoomFix()
-  await invalidateLegacyImagePlaygroundWorker()
-
+  await clearRetiredImageClientState()
   const app = createApp(App)
   const pinia = createPinia()
   app.use(pinia)

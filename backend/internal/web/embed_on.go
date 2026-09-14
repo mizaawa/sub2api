@@ -88,29 +88,6 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 
-		// The standalone image playground is an opt-in feature. Gate the HTML
-		// entry and every nested asset here so a disabled deployment cannot load
-		// the independent bundle by guessing its static URL.
-		if isImagePlaygroundPath(path) {
-			c.Header("Cache-Control", imagePlaygroundCacheControl)
-			c.Header("Pragma", "no-cache")
-			// Fail closed when the settings provider is unavailable. This keeps a
-			// partially initialized server from exposing the standalone bundle.
-			if s == nil || s.settings == nil {
-				c.Status(http.StatusNotFound)
-				c.Abort()
-				return
-			}
-			ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
-			settings, err := s.settings.GetPublicSettingsForInjection(ctx)
-			cancel()
-			if err != nil || !imagePlaygroundEnabled(settings) {
-				c.Status(http.StatusNotFound)
-				c.Abort()
-				return
-			}
-		}
-
 		// Skip API routes
 		if shouldBypassEmbeddedFrontend(path) {
 			c.Next()
@@ -142,24 +119,6 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 		s.fileServer.ServeHTTP(c.Writer, c.Request)
 		c.Abort()
 	}
-}
-
-func isImagePlaygroundPath(path string) bool {
-	return path == "/image-playground" || strings.HasPrefix(path, "/image-playground/")
-}
-
-func imagePlaygroundEnabled(settings any) bool {
-	encoded, err := json.Marshal(settings)
-	if err != nil {
-		return false
-	}
-	var payload struct {
-		ImagePlaygroundEnabled bool `json:"image_playground_enabled"`
-	}
-	if err := json.Unmarshal(encoded, &payload); err != nil {
-		return false
-	}
-	return payload.ImagePlaygroundEnabled
 }
 
 func (s *FrontendServer) fileExists(path string) bool {
@@ -205,12 +164,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 		content := replaceNoncePlaceholder(cached.Content, nonce)
 
 		c.Header("ETag", cached.ETag)
-		if isImagePlaygroundPath(c.Request.URL.Path) {
-			c.Header("Cache-Control", imagePlaygroundCacheControl)
-			c.Header("Pragma", "no-cache")
-		} else {
-			c.Header("Cache-Control", "no-cache") // Must revalidate
-		}
+		c.Header("Cache-Control", "no-cache") // Must revalidate
 		c.Data(http.StatusOK, "text/html; charset=utf-8", content)
 		c.Abort()
 		return
@@ -246,12 +200,7 @@ func (s *FrontendServer) serveIndexHTML(c *gin.Context) {
 	if cached != nil {
 		c.Header("ETag", cached.ETag)
 	}
-	if isImagePlaygroundPath(c.Request.URL.Path) {
-		c.Header("Cache-Control", imagePlaygroundCacheControl)
-		c.Header("Pragma", "no-cache")
-	} else {
-		c.Header("Cache-Control", "no-cache")
-	}
+	c.Header("Cache-Control", "no-cache")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", content)
 	c.Abort()
 }
@@ -365,15 +314,6 @@ func ServeEmbeddedFrontend() gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
-
-		// This legacy middleware has no settings provider, so it cannot
-		// establish the image-playground feature gate. Fail closed rather than
-		// exposing the standalone bundle during setup or initialization fallback.
-		if isImagePlaygroundPath(path) {
-			c.Status(http.StatusNotFound)
-			c.Abort()
-			return
-		}
 
 		if shouldBypassEmbeddedFrontend(path) {
 			c.Next()

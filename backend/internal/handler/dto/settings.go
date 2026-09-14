@@ -306,7 +306,6 @@ type SystemSettings struct {
 	// Available Channels feature switch (user-facing aggregate view)
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
 	LeaderboardEnabled       bool `json:"leaderboard_enabled"`
-	ImagePlaygroundEnabled   bool `json:"image_playground_enabled"`
 
 	// Model Plaza feature (public group/model pricing showcase)
 	ModelPlazaEnabled               bool   `json:"model_plaza_enabled"`
@@ -407,7 +406,6 @@ type PublicSettings struct {
 
 	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
 	LeaderboardEnabled       bool `json:"leaderboard_enabled"`
-	ImagePlaygroundEnabled   bool `json:"image_playground_enabled"`
 
 	ModelPlazaEnabled     bool `json:"model_plaza_enabled"`
 	ModelPlazaRequireAuth bool `json:"model_plaza_require_auth"`
