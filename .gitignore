@@ -143,3 +143,6 @@ docs/*
 frontend/coverage/
 aicodex
 output/
+
+# Vitest and other local tool caches.
+.vite/

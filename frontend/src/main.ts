@@ -30,9 +30,9 @@ function initThemeClass() {
   document.documentElement.classList.toggle('dark', shouldUseDark)
 }
 
-// Retire client-side state from releases that shipped the standalone image
-// workbench. This is a one-time compatibility migration, not a feature entry
-// point: old cache-first workers can otherwise keep serving the removed bundle.
+// Retire client-side state from releases that shipped a removed standalone
+// asset. This is a one-time compatibility migration, not a feature entry
+// point: old cache-first workers can otherwise keep serving stale assets.
 async function clearRetiredImageClientState(): Promise<void> {
   try {
     if ('serviceWorker' in navigator) {
