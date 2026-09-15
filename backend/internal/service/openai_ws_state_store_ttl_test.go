@@ -21,7 +21,7 @@ func (c *ttlAwareOpenAIHTTPResponseBindingTestCache) GetOpenAIHTTPResponseBindin
 	groupID int64,
 	key string,
 ) (int64, int64, time.Duration, error) {
-	accountID, userID, err := c.openAIHTTPResponseBindingTestCache.GetOpenAIHTTPResponseBinding(ctx, groupID, key)
+	accountID, userID, err := c.GetOpenAIHTTPResponseBinding(ctx, groupID, key)
 	return accountID, userID, c.ttl, err
 }
 
