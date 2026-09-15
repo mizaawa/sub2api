@@ -409,7 +409,7 @@ const (
 
 	// SettingKeyModelPlazaEnabled is a DB-backed soft switch for the Model Plaza page
 	// (public group/model pricing showcase). When false: the plaza endpoint returns 404
-	// and the header entry is hidden. Defaults to false (opt-in feature).
+	// and the sidebar entry is hidden. Defaults to false (opt-in feature).
 	SettingKeyModelPlazaEnabled = "model_plaza_enabled"
 
 	// SettingKeyModelPlazaRequireAuth controls whether the Model Plaza page requires a

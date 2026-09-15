@@ -40,7 +40,7 @@ export default {
           title: '模型广场',
           description: '以分组为单位向访客展示可用模型与价格的公开页面。默认关闭。',
           enabled: '启用模型广场',
-          enabledHint: '开启后顶栏显示入口，页面可通过 /model-plaza 独立访问。',
+          enabledHint: '开启后用户侧边栏显示模型广场入口，点击后将在新标签页打开 /model-plaza 独立页面。',
           requireAuth: '需要登录才可访问',
           requireAuthHint: '开启后未登录访问将跳转登录页；关闭则公开可见，匿名访客仅展示非专属分组。',
           priceDescription: '价格说明（Markdown）',

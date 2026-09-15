@@ -443,6 +443,25 @@ const ChannelIcon = {
     )
 }
 
+const ModelPlazaIcon = {
+  render: () =>
+    h(
+      'svg',
+      {
+        fill: 'none',
+        viewBox: '0 0 48 48',
+        stroke: 'currentColor',
+        'stroke-width': '4',
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+      },
+      [
+        h('path', { d: 'M17 40L4 33V17L17 10L30 17V29' }),
+        h('path', { d: 'M30 8L43 15V31L30 38L17 31V19' }),
+      ],
+    ),
+}
+
 const CreditCardIcon = {
   render: () =>
     h(
@@ -695,6 +714,7 @@ const flagChannelMonitor = makeSidebarFlag(FeatureFlags.channelMonitor)
 const flagPayment = makeSidebarFlag(FeatureFlags.payment)
 const flagAvailableChannels = makeSidebarFlag(FeatureFlags.availableChannels)
 const flagLeaderboard = makeSidebarFlag(FeatureFlags.leaderboard)
+const flagModelPlaza = makeSidebarFlag(FeatureFlags.modelPlaza)
 const flagAffiliate = makeSidebarFlag(FeatureFlags.affiliate)
 const flagRiskControl = makeSidebarFlag(FeatureFlags.riskControl)
 const flagOpsMonitoring = () => adminSettingsStore.opsMonitoringEnabled
@@ -704,7 +724,7 @@ const flagBatchImageAccess = () => canUseBatchImage.value
 // buildSelfNavItems 构造用户自己的导航项（用户端主菜单和管理员的"我的账户"子菜单共享这组声明）。
 // withDashboard=true 时包含仪表盘（用户端），false 时不含（管理员的个人区已经有独立仪表盘入口）。
 //
-// 条目顺序：密钥 → 批量生图 → 用量 → 可用渠道 → 渠道状态 → 订阅/支付 → 兑换/资料。
+// 条目顺序：密钥 → 批量生图 → 用量 → 可用渠道 → 渠道状态 → 模型广场 → 订阅/支付 → 兑换/资料。
 // 可用渠道紧挨渠道状态之上，让用户"先看自己能用什么、再看对应状态"。
 function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   const items: NavItem[] = []
@@ -717,6 +737,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },
     { path: '/monitor', label: t('nav.channelStatus'), icon: SignalIcon, featureFlag: flagChannelMonitor },
+    { path: '/model-plaza', label: t('nav.modelPlaza'), icon: ModelPlazaIcon, openInNewWindow: true, featureFlag: flagModelPlaza },
     { path: '/subscriptions', label: t('nav.mySubscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },
     { path: '/purchase', label: t('nav.buySubscription'), icon: RechargeSubscriptionIcon, hideInSimpleMode: true, featureFlag: flagPayment },
     { path: '/orders', label: t('nav.myOrders'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagPayment },

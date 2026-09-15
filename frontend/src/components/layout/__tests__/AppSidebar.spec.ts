@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest'
 
 const componentPath = resolve(dirname(fileURLToPath(import.meta.url)), '../AppSidebar.vue')
 const componentSource = readFileSync(componentPath, 'utf8')
+const headerPath = resolve(dirname(fileURLToPath(import.meta.url)), '../AppHeader.vue')
+const headerSource = readFileSync(headerPath, 'utf8')
 const layoutPath = resolve(dirname(fileURLToPath(import.meta.url)), '../AppLayout.vue')
 const layoutSource = readFileSync(layoutPath, 'utf8')
 const stylePath = resolve(dirname(fileURLToPath(import.meta.url)), '../../../style.css')
@@ -75,6 +77,37 @@ describe('AppSidebar grouped navigation', () => {
 describe('AppSidebar feature management navigation', () => {
   it('exposes a direct administrator entry for feature management', () => {
     expect(componentSource).toContain("path: '/admin/features', label: t('nav.featureManagement'), icon: CogIcon")
+  })
+})
+
+describe('Model Plaza navigation', () => {
+  it('keeps the entry out of the header and places it between channel status and subscriptions', () => {
+    expect(headerSource).not.toContain('model-plaza')
+    expect(headerSource).not.toContain('modelPlazaEnabled')
+
+    const channelStatusIndex = componentSource.indexOf("{ path: '/monitor'")
+    const modelPlazaIndex = componentSource.indexOf("{ path: '/model-plaza'")
+    const subscriptionsIndex = componentSource.indexOf("{ path: '/subscriptions'")
+
+    expect(channelStatusIndex).toBeGreaterThanOrEqual(0)
+    expect(modelPlazaIndex).toBeGreaterThan(channelStatusIndex)
+    expect(subscriptionsIndex).toBeGreaterThan(modelPlazaIndex)
+  })
+
+  it('opens the standalone page in a new tab behind the model plaza feature flag', () => {
+    expect(componentSource).toContain('const flagModelPlaza = makeSidebarFlag(FeatureFlags.modelPlaza)')
+    expect(componentSource).toContain("path: '/model-plaza', label: t('nav.modelPlaza'), icon: ModelPlazaIcon, openInNewWindow: true, featureFlag: flagModelPlaza")
+    expect(componentSource).toContain(":href=\"item.openInNewWindow ? resolveNavHref(item.path) : undefined\"")
+    expect(componentSource).toContain(":target=\"item.openInNewWindow ? '_blank' : undefined\"")
+    expect(componentSource).toContain(":rel=\"item.openInNewWindow ? 'noopener noreferrer' : undefined\"")
+  })
+
+  it('uses the supplied interlocking-hexagon icon geometry', () => {
+    expect(componentSource).toContain("viewBox: '0 0 48 48'")
+    expect(componentSource).toContain("d: 'M17 40L4 33V17L17 10L30 17V29'")
+    expect(componentSource).toContain("d: 'M30 8L43 15V31L30 38L17 31V19'")
+    expect(componentSource).toContain("stroke: 'currentColor'")
+    expect(componentSource).toContain("'stroke-width': '4'")
   })
 })
 
