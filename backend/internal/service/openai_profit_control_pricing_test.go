@@ -1,7 +1,7 @@
 package service
 
 // 请求级定价与利润门回归：请求级 pricingAt 定价上下文、门复用（failover 阈值稳定）、
-// 生图意图跳门、U 使用账号倍率且与探测新鲜度解耦、
+// Responses capability 与显式 suppression 的边界、U 使用账号倍率且与探测新鲜度解耦、
 // 用量记录定价时刻取值。
 
 import (
@@ -109,8 +109,9 @@ func TestProfitControl_UsesAccountRateInsteadOfProbeSnapshot(t *testing.T) {
 	require.Equal(t, openAIProfitFilterReasonThreshold, reason)
 }
 
-// 显式生图意图（requiredCapability=Responses）在唯一调度入口跳门（图片边界不装门）。
-func TestProfitControl_ResponsesImageIntentSkipsGateAtScheduler(t *testing.T) {
+// Responses capability 也用于 Codex/previous_response_id 续链，不能再隐式
+// 关闭利润门；只有显式 suppression 标记的门外路径才跳门。
+func TestProfitControl_ResponsesCapabilityRequiresExplicitSuppression(t *testing.T) {
 	now := time.Now()
 	expensive := upstreamCostTestAccount(51, UpstreamBillingProbeStatusOK, 0.8, now.Add(-time.Minute), 30*time.Minute)
 	expensive.Status = StatusActive
@@ -128,8 +129,13 @@ func TestProfitControl_ResponsesImageIntentSkipsGateAtScheduler(t *testing.T) {
 	_, _, err := svc.SelectAccountWithSchedulerForCapability(ctx, &groupID, "", "", "gpt-test", nil, OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityChatCompletions, false, false, true)
 	require.ErrorIs(t, err, ErrNoAvailableAccounts, "文本能力必须过利润门")
 
-	selection, _, err := svc.SelectAccountWithSchedulerForCapability(ctx, &groupID, "", "", "gpt-test", nil, OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityResponses, false, false, true)
-	require.NoError(t, err, "生图意图不装门，保持既有调度")
+	_, _, err = svc.SelectAccountWithSchedulerForCapability(ctx, &groupID, "", "", "gpt-test", nil, OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityResponses, false, false, true)
+	require.ErrorIs(t, err, ErrNoAvailableAccounts, "Responses capability used by stateful/Codex paths must still pass the profit gate")
+
+	// Standalone image/media callers carry the explicit suppression marker.
+	suppressedCtx := WithOpenAIProfitControlSuppressed(profitControlTestCtx(profitControlTestGroup(groupID, 0.5, 0)))
+	selection, _, err := svc.SelectAccountWithSchedulerForCapability(suppressedCtx, &groupID, "", "", "gpt-test", nil, OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityResponses, false, false, true)
+	require.NoError(t, err, "explicitly suppressed image/media paths retain their ungated behavior")
 	require.NotNil(t, selection)
 	require.Equal(t, expensive.ID, selection.Account.ID)
 	if selection.ReleaseFunc != nil {

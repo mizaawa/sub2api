@@ -843,6 +843,10 @@ func TestOpenAIWSRawPayloadHasToolCallOutput(t *testing.T) {
 
 	for _, typ := range []string{
 		"function_call_output",
+		"computer_call_output",
+		"apply_patch_call_output",
+		"shell_call_output",
+		"local_shell_call_output",
 		"tool_search_output",
 		"custom_tool_call_output",
 		"mcp_tool_call_output",
@@ -865,6 +869,42 @@ func TestOpenAIWSRawPayloadHasToolCallOutput(t *testing.T) {
 		t.Parallel()
 		payload := []byte(`{"input":[{"type":"input_text","text":"hello"}]}`)
 		require.False(t, openAIWSRawPayloadHasToolCallOutput(payload))
+	})
+}
+
+func TestOpenAIWSRawItemsHaveExtendedToolCallContextForOutputs(t *testing.T) {
+	t.Parallel()
+
+	pairs := []struct {
+		callType   string
+		outputType string
+	}{
+		{callType: "computer_call", outputType: "computer_call_output"},
+		{callType: "apply_patch_call", outputType: "apply_patch_call_output"},
+		{callType: "shell_call", outputType: "shell_call_output"},
+		{callType: "local_shell_call", outputType: "local_shell_call_output"},
+	}
+	for _, pair := range pairs {
+		pair := pair
+		t.Run(pair.outputType, func(t *testing.T) {
+			t.Parallel()
+			items := []json.RawMessage{
+				json.RawMessage(`{"type":"` + pair.callType + `","call_id":"call_1"}`),
+				json.RawMessage(`{"type":"` + pair.outputType + `","call_id":"call_1","output":"ok"}`),
+			}
+			require.True(t, openAIWSRawItemsHaveToolCallContextForOutputs(items))
+
+			items[0] = json.RawMessage(`{"type":"` + pair.callType + `","call_id":"call_other"}`)
+			require.False(t, openAIWSRawItemsHaveToolCallContextForOutputs(items))
+		})
+	}
+
+	t.Run("non_string_call_id_is_not_context", func(t *testing.T) {
+		items := []json.RawMessage{
+			json.RawMessage(`{"type":"function_call","call_id":42}`),
+			json.RawMessage(`{"type":"function_call_output","call_id":42,"output":"ok"}`),
+		}
+		require.False(t, openAIWSRawItemsHaveToolCallContextForOutputs(items))
 	})
 }
 

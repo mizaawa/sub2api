@@ -726,6 +726,19 @@ func observeUpstreamMessage(
 	return observeUpstreamMessageLocked(state, message, startAt, nowFn, onUsageParseFailure)
 }
 
+// selectResponseID accepts only canonical Responses identifiers. Upstream
+// event and item IDs also commonly appear in the top-level id field, so an
+// arbitrary non-empty value must never become the continuation or billing key.
+func selectResponseID(candidates ...string) string {
+	for _, candidate := range candidates {
+		id := strings.TrimSpace(candidate)
+		if strings.HasPrefix(id, "resp_") {
+			return id
+		}
+	}
+	return ""
+}
+
 func observeUpstreamMessageLocked(
 	state *relayState,
 	message []byte,
@@ -741,13 +754,10 @@ func observeUpstreamMessageLocked(
 	if eventType == "" {
 		return observedUpstreamEvent{}
 	}
-	responseID := strings.TrimSpace(values[1].String())
-	if responseID == "" {
-		responseID = strings.TrimSpace(values[2].String())
-	}
+	responseID := selectResponseID(values[1].String(), values[2].String())
 	// 仅 terminal 事件兜底读取顶层 id，避免把 event_id 当成 response_id 关联到 turn。
 	if responseID == "" && isTerminalEvent(eventType) {
-		responseID = strings.TrimSpace(values[3].String())
+		responseID = selectResponseID(values[3].String())
 	}
 	now := nowFn()
 	if eventType == "response.created" && responseID != "" {
@@ -901,7 +911,8 @@ func shouldFinalizePendingBareErrorLocked(state *relayState, payload []byte, eve
 	if isTerminalEvent(eventType) || eventType == "response.created" {
 		return true
 	}
-	responseID := strings.TrimSpace(gjson.GetBytes(payload, "response.id").String())
+	values := gjson.GetManyBytes(payload, "response.id", "response_id")
+	responseID := selectResponseID(values[0].String(), values[1].String())
 	if responseID == "" || state.pendingBareError.responseID == "" {
 		return false
 	}

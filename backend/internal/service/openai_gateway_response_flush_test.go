@@ -158,6 +158,107 @@ func TestOpenAIResponseFlush_SlowEventsFlushOnceAtBoundaries(t *testing.T) {
 	}
 }
 
+func TestOpenAIResponseFlush_BindsHTTPContinuationBeforeStreamEOF(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(71)
+	account := &Account{ID: 1701, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	first := `data: {"type":"response.created","response":{"id":"resp_early_bind","status":"in_progress"}}` + "\n\n" +
+		`data: {"type":"response.output_text.delta","delta":"ready"}` + "\n\n"
+	terminal := `data: {"type":"response.completed","response":{"id":"resp_early_bind","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1}}}` + "\n\n"
+	allowTail := make(chan struct{})
+	tailWaiting := make(chan struct{})
+	reader := &stagedOpenAISSEReadCloser{
+		segments: [][]byte{[]byte(first), []byte(terminal)},
+		gates:    []<-chan struct{}{nil, allowTail},
+		waiting:  []chan struct{}{nil, tailWaiting},
+	}
+	recorder := newOpenAIResponseFlushRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Set("api_key", &APIKey{ID: 901, GroupID: &groupID})
+	SetOpenAIHTTPResponseOwner(c, 801, 901)
+	svc := &OpenAIGatewayService{
+		cfg:           &config.Config{Gateway: config.GatewayConfig{StreamDataIntervalTimeout: 30}},
+		toolCorrector: NewCodexToolCorrector(),
+	}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       reader,
+	}
+	resultCh := make(chan *openaiStreamingResult, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		result, err := svc.handleStreamingResponse(context.Background(), resp, c, account, time.Now(), "gpt-5", "gpt-5")
+		resultCh <- result
+		errCh <- err
+	}()
+
+	waitOpenAIResponseFlushSignal(t, tailWaiting)
+	waitOpenAIResponseFlushCount(t, recorder, 1)
+	boundAccountID, err := svc.getOpenAIWSStateStore().GetResponseAccount(context.Background(), groupID, "resp_early_bind")
+	require.NoError(t, err)
+	require.Equal(t, account.ID, boundAccountID)
+	ownerUserID, ownerAPIKeyID, found, err := svc.getOpenAIWSStateStore().GetHTTPResponseOwner(context.Background(), groupID, "resp_early_bind")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(801), ownerUserID)
+	require.Equal(t, int64(901), ownerAPIKeyID)
+
+	close(allowTail)
+	require.NoError(t, <-errCh)
+	require.NotNil(t, <-resultCh)
+}
+
+func TestOpenAIPassthroughResponseFlush_BindsHTTPContinuationBeforeStreamEOF(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(72)
+	account := &Account{ID: 1702, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	first := `data: {"type":"response.created","response":{"id":"resp_passthrough_early_bind","status":"in_progress"}}` + "\n\n" +
+		`data: {"type":"response.output_text.delta","delta":"ready"}` + "\n\n"
+	terminal := `data: {"type":"response.completed","response":{"id":"resp_passthrough_early_bind","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1}}}` + "\n\n"
+	allowTail := make(chan struct{})
+	tailWaiting := make(chan struct{})
+	reader := &stagedOpenAISSEReadCloser{
+		segments: [][]byte{[]byte(first), []byte(terminal)},
+		gates:    []<-chan struct{}{nil, allowTail},
+		waiting:  []chan struct{}{nil, tailWaiting},
+	}
+	recorder := newOpenAIResponseFlushRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Set("api_key", &APIKey{ID: 902, GroupID: &groupID})
+	SetOpenAIHTTPResponseOwner(c, 802, 902)
+	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       reader,
+	}
+	resultCh := make(chan *openaiStreamingResultPassthrough, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		result, err := svc.handleStreamingResponsePassthrough(context.Background(), resp, c, account, time.Now(), "gpt-5", "gpt-5")
+		resultCh <- result
+		errCh <- err
+	}()
+
+	waitOpenAIResponseFlushSignal(t, tailWaiting)
+	waitOpenAIResponseFlushCount(t, recorder, 1)
+	boundAccountID, err := svc.getOpenAIWSStateStore().GetResponseAccount(context.Background(), groupID, "resp_passthrough_early_bind")
+	require.NoError(t, err)
+	require.Equal(t, account.ID, boundAccountID)
+	ownerUserID, ownerAPIKeyID, found, err := svc.getOpenAIWSStateStore().GetHTTPResponseOwner(context.Background(), groupID, "resp_passthrough_early_bind")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(802), ownerUserID)
+	require.Equal(t, int64(902), ownerAPIKeyID)
+
+	close(allowTail)
+	require.NoError(t, <-errCh)
+	require.NotNil(t, <-resultCh)
+}
+
 func TestOpenAIResponseFlush_DataQueuedButBlankDrainsFlushesOnce(t *testing.T) {
 	first := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"first\"}\n\n"
 	second := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"second\"}\n\n"

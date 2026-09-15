@@ -411,6 +411,10 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 
 	writeClientMessage := func(message []byte) error {
+		_, responseID, _ := parseOpenAIWSEventEnvelope(message)
+		if responseID != "" {
+			s.bindHTTPResponseAccount(ctx, c, account, responseID)
+		}
 		writeCtx, cancel := newOpenAIWSDownstreamWriteContext(ctx, hooks, s.openAIWSWriteTimeout())
 		defer cancel()
 		return clientConn.Write(writeCtx, coderws.MessageText, message)
@@ -591,9 +595,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				}
 			}
 			responseID := strings.TrimSpace(result.RequestID)
-			if responseID != "" && stateStore != nil {
-				ttl := s.openAIWSResponseStickyTTL()
-				logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, stateStore.BindResponseAccount(ctx, groupID, responseID, account.ID, ttl))
+			if responseID != "" {
+				s.bindHTTPResponseAccount(ctx, c, account, responseID)
 			}
 			nextClientMessage, readErr := readClientMessage()
 			if readErr != nil {
@@ -1617,10 +1620,11 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			lastTurnStrictState = nextStrictState
 		}
 
-		if responseID != "" && stateStore != nil {
-			ttl := s.openAIWSResponseStickyTTL()
-			logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, stateStore.BindResponseAccount(ctx, groupID, responseID, account.ID, ttl))
-			stateStore.BindResponseConn(responseID, connID, ttl)
+		if responseID != "" {
+			s.bindHTTPResponseAccount(ctx, c, account, responseID)
+			if stateStore != nil {
+				stateStore.BindResponseConn(responseID, connID, s.openAIWSResponseStickyTTL())
+			}
 		}
 		if stateStore != nil && storeDisabled && sessionHash != "" {
 			stateStore.BindSessionConn(groupID, sessionHash, connID, s.openAIWSSessionStickyTTL())

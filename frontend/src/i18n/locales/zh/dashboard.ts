@@ -577,6 +577,9 @@ export default {
     detail: {
       noModels: '该分组暂未配置模型',
       noPricing: '未配置定价',
+      modelCount: '{count} 个模型',
+      expandPricing: '查看价格明细',
+      collapsePricing: '收起价格明细',
       peakNote: '高峰时段 {window} 计费倍率 ×{multiplier}'
     },
     table: {

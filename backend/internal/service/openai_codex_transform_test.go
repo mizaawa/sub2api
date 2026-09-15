@@ -280,6 +280,39 @@ func TestApplyCodexOAuthTransform_CustomAndMCPToolOutputsPreserveCallID(t *testi
 	require.Equal(t, "fc_mcp", second["call_id"])
 }
 
+func TestApplyCodexOAuthTransform_ExtendedToolCallTypesPreserveCallID(t *testing.T) {
+	pairs := []struct {
+		callType   string
+		outputType string
+	}{
+		{callType: "computer_call", outputType: "computer_call_output"},
+		{callType: "apply_patch_call", outputType: "apply_patch_call_output"},
+		{callType: "shell_call", outputType: "shell_call_output"},
+	}
+	for _, pair := range pairs {
+		t.Run(pair.callType, func(t *testing.T) {
+			reqBody := map[string]any{
+				"model": "gpt-5.2",
+				"input": []any{
+					map[string]any{"type": pair.callType, "call_id": "call_1"},
+					map[string]any{"type": pair.outputType, "call_id": "call_1", "output": "ok"},
+				},
+			}
+
+			applyCodexOAuthTransform(reqBody, false, false)
+
+			input, ok := reqBody["input"].([]any)
+			require.True(t, ok)
+			require.Len(t, input, 2)
+			for _, raw := range input {
+				item, itemOK := raw.(map[string]any)
+				require.True(t, itemOK)
+				require.Equal(t, "fc_1", item["call_id"])
+			}
+		})
+	}
+}
+
 func TestApplyCodexOAuthTransform_ImageAndWebSearchCallsDoNotGainCallID(t *testing.T) {
 	reqBody := map[string]any{
 		"model": "gpt-5.2",

@@ -287,6 +287,20 @@ func RegisterGatewayRoutes(
 		}
 		h.Gateway.Responses(c)
 	}
+	// OpenAI-compatible clients commonly use /openai/v1 as their base URL.
+	// Keep the Responses aliases on the same middleware chain as /v1 so
+	// authentication, composite routing, endpoint normalization, and the
+	// HTTP/WS continuation behavior remain identical.
+	openaiV1 := r.Group("/openai/v1")
+	openaiV1.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic)
+	{
+		openaiV1.POST("/responses", responsesHandler)
+		openaiV1.POST("/responses/*subpath", guardResponsesSubpath(responsesHandler))
+		openaiV1.GET("/responses", func(c *gin.Context) {
+			h.OpenAIGateway.ResponsesWebSocket(c)
+		})
+	}
+
 	r.POST("/responses", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, responsesHandler)
 	r.POST("/responses/*subpath", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, guardResponsesSubpath(responsesHandler))
 	r.POST("/alpha/search", textBodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, h.OpenAIGateway.AlphaSearch)

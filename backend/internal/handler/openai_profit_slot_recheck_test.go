@@ -2,11 +2,11 @@
 
 package handler
 
-// 槽位终检与生图跳门回归（handler 半程）：
+// 槽位终检与利润门边界回归（handler 半程）：
 //   - 槽位获取成功后的利润终检：越线账号释放槽位并要求调用方排除重选，
 //     不写响应、不绑定粘连；
-//   - openAIResponsesRequiredCapability 的生图意图映射钉死（scheduler 的
-//     跳门条件依赖 CapabilityResponses ⇔ 显式生图意图这一耦合）。
+//   - openAIResponsesRequiredCapability 的能力映射钉死；利润门是否跳过由
+//     显式 suppression 上下文决定，而不是由 Responses capability 值推断。
 
 import (
 	"context"
@@ -141,8 +141,8 @@ func TestAcquireResponsesAccountSlotProfitRecheck(t *testing.T) {
 	})
 }
 
-// scheduler 跳门条件依赖"CapabilityResponses 仅在显式生图意图时被要求"这一
-// 映射；后续若扩展该 capability 的用途，本测试失败提示同步收窄跳门条件。
+// Responses capability 也用于 Codex/previous_response_id 续链；后续扩展该
+// capability 的用途不应改变利润门语义，门外路径必须显式设置 suppression。
 func TestOpenAIResponsesRequiredCapabilityPinsImageIntentMapping(t *testing.T) {
 	require.Equal(t, service.OpenAIEndpointCapabilityResponses, openAIResponsesRequiredCapability(true, service.PlatformOpenAI))
 	require.Equal(t, service.OpenAIEndpointCapabilityChatCompletions, openAIResponsesRequiredCapability(false, service.PlatformOpenAI))

@@ -378,16 +378,20 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	}()
 
 	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
-	if previousResponseID != "" && normalizeOpenAICompatiblePlatform(req.Platform) == PlatformOpenAI &&
+	requestPlatform := normalizeOpenAICompatiblePlatform(req.Platform)
+	if previousResponseID != "" &&
+		(requestPlatform == PlatformOpenAI || requestPlatform == PlatformGrok) &&
 		(!req.StickyWeighted || !req.PreviousResponseCanMove) {
-		selection, err := s.service.selectAccountByPreviousResponseIDForCapability(
+		selection, err := s.service.selectAccountByPreviousResponseIDForPlatformCapabilityAndTransport(
 			ctx,
 			req.GroupID,
 			previousResponseID,
+			requestPlatform,
 			req.RequestedModel,
 			req.ExcludedIDs,
 			req.RequiredCapability,
 			req.RequireCompact,
+			req.RequiredTransport,
 		)
 		if err != nil {
 			return nil, decision, err
@@ -2102,16 +2106,38 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	// 分组利润控制：唯一文本调度入口的防御性装门。handler 文本
 	// 入口已在请求开始经 WithOpenAIRequestPricingContext 装门并固定 pricingAt，
 	// 此处对同分组门直接复用（failover 重入阈值稳定），仅为不经 handler 装配的
-	// 内部调用兜底。图片/视频调度不在利润门范围：requiredImageCapability 非空的
-	// Images 调度不装门；requiredCapability == OpenAIEndpointCapabilityResponses
-	// 当前仅显式生图意图的 /v1/responses 设置（HTTP openAIResponsesRequiredCapability
-	// 与 WS 桥同款判定），同样不装门——若未来把该 capability 用于非生图流量，
-	// 需要同步收窄本条件（有测试钉死该映射）。
-	if requiredImageCapability == "" && requiredCapability != OpenAIEndpointCapabilityResponses {
+	// 内部调用兜底。利润门范围外的独立图片/视频、count_tokens、live 等路径
+	// 通过 WithOpenAIProfitControlSuppressed 显式标记；不能再用
+	// requiredCapability == OpenAIEndpointCapabilityResponses 作为豁免哨兵，
+	// 因为 Responses capability 也用于 Codex/previous_response_id 续链。
+	if requiredImageCapability == "" {
 		ctx = s.withOpenAIProfitControlGate(ctx, groupID)
 	}
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	decision := OpenAIAccountScheduleDecision{}
+	if strings.TrimSpace(previousResponseID) != "" &&
+		(platform == PlatformOpenAI || platform == PlatformGrok) &&
+		!previousResponseCanMove {
+		if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
+			slog.Warn("channel pricing restriction blocked strict response continuation",
+				"group_id", derefGroupID(groupID),
+				"model", requestedModel)
+			return nil, decision, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
+		}
+		return s.selectStrictAccountByPreviousResponseID(
+			ctx,
+			groupID,
+			previousResponseID,
+			platform,
+			sessionHash,
+			requestedModel,
+			excludedIDs,
+			requiredTransport,
+			requiredCapability,
+			requiredImageCapability,
+			requireCompact,
+		)
+	}
 	scheduler := s.getOpenAIAccountScheduler(ctx)
 	if scheduler == nil {
 		decision.Layer = openAIAccountScheduleLayerLoadBalance

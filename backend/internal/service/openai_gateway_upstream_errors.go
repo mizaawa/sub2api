@@ -237,6 +237,10 @@ const OpenAIRequestBodyTooLargeClientMessage = "Request payload is too large"
 
 const openAIRequestBodyTooLargeReason = GatewayFailureReason("openai_request_body_too_large")
 
+// OpenAIHTTPContinuationUnsupportedReason identifies accounts that cannot
+// preserve an official Responses HTTP continuation without dropping state.
+const OpenAIHTTPContinuationUnsupportedReason = GatewayFailureReason("openai_http_continuation_unsupported")
+
 func isOpenAIRequestBodyTooLargeError(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
 	return statusCode == http.StatusRequestEntityTooLarge && !isOpenAIContextWindowError(upstreamMsg, upstreamBody)
 }

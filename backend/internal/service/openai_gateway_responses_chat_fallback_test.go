@@ -5,6 +5,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -100,6 +101,39 @@ func TestForwardResponses_ForceChatCompletionsRoutesStreamingToChatCompletions(t
 	require.Equal(t, 3, result.Usage.OutputTokens)
 	require.True(t, result.Stream)
 	require.NotNil(t, result.FirstTokenMs)
+}
+
+func TestForwardResponses_ForceChatCompletionsRejectsPreviousResponseID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			body := []byte(fmt.Sprintf(`{"model":"gpt-5.4","input":"continue","stream":%t,"previous_response_id":"resp_previous"}`, stream))
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+			c.Request.Header.Set("Content-Type", "application/json")
+
+			upstream := &httpUpstreamRecorder{}
+			svc := &OpenAIGatewayService{
+				cfg:          rawChatCompletionsTestConfig(),
+				httpUpstream: upstream,
+			}
+
+			result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+
+			require.Error(t, err)
+			require.Nil(t, result)
+			require.Nil(t, upstream.lastReq, "continuation must not be forwarded without Responses support")
+			require.True(t, IsResponseCommitted(c))
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			require.Equal(t, "invalid_request_error", gjson.Get(rec.Body.String(), "error.type").String())
+			require.Equal(t,
+				"previous_response_id requires a Responses-capable upstream; this account only supports Chat Completions",
+				gjson.Get(rec.Body.String(), "error.message").String(),
+			)
+		})
+	}
 }
 
 func TestForwardResponses_DeepSeekReasoningOnlyStreamProducesVisibleText(t *testing.T) {

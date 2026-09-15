@@ -364,6 +364,8 @@ func shouldBypassEmbeddedFrontend(path string) bool {
 	trimmed := strings.TrimSpace(path)
 	return strings.HasPrefix(trimmed, "/api/") ||
 		strings.HasPrefix(trimmed, "/v1/") ||
+		trimmed == "/openai/v1" ||
+		strings.HasPrefix(trimmed, "/openai/v1/") ||
 		strings.HasPrefix(trimmed, "/v1beta/") ||
 		strings.HasPrefix(trimmed, "/backend-api/") ||
 		strings.HasPrefix(trimmed, "/antigravity/") ||

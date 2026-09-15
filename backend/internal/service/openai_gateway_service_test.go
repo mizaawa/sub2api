@@ -443,6 +443,11 @@ func TestOpenAIGatewayService_GenerateSessionHash_AttachesLegacyHashToContext(t 
 func TestExtractOpenAIResponseIDFromJSONBytes(t *testing.T) {
 	require.Equal(t, "resp_json", extractOpenAIResponseIDFromJSONBytes([]byte(`{"id":"resp_json"}`)))
 	require.Equal(t, "resp_sse", extractOpenAIResponseIDFromJSONBytes([]byte(`{"type":"response.completed","response":{"id":"resp_sse"}}`)))
+	require.Equal(t, "resp_top", extractOpenAIResponseIDFromJSONBytes([]byte(`{"type":"response.output_text.delta","response_id":"resp_top"}`)))
+	require.Empty(t, extractOpenAIResponseIDFromJSONBytes([]byte(`{"type":"response.output_text.delta","response_id":"evt_123"}`)))
+	require.Empty(t, extractOpenAIResponseIDFromJSONBytes([]byte(`{"type":"response.completed","response":{"id":"evt_123"}}`)))
+	require.Empty(t, extractOpenAIResponseIDFromJSONBytes([]byte(`{"type":"response.output_text.delta","id":"evt_1"}`)))
+	require.Equal(t, "resp_event", extractOpenAIResponseIDFromJSONBytes([]byte(`{"type":"response.output_text.delta","id":"resp_event"}`)))
 	require.Empty(t, extractOpenAIResponseIDFromJSONBytes([]byte(`{"response":{}}`)))
 	require.Empty(t, extractOpenAIResponseIDFromJSONBytes([]byte(`not-json`)))
 }
@@ -482,11 +487,47 @@ func TestOpenAIGatewayService_BindHTTPResponseAccount(t *testing.T) {
 
 	svc := &OpenAIGatewayService{}
 	account := &Account{ID: 37001, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	SetOpenAIHTTPResponseOwner(c, 77, 501)
 	svc.bindHTTPResponseAccount(context.Background(), c, account, "resp_http_001")
 
 	got, err := svc.getOpenAIWSStateStore().GetResponseAccount(context.Background(), groupID, "resp_http_001")
 	require.NoError(t, err)
 	require.Equal(t, account.ID, got)
+	ownerUserID, ownerAPIKeyID, found, err := svc.getOpenAIWSStateStore().GetHTTPResponseOwner(context.Background(), groupID, "resp_http_001")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(77), ownerUserID)
+	require.Equal(t, int64(501), ownerAPIKeyID)
+}
+
+type failingOpenAIResponseBindingCache struct {
+	GatewayCache
+	setCalls int
+}
+
+func (c *failingOpenAIResponseBindingCache) SetSessionAccountID(context.Context, int64, string, int64, time.Duration) error {
+	c.setCalls++
+	return errors.New("redis unavailable")
+}
+
+func TestOpenAIGatewayService_BindHTTPResponseAccountFailureAttemptsOncePerResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/openai/v1/responses", nil)
+	groupID := int64(4202)
+	c.Set("api_key", &APIKey{ID: 502, GroupID: &groupID})
+	SetOpenAIHTTPResponseOwner(c, 78, 502)
+
+	cache := &failingOpenAIResponseBindingCache{}
+	svc := &OpenAIGatewayService{cache: cache}
+	account := &Account{ID: 37002, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	for i := 0; i < 5; i++ {
+		svc.bindHTTPResponseAccount(context.Background(), c, account, "resp_http_cache_failure")
+	}
+
+	require.Equal(t, 1, cache.setCalls, "a failed legacy account write should stop the atomic-compatible fallback and not retry per event")
 }
 
 func TestOpenAIGatewayService_GenerateExplicitSessionHash_SkipsContentFallback(t *testing.T) {
@@ -3401,7 +3442,7 @@ func TestHandleSSEToJSON_CompletedEventReturnsJSON(t *testing.T) {
 		`data: [DONE]`,
 	}, "\n"))
 
-	usage, err := svc.handleSSEToJSON(resp, c, body, "gpt-4o", "gpt-4o")
+	usage, err := svc.handleSSEToJSON(context.Background(), resp, c, nil, body, "gpt-4o", "gpt-4o")
 	require.NoError(t, err)
 	require.NotNil(t, usage)
 	require.Equal(t, 7, usage.InputTokens)
@@ -3520,7 +3561,7 @@ func TestHandleSSEToJSON_ReconstructsImageGenerationOutputItemDone(t *testing.T)
 		`data: [DONE]`,
 	}, "\n"))
 
-	usage, err := svc.handleSSEToJSON(resp, c, body, "gpt-5.4", "gpt-5.4")
+	usage, err := svc.handleSSEToJSON(context.Background(), resp, c, nil, body, "gpt-5.4", "gpt-5.4")
 	require.NoError(t, err)
 	require.NotNil(t, usage)
 	require.Equal(t, 4, usage.ImageOutputTokens)
@@ -3547,7 +3588,7 @@ func TestHandleSSEToJSON_NoFinalResponseKeepsSSEBody(t *testing.T) {
 		`data: [DONE]`,
 	}, "\n"))
 
-	usage, err := svc.handleSSEToJSON(resp, c, body, "gpt-4o", "gpt-4o")
+	usage, err := svc.handleSSEToJSON(context.Background(), resp, c, nil, body, "gpt-4o", "gpt-4o")
 	require.NoError(t, err)
 	require.NotNil(t, usage)
 	require.Equal(t, 0, usage.InputTokens)
@@ -3571,7 +3612,7 @@ func TestHandleSSEToJSON_ResponseFailedReturnsProtocolError(t *testing.T) {
 		`data: [DONE]`,
 	}, "\n"))
 
-	usage, err := svc.handleSSEToJSON(resp, c, body, "gpt-4o", "gpt-4o")
+	usage, err := svc.handleSSEToJSON(context.Background(), resp, c, nil, body, "gpt-4o", "gpt-4o")
 	require.Nil(t, usage)
 	require.Error(t, err)
 	require.Equal(t, http.StatusBadGateway, rec.Code)

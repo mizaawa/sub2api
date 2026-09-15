@@ -18,6 +18,13 @@ func TestNeedsToolContinuationSignals(t *testing.T) {
 		{name: "previous_response_id", body: map[string]any{"previous_response_id": "resp_1"}, want: true},
 		{name: "previous_response_id_blank", body: map[string]any{"previous_response_id": "  "}, want: false},
 		{name: "function_call_output", body: map[string]any{"input": []any{map[string]any{"type": "function_call_output"}}}, want: true},
+		{name: "computer_call_output", body: map[string]any{"input": []any{map[string]any{"type": "computer_call_output"}}}, want: true},
+		{name: "apply_patch_call_output", body: map[string]any{"input": []any{map[string]any{"type": "apply_patch_call_output"}}}, want: true},
+		{name: "shell_call_output", body: map[string]any{"input": []any{map[string]any{"type": "shell_call_output"}}}, want: true},
+		{name: "local_shell_call_output", body: map[string]any{"input": []any{map[string]any{"type": "local_shell_call_output"}}}, want: true},
+		{name: "computer_call", body: map[string]any{"input": []any{map[string]any{"type": "computer_call"}}}, want: true},
+		{name: "apply_patch_call", body: map[string]any{"input": []any{map[string]any{"type": "apply_patch_call"}}}, want: true},
+		{name: "shell_call", body: map[string]any{"input": []any{map[string]any{"type": "shell_call"}}}, want: true},
 		{name: "tool_search_output", body: map[string]any{"input": []any{map[string]any{"type": "tool_search_output"}}}, want: true},
 		{name: "custom_tool_call_output", body: map[string]any{"input": []any{map[string]any{"type": "custom_tool_call_output"}}}, want: true},
 		{name: "mcp_tool_call_output", body: map[string]any{"input": []any{map[string]any{"type": "mcp_tool_call_output"}}}, want: true},
@@ -43,6 +50,10 @@ func TestHasFunctionCallOutput(t *testing.T) {
 	require.False(t, HasFunctionCallOutput(nil))
 	for _, typ := range []string{
 		"function_call_output",
+		"computer_call_output",
+		"apply_patch_call_output",
+		"shell_call_output",
+		"local_shell_call_output",
 		"tool_search_output",
 		"custom_tool_call_output",
 		"mcp_tool_call_output",
@@ -63,6 +74,9 @@ func TestHasToolCallContext(t *testing.T) {
 		"tool_call",
 		"function_call",
 		"local_shell_call",
+		"computer_call",
+		"apply_patch_call",
+		"shell_call",
 		"tool_search_call",
 		"custom_tool_call",
 		"mcp_tool_call",
@@ -82,6 +96,10 @@ func TestFunctionCallOutputCallIDs(t *testing.T) {
 	callIDs := FunctionCallOutputCallIDs(map[string]any{
 		"input": []any{
 			map[string]any{"type": "function_call_output", "call_id": "call_1"},
+			map[string]any{"type": "computer_call_output", "call_id": "call_computer"},
+			map[string]any{"type": "apply_patch_call_output", "call_id": "call_patch"},
+			map[string]any{"type": "shell_call_output", "call_id": "call_shell"},
+			map[string]any{"type": "local_shell_call_output", "call_id": "call_local_shell"},
 			map[string]any{"type": "tool_search_output", "call_id": "call_search"},
 			map[string]any{"type": "custom_tool_call_output", "call_id": "call_custom"},
 			map[string]any{"type": "mcp_tool_call_output", "call_id": "call_mcp"},
@@ -89,7 +107,9 @@ func TestFunctionCallOutputCallIDs(t *testing.T) {
 			map[string]any{"type": "function_call_output", "call_id": "call_1"},
 		},
 	})
-	require.ElementsMatch(t, []string{"call_1", "call_search", "call_custom", "call_mcp"}, callIDs)
+	require.ElementsMatch(t, []string{
+		"call_1", "call_computer", "call_patch", "call_shell", "call_local_shell", "call_search", "call_custom", "call_mcp",
+	}, callIDs)
 }
 
 func TestHasFunctionCallOutputMissingCallID(t *testing.T) {
@@ -164,10 +184,16 @@ func TestValidateFunctionCallOutputContextBytesMatchesMapValidation(t *testing.T
 			name: "all_codex_tool_outputs",
 			body: map[string]any{"input": []any{
 				map[string]any{"type": "function_call_output", "call_id": "call_function"},
+				map[string]any{"type": "computer_call_output", "call_id": "call_computer"},
+				map[string]any{"type": "apply_patch_call_output", "call_id": "call_patch"},
+				map[string]any{"type": "shell_call_output", "call_id": "call_shell"},
 				map[string]any{"type": "tool_search_output", "call_id": "call_search"},
 				map[string]any{"type": "custom_tool_call_output", "call_id": "call_custom"},
 				map[string]any{"type": "mcp_tool_call_output", "call_id": "call_mcp"},
 				map[string]any{"type": "item_reference", "id": "call_function"},
+				map[string]any{"type": "item_reference", "id": "call_computer"},
+				map[string]any{"type": "item_reference", "id": "call_patch"},
+				map[string]any{"type": "item_reference", "id": "call_shell"},
 				map[string]any{"type": "item_reference", "id": "call_search"},
 				map[string]any{"type": "item_reference", "id": "call_custom"},
 				map[string]any{"type": "item_reference", "id": "call_mcp"},
@@ -181,6 +207,110 @@ func TestValidateFunctionCallOutputContextBytesMatchesMapValidation(t *testing.T
 			require.NoError(t, err)
 
 			require.Equal(t, ValidateFunctionCallOutputContext(tt.body), ValidateFunctionCallOutputContextBytes(bodyBytes))
+		})
+	}
+}
+
+func TestValidateFunctionCallOutputContextDoesNotStopBeforeMissingCallID(t *testing.T) {
+	// A valid inline tool-call context must not short-circuit validation of later
+	// outputs. Every output item still needs its own call_id on HTTP requests.
+	cases := []struct {
+		name  string
+		input []map[string]any
+	}{
+		{
+			name: "context_then_valid_then_missing",
+			input: []map[string]any{
+				{"type": "function_call", "call_id": "call_ctx"},
+				{"type": "function_call_output", "call_id": "call_ctx"},
+				{"type": "function_call_output", "output": "missing"},
+			},
+		},
+		{
+			name: "valid_then_context_then_missing",
+			input: []map[string]any{
+				{"type": "function_call_output", "call_id": "call_ctx"},
+				{"type": "function_call", "call_id": "call_ctx"},
+				{"type": "function_call_output", "output": "missing"},
+			},
+		},
+		{
+			name: "non_string_call_id_after_context",
+			input: []map[string]any{
+				{"type": "function_call", "call_id": "call_ctx"},
+				{"type": "function_call_output", "call_id": "call_ctx"},
+				{"type": "function_call_output", "call_id": 42, "output": "invalid"},
+			},
+		},
+	}
+	for _, outputType := range []string{
+		"function_call_output",
+		"computer_call_output",
+		"apply_patch_call_output",
+		"shell_call_output",
+		"local_shell_call_output",
+		"tool_search_output",
+		"custom_tool_call_output",
+		"mcp_tool_call_output",
+	} {
+		cases = append(cases, struct {
+			name  string
+			input []map[string]any
+		}{
+			name: outputType + "_after_context",
+			input: []map[string]any{
+				{"type": "function_call", "call_id": "call_ctx"},
+				{"type": "function_call_output", "call_id": "call_ctx"},
+				{"type": outputType, "output": "missing"},
+			},
+		})
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			input := make([]any, len(tt.input))
+			for i, item := range tt.input {
+				input[i] = item
+			}
+			body := map[string]any{"input": input}
+			bodyBytes, err := json.Marshal(body)
+			require.NoError(t, err)
+
+			mapResult := ValidateFunctionCallOutputContext(body)
+			bytesResult := ValidateFunctionCallOutputContextBytes(bodyBytes)
+			require.Equal(t, mapResult, bytesResult)
+			require.True(t, mapResult.HasFunctionCallOutput)
+			require.True(t, mapResult.HasToolCallContext)
+			require.True(t, mapResult.HasFunctionCallOutputMissingCallID)
+			require.False(t, mapResult.HasItemReferenceForAllCallIDs)
+		})
+	}
+}
+
+func TestValidateExtendedToolCallOutputContextBytes(t *testing.T) {
+	pairs := []struct {
+		callType   string
+		outputType string
+	}{
+		{callType: "computer_call", outputType: "computer_call_output"},
+		{callType: "apply_patch_call", outputType: "apply_patch_call_output"},
+		{callType: "shell_call", outputType: "shell_call_output"},
+		{callType: "local_shell_call", outputType: "local_shell_call_output"},
+	}
+	for _, pair := range pairs {
+		t.Run(pair.outputType, func(t *testing.T) {
+			missingCallID := ValidateFunctionCallOutputContextBytes([]byte(
+				`{"input":[{"type":"` + pair.outputType + `","output":"ok"}]}`,
+			))
+			require.True(t, missingCallID.HasFunctionCallOutput)
+			require.True(t, missingCallID.HasFunctionCallOutputMissingCallID)
+
+			paired := ValidateFunctionCallOutputContextBytes([]byte(
+				`{"input":[{"type":"` + pair.callType + `","call_id":"call_1"},{"type":"` + pair.outputType + `","call_id":"call_1","output":"ok"}]}`,
+			))
+			require.True(t, paired.HasFunctionCallOutput)
+			require.True(t, paired.HasToolCallContext)
+			require.False(t, paired.HasFunctionCallOutputMissingCallID)
 		})
 	}
 }
@@ -256,6 +386,15 @@ func TestAnalyzeToolCallOutputContextCoverageBytes(t *testing.T) {
 			coversAllIDs: false,
 		},
 		{
+			name: "non_string_call_id_not_movable",
+			body: map[string]any{"input": []any{
+				map[string]any{"type": "function_call", "call_id": "call_a"},
+				map[string]any{"type": "function_call_output", "call_id": float64(42)},
+			}},
+			hasOutput:    true,
+			coversAllIDs: false,
+		},
+		{
 			name: "mixed_context_and_reference_cover_all",
 			body: map[string]any{"input": []any{
 				map[string]any{"type": "function_call", "call_id": "call_a"},
@@ -269,6 +408,12 @@ func TestAnalyzeToolCallOutputContextCoverageBytes(t *testing.T) {
 		{
 			name: "all_codex_output_types_covered",
 			body: map[string]any{"input": []any{
+				map[string]any{"type": "computer_call_output", "call_id": "call_c"},
+				map[string]any{"type": "computer_call", "call_id": "call_c"},
+				map[string]any{"type": "apply_patch_call_output", "call_id": "call_p"},
+				map[string]any{"type": "apply_patch_call", "call_id": "call_p"},
+				map[string]any{"type": "shell_call_output", "call_id": "call_h"},
+				map[string]any{"type": "shell_call", "call_id": "call_h"},
 				map[string]any{"type": "tool_search_output", "call_id": "call_s"},
 				map[string]any{"type": "tool_search_call", "call_id": "call_s"},
 				map[string]any{"type": "mcp_tool_call_output", "call_id": "call_m"},
@@ -287,6 +432,34 @@ func TestAnalyzeToolCallOutputContextCoverageBytes(t *testing.T) {
 			coverage := AnalyzeToolCallOutputContextCoverageBytes(bodyBytes)
 			require.Equal(t, tt.hasOutput, coverage.HasFunctionCallOutput, "HasFunctionCallOutput")
 			require.Equal(t, tt.coversAllIDs, coverage.ContextCoversAllCallIDs, "ContextCoversAllCallIDs")
+		})
+	}
+}
+
+func TestAnalyzeExtendedToolCallOutputContextCoverageBytes(t *testing.T) {
+	pairs := []struct {
+		callType   string
+		outputType string
+	}{
+		{callType: "computer_call", outputType: "computer_call_output"},
+		{callType: "apply_patch_call", outputType: "apply_patch_call_output"},
+		{callType: "shell_call", outputType: "shell_call_output"},
+	}
+	for _, pair := range pairs {
+		t.Run(pair.outputType, func(t *testing.T) {
+			pairedBody := []byte(
+				`{"input":[{"type":"` + pair.callType + `","call_id":"call_1"},{"type":"` + pair.outputType + `","call_id":"call_1","output":"ok"}]}`,
+			)
+			paired := AnalyzeToolCallOutputContextCoverageBytes(pairedBody)
+			require.True(t, paired.HasFunctionCallOutput)
+			require.True(t, paired.ContextCoversAllCallIDs)
+
+			unpairedBody := []byte(
+				`{"input":[{"type":"` + pair.outputType + `","call_id":"call_1","output":"ok"}]}`,
+			)
+			unpaired := AnalyzeToolCallOutputContextCoverageBytes(unpairedBody)
+			require.True(t, unpaired.HasFunctionCallOutput)
+			require.False(t, unpaired.ContextCoversAllCallIDs)
 		})
 	}
 }

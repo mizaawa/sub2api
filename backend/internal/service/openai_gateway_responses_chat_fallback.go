@@ -31,6 +31,12 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return nil, fmt.Errorf("parse responses request: %w", err)
 	}
+	if strings.TrimSpace(responsesReq.PreviousResponseID) != "" {
+		const message = "previous_response_id requires a Responses-capable upstream; this account only supports Chat Completions"
+		MarkResponseCommitted(c)
+		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", message)
+		return nil, errors.New(message)
+	}
 	originalModel := strings.TrimSpace(responsesReq.Model)
 	if originalModel == "" {
 		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "invalid_request_error", "model is required")

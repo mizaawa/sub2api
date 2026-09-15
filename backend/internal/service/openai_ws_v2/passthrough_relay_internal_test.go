@@ -784,6 +784,32 @@ func TestObserveUpstreamMessage_ResponseIDFallbackPolicy(t *testing.T) {
 	)
 	require.True(t, observed.terminal)
 	require.Equal(t, "resp_fallback", observed.responseID)
+
+	// A top-level response_id is also untrusted unless it follows the response
+	// identifier convention; it must not be used as a sticky/billing key.
+	state = &relayState{requestModel: "gpt-5"}
+	observed = observeUpstreamMessage(
+		state,
+		[]byte(`{"type":"response.completed","response_id":"evt_response","response":{"usage":{"input_tokens":1,"output_tokens":1}}}`),
+		startAt,
+		nowFn,
+		nil,
+	)
+	require.True(t, observed.terminal)
+	require.Empty(t, observed.responseID)
+
+	// If one provider field is malformed, a valid lower-priority response_id
+	// remains usable; each candidate is validated independently.
+	state = &relayState{requestModel: "gpt-5"}
+	observed = observeUpstreamMessage(
+		state,
+		[]byte(`{"type":"response.completed","response":{"id":"evt_nested"},"response_id":"resp_valid"}`),
+		startAt,
+		nowFn,
+		nil,
+	)
+	require.True(t, observed.terminal)
+	require.Equal(t, "resp_valid", observed.responseID)
 }
 
 func TestRelayUsage_NonTerminalSnapshotsAreNotAdded(t *testing.T) {

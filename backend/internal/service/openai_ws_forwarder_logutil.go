@@ -173,14 +173,33 @@ func parseOpenAIWSEventEnvelope(message []byte) (eventType string, responseID st
 	if len(message) == 0 {
 		return "", "", gjson.Result{}
 	}
-	values := gjson.GetManyBytes(message, "type", "response.id", "id", "response")
+	values := gjson.GetManyBytes(message, "type", "response.id", "response_id", "id", "response")
 	eventType = strings.TrimSpace(values[0].String())
-	if id := strings.TrimSpace(values[1].String()); id != "" {
-		responseID = id
-	} else {
-		responseID = strings.TrimSpace(values[2].String())
+	responseID = selectOpenAIResponseID(
+		eventType,
+		values[1].String(), // response.id
+		values[2].String(), // top-level response_id
+		values[3].String(), // top-level id
+	)
+	return eventType, responseID, values[4]
+}
+
+// selectOpenAIResponseID keeps event identifiers out of response-id state.
+// Responses events may carry an unrelated top-level id (for example an event
+// or item id), while compatible providers may put the response identifier in
+// either response.id or the top-level response_id field. Candidates are
+// checked in that order and every accepted value must use the canonical
+// lowercase resp_ prefix. The event type is retained in the signature for
+// callers that already provide it and for future event-specific policies.
+func selectOpenAIResponseID(eventType string, candidates ...string) string {
+	_ = eventType
+	for _, candidate := range candidates {
+		id := strings.TrimSpace(candidate)
+		if strings.HasPrefix(id, "resp_") {
+			return id
+		}
 	}
-	return eventType, responseID, values[3]
+	return ""
 }
 
 func openAIWSMessageLikelyContainsToolCalls(message []byte) bool {

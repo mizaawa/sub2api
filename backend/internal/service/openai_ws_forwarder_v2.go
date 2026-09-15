@@ -534,6 +534,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 
 		if responseID == "" && eventResponseID != "" {
 			responseID = eventResponseID
+			s.bindHTTPResponseAccount(ctx, c, account, responseID)
 		}
 
 		isTokenEvent := isOpenAIWSTokenEvent(eventType)
@@ -722,7 +723,10 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		finalResponse = s.correctToolCallsInResponseBody(finalResponse)
 		populateOpenAIUsageFromResponseJSON(finalResponse, usage)
 		if responseID == "" {
-			responseID = strings.TrimSpace(gjson.GetBytes(finalResponse, "id").String())
+			responseID = extractOpenAIResponseIDFromJSONBytes(finalResponse)
+		}
+		if responseID != "" {
+			s.bindHTTPResponseAccount(ctx, c, account, responseID)
 		}
 
 		c.Data(http.StatusOK, "application/json", finalResponse)
@@ -730,10 +734,11 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		flushStreamWriter(true)
 	}
 
-	if responseID != "" && stateStore != nil {
-		ttl := s.openAIWSResponseStickyTTL()
-		logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, stateStore.BindResponseAccount(ctx, groupID, responseID, account.ID, ttl))
-		stateStore.BindResponseConn(responseID, lease.ConnID(), ttl)
+	if responseID != "" {
+		s.bindHTTPResponseAccount(ctx, c, account, responseID)
+		if stateStore != nil {
+			stateStore.BindResponseConn(responseID, lease.ConnID(), s.openAIWSResponseStickyTTL())
+		}
 	}
 	if stateStore != nil && storeDisabled && sessionHash != "" {
 		stateStore.BindSessionConn(groupID, sessionHash, lease.ConnID(), s.openAIWSSessionStickyTTL())

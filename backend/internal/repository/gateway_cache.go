@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -18,6 +19,11 @@ const liveCallPrefix = "live:call:"
 
 type gatewayCache struct {
 	rdb *redis.Client
+}
+
+type openAIHTTPResponseBindingValue struct {
+	AccountID int64 `json:"account_id"`
+	UserID    int64 `json:"user_id"`
 }
 
 func NewGatewayCache(rdb *redis.Client) service.GatewayCache {
@@ -47,6 +53,138 @@ func (c *gatewayCache) SetSessionAccountID(ctx context.Context, groupID int64, s
 	return c.rdb.Set(ctx, key, accountID, ttl).Err()
 }
 
+// SetOpenAIHTTPResponseBinding stores both halves of an HTTP Responses binding
+// in one Redis string. SET applies the value and TTL atomically, so a caller
+// can never observe only the account or only the downstream owner.
+func (c *gatewayCache) SetOpenAIHTTPResponseBinding(
+	ctx context.Context,
+	groupID int64,
+	bindingKey string,
+	accountID, userID int64,
+	ttl time.Duration,
+) error {
+	if accountID <= 0 || userID <= 0 {
+		return fmt.Errorf("invalid OpenAI HTTP response binding")
+	}
+	value, err := json.Marshal(openAIHTTPResponseBindingValue{AccountID: accountID, UserID: userID})
+	if err != nil {
+		return err
+	}
+	return c.rdb.Set(ctx, buildSessionKey(groupID, bindingKey), value, ttl).Err()
+}
+
+// SetOpenAIHTTPResponseBindingWithLegacy writes the new combined binding and
+// the legacy account/owner mirrors in one Redis transaction. The mirrors keep
+// response continuations readable while older gateway instances are still in
+// the rolling-deployment window; the combined value remains the authoritative
+// source for newer instances.
+func (c *gatewayCache) SetOpenAIHTTPResponseBindingWithLegacy(
+	ctx context.Context,
+	groupID int64,
+	bindingKey, legacyAccountKey, legacyOwnerKey string,
+	accountID, userID int64,
+	ttl time.Duration,
+) error {
+	if accountID <= 0 || userID <= 0 {
+		return fmt.Errorf("invalid OpenAI HTTP response binding")
+	}
+	value, err := json.Marshal(openAIHTTPResponseBindingValue{AccountID: accountID, UserID: userID})
+	if err != nil {
+		return err
+	}
+	pipe := c.rdb.TxPipeline()
+	pipe.Set(ctx, buildSessionKey(groupID, bindingKey), value, ttl)
+	pipe.Set(ctx, buildSessionKey(groupID, legacyAccountKey), accountID, ttl)
+	pipe.Set(ctx, buildSessionKey(groupID, legacyOwnerKey), userID, ttl)
+	_, err = pipe.Exec(ctx)
+	return err
+}
+
+func (c *gatewayCache) GetOpenAIHTTPResponseBinding(
+	ctx context.Context,
+	groupID int64,
+	bindingKey string,
+) (accountID, userID int64, err error) {
+	value, err := c.rdb.Get(ctx, buildSessionKey(groupID, bindingKey)).Bytes()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return 0, 0, service.ErrStickySessionNotFound
+		}
+		return 0, 0, err
+	}
+	return decodeOpenAIHTTPResponseBinding(value)
+}
+
+func decodeOpenAIHTTPResponseBinding(value []byte) (accountID, userID int64, err error) {
+	var binding openAIHTTPResponseBindingValue
+	if err := json.Unmarshal(value, &binding); err != nil {
+		return 0, 0, fmt.Errorf("decode OpenAI HTTP response binding: %w", err)
+	}
+	if binding.AccountID <= 0 || binding.UserID <= 0 {
+		return 0, 0, fmt.Errorf("invalid OpenAI HTTP response binding")
+	}
+	return binding.AccountID, binding.UserID, nil
+}
+
+// GetOpenAIHTTPResponseBindingWithTTL reads a combined binding and reports
+// the remaining Redis lifetime.  The TTL is measured after the value read and
+// reduced by the local round-trip (plus one millisecond of clock-resolution
+// slack), so a caller's process-local copy cannot intentionally outlive the
+// Redis key merely because the read took time.
+func (c *gatewayCache) GetOpenAIHTTPResponseBindingWithTTL(
+	ctx context.Context,
+	groupID int64,
+	bindingKey string,
+) (accountID, userID int64, ttl time.Duration, err error) {
+	started := time.Now()
+	key := buildSessionKey(groupID, bindingKey)
+	value, err := c.rdb.Get(ctx, key).Bytes()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return 0, 0, 0, service.ErrStickySessionNotFound
+		}
+		return 0, 0, 0, err
+	}
+
+	accountID, userID, err = decodeOpenAIHTTPResponseBinding(value)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	remaining, err := c.rdb.PTTL(ctx, key).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return 0, 0, 0, service.ErrStickySessionNotFound
+		}
+		return 0, 0, 0, err
+	}
+	if remaining == -2 {
+		// Redis uses -2 for a missing key (go-redis preserves this sentinel as
+		// a duration value rather than scaling it by the PTTL precision). Treat
+		// it as a miss instead of hydrating stale local state.
+		return 0, 0, 0, service.ErrStickySessionNotFound
+	}
+	if remaining < 0 {
+		// A positive TTL is expected for bindings written by this service. An
+		// old or manually-created persistent key is still safe to read, but do
+		// not create a process-local copy whose lifetime is guessed.
+		return accountID, userID, 0, nil
+	}
+
+	// PTTL has millisecond resolution. Account for the elapsed GET/command
+	// round-trip and one extra millisecond so local expiry is never later than
+	// the Redis expiry due to rounding or the caller's bind latency.
+	ttl = remaining - time.Since(started) - time.Millisecond
+	if ttl < 0 {
+		ttl = 0
+	}
+	return accountID, userID, ttl, nil
+}
+
+func (c *gatewayCache) DeleteOpenAIHTTPResponseBinding(ctx context.Context, groupID int64, bindingKey string) error {
+	return c.rdb.Del(ctx, buildSessionKey(groupID, bindingKey)).Err()
+}
+
 func (c *gatewayCache) RefreshSessionTTL(ctx context.Context, groupID int64, sessionHash string, ttl time.Duration) error {
 	key := buildSessionKey(groupID, sessionHash)
 	return c.rdb.Expire(ctx, key, ttl).Err()
@@ -67,6 +205,9 @@ func (c *gatewayCache) DeleteSessionAccountID(ctx context.Context, groupID int64
 // Compile-time assertion: gatewayCache must implement CyberSessionBlockStore.
 var _ service.CyberSessionBlockStore = (*gatewayCache)(nil)
 var _ service.LiveCallStore = (*gatewayCache)(nil)
+var _ service.OpenAIHTTPResponseBindingCache = (*gatewayCache)(nil)
+var _ service.OpenAIHTTPResponseBindingTTLCache = (*gatewayCache)(nil)
+var _ service.OpenAIHTTPResponseBindingLegacyCache = (*gatewayCache)(nil)
 
 const cyberSessionBlockPrefix = "cyber_session_block:"
 

@@ -29,6 +29,9 @@ func isCodexToolCallContextItemType(typ string) bool {
 	case "tool_call",
 		"function_call",
 		"local_shell_call",
+		"computer_call",
+		"apply_patch_call",
+		"shell_call",
 		"tool_search_call",
 		"custom_tool_call",
 		"mcp_tool_call":
@@ -41,6 +44,10 @@ func isCodexToolCallContextItemType(typ string) bool {
 func isCodexToolCallOutputItemType(typ string) bool {
 	switch strings.TrimSpace(typ) {
 	case "function_call_output",
+		"computer_call_output",
+		"apply_patch_call_output",
+		"shell_call_output",
+		"local_shell_call_output",
 		"tool_search_output",
 		"custom_tool_call_output",
 		"mcp_tool_call_output":
@@ -85,7 +92,7 @@ func NeedsToolContinuation(reqBody map[string]any) bool {
 
 // AnalyzeToolContinuationSignals 单次遍历 input，提取工具输出/工具调用上下文/item_reference 相关信号。
 // 字段名保留 FunctionCallOutput 是为了兼容既有调用点；语义覆盖 Codex 的所有工具输出
-// （function_call_output/tool_search_output/custom_tool_call_output/mcp_tool_call_output）。
+// （包括 function/computer/apply_patch/shell/custom/MCP 等 call output）。
 func AnalyzeToolContinuationSignals(reqBody map[string]any) ToolContinuationSignals {
 	signals := ToolContinuationSignals{}
 	if reqBody == nil {
@@ -176,30 +183,44 @@ func ValidateFunctionCallOutputContextBytes(body []byte) FunctionCallOutputValid
 		switch {
 		case isCodexToolCallOutputItemType(itemType):
 			result.HasFunctionCallOutput = true
-			callID := strings.TrimSpace(item.Get("call_id").String())
-			if callID == "" {
+			callIDResult := item.Get("call_id")
+			callID := strings.TrimSpace(callIDResult.String())
+			if callIDResult.Type != gjson.String || callID == "" {
 				result.HasFunctionCallOutputMissingCallID = true
-				return true
+				break
 			}
-			if callIDs == nil {
+			if !result.HasToolCallContext && callIDs == nil {
 				callIDs = make(map[string]struct{})
 			}
-			callIDs[callID] = struct{}{}
+			if !result.HasToolCallContext {
+				callIDs[callID] = struct{}{}
+			}
 		case isCodexToolCallContextItemType(itemType):
-			if strings.TrimSpace(item.Get("call_id").String()) != "" {
+			callIDResult := item.Get("call_id")
+			if callIDResult.Type == gjson.String && strings.TrimSpace(callIDResult.String()) != "" {
 				result.HasToolCallContext = true
+				// item_reference coverage is irrelevant once inline tool-call context exists.
+				callIDs = nil
+				referenceIDs = nil
 			}
 		case itemType == "item_reference":
-			idValue := strings.TrimSpace(item.Get("id").String())
-			if idValue == "" {
-				return true
+			if result.HasToolCallContext {
+				break
+			}
+			idResult := item.Get("id")
+			idValue := strings.TrimSpace(idResult.String())
+			if idResult.Type != gjson.String || idValue == "" {
+				break
 			}
 			if referenceIDs == nil {
 				referenceIDs = make(map[string]struct{})
 			}
 			referenceIDs[idValue] = struct{}{}
 		}
-		return !result.HasFunctionCallOutput || !result.HasToolCallContext
+		// A valid inline context does not make a malformed later output valid. Keep
+		// scanning until a missing call_id has been found; otherwise the entire
+		// input must be inspected before the validation can succeed.
+		return !result.HasFunctionCallOutputMissingCallID
 	})
 	if !result.HasFunctionCallOutput || result.HasToolCallContext || len(callIDs) == 0 || len(referenceIDs) == 0 {
 		return result
@@ -250,7 +271,12 @@ func AnalyzeToolCallOutputContextCoverageBytes(body []byte) ToolCallOutputContex
 		switch {
 		case isCodexToolCallOutputItemType(itemType):
 			coverage.HasFunctionCallOutput = true
-			callID := strings.TrimSpace(item.Get("call_id").String())
+			callIDResult := item.Get("call_id")
+			if callIDResult.Type != gjson.String {
+				missingCallID = true
+				return true
+			}
+			callID := strings.TrimSpace(callIDResult.String())
 			if callID == "" {
 				missingCallID = true
 				return true
@@ -260,7 +286,11 @@ func AnalyzeToolCallOutputContextCoverageBytes(body []byte) ToolCallOutputContex
 			}
 			outputCallIDs[callID] = struct{}{}
 		case isCodexToolCallContextItemType(itemType):
-			callID := strings.TrimSpace(item.Get("call_id").String())
+			callIDResult := item.Get("call_id")
+			if callIDResult.Type != gjson.String {
+				return true
+			}
+			callID := strings.TrimSpace(callIDResult.String())
 			if callID == "" {
 				return true
 			}
@@ -269,7 +299,11 @@ func AnalyzeToolCallOutputContextCoverageBytes(body []byte) ToolCallOutputContex
 			}
 			contextIDs[callID] = struct{}{}
 		case itemType == "item_reference":
-			idValue := strings.TrimSpace(item.Get("id").String())
+			idResult := item.Get("id")
+			if idResult.Type != gjson.String {
+				return true
+			}
+			idValue := strings.TrimSpace(idResult.String())
 			if idValue == "" {
 				return true
 			}
@@ -293,10 +327,9 @@ func AnalyzeToolCallOutputContextCoverageBytes(body []byte) ToolCallOutputContex
 	return coverage
 }
 
-// ValidateFunctionCallOutputContext 为 handler 提供低开销校验结果：
-// 1) 无工具输出直接返回
-// 2) 若已存在工具调用上下文则提前返回
-// 3) 仅在无工具上下文时才构建 call_id / item_reference 集合
+// ValidateFunctionCallOutputContext 为 handler 提供低开销校验结果。
+// 第一遍始终检查工具输出的 call_id；仅在不存在内联工具调用上下文时，
+// 才通过第二遍构建 call_id / item_reference 集合。
 // 字段名保留 FunctionCallOutput 是为了兼容既有调用点；语义覆盖所有 Codex 工具输出。
 func ValidateFunctionCallOutputContext(reqBody map[string]any) FunctionCallOutputValidation {
 	result := FunctionCallOutputValidation{}
@@ -317,14 +350,18 @@ func ValidateFunctionCallOutputContext(reqBody map[string]any) FunctionCallOutpu
 		switch {
 		case isCodexToolCallOutputItemType(itemType):
 			result.HasFunctionCallOutput = true
+			callID, _ := itemMap["call_id"].(string)
+			if strings.TrimSpace(callID) == "" {
+				result.HasFunctionCallOutputMissingCallID = true
+			}
 		case isCodexToolCallContextItemType(itemType):
 			callID, _ := itemMap["call_id"].(string)
 			if strings.TrimSpace(callID) != "" {
 				result.HasToolCallContext = true
 			}
 		}
-		if result.HasFunctionCallOutput && result.HasToolCallContext {
-			return result
+		if result.HasToolCallContext && result.HasFunctionCallOutputMissingCallID {
+			break
 		}
 	}
 
@@ -345,7 +382,6 @@ func ValidateFunctionCallOutputContext(reqBody map[string]any) FunctionCallOutpu
 			callID, _ := itemMap["call_id"].(string)
 			callID = strings.TrimSpace(callID)
 			if callID == "" {
-				result.HasFunctionCallOutputMissingCallID = true
 				continue
 			}
 			callIDs[callID] = struct{}{}

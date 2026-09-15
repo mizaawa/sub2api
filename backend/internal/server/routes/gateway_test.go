@@ -63,6 +63,7 @@ func TestGatewayRoutesOpenAIResponsesCompactPathIsRegistered(t *testing.T) {
 
 	for _, path := range []string{
 		"/v1/responses/compact",
+		"/openai/v1/responses/compact",
 		"/responses/compact",
 		"/backend-api/codex/responses",
 		"/backend-api/codex/responses/compact",
@@ -73,6 +74,22 @@ func TestGatewayRoutesOpenAIResponsesCompactPathIsRegistered(t *testing.T) {
 
 		router.ServeHTTP(w, req)
 		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit OpenAI responses handler", path)
+	}
+}
+
+func TestGatewayRoutesOpenAIV1ResponsesAliasesAreRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter()
+	registered := make(map[string]bool)
+	for _, route := range router.Routes() {
+		registered[route.Method+" "+route.Path] = true
+	}
+
+	for _, route := range []string{
+		"POST /openai/v1/responses",
+		"POST /openai/v1/responses/*subpath",
+		"GET /openai/v1/responses",
+	} {
+		require.True(t, registered[route], "%s should be registered", route)
 	}
 }
 

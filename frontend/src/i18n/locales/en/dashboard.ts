@@ -572,6 +572,9 @@ export default {
     detail: {
       noModels: 'No models configured for this group',
       noPricing: 'Pricing not configured',
+      modelCount: '{count} models',
+      expandPricing: 'View pricing details',
+      collapsePricing: 'Hide pricing details',
       peakNote: 'Peak hours {window}: billing rate ×{multiplier}'
     },
     table: {

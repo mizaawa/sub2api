@@ -255,7 +255,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		imageCount = result.imageCount
 		imageOutputSizes = result.imageOutputSizes
 	} else {
-		result, err := s.handleNonStreamingResponsePassthrough(ctx, resp, c, reqModel, upstreamPassthroughModel)
+		result, err := s.handleNonStreamingResponsePassthrough(ctx, resp, c, account, reqModel, upstreamPassthroughModel)
 		if err != nil {
 			return nil, err
 		}
@@ -1293,6 +1293,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			}
 			if responseID == "" {
 				responseID = extractOpenAIResponseIDFromJSONBytes(dataBytes)
+				if responseID != "" {
+					s.bindHTTPResponseAccount(ctx, c, account, responseID)
+				}
 			}
 			imageCounter.AddSSEData(dataBytes)
 			if sanitizedData, sanitized := sanitizeOpenAIResponseFailedEventForClient(
@@ -1396,6 +1399,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	ctx context.Context,
 	resp *http.Response,
 	c *gin.Context,
+	account *Account,
 	originalModel string,
 	mappedModel string,
 ) (*openaiNonStreamingResultPassthrough, error) {
@@ -1418,7 +1422,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	// stream=false was requested. Without this conversion the client would
 	// receive raw SSE text or a terminal event with empty output.
 	if isEventStreamResponse(resp.Header) {
-		return s.handlePassthroughSSEToJSON(resp, c, body, originalModel, mappedModel)
+		return s.handlePassthroughSSEToJSON(ctx, resp, c, account, body, originalModel, mappedModel)
 	}
 
 	usage := &OpenAIUsage{}
@@ -1447,13 +1451,15 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if err != nil {
 		return nil, fmt.Errorf("restore OpenAI passthrough namespace response: %w", err)
 	}
+	responseID := extractOpenAIResponseIDFromJSONBytes(body)
+	s.bindHTTPResponseAccount(ctx, c, account, responseID)
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
 		c.Data(resp.StatusCode, contentType, body)
 	}
 	return &openaiNonStreamingResultPassthrough{
 		OpenAIUsage:      usage,
 		usage:            usage,
-		responseID:       extractOpenAIResponseIDFromJSONBytes(body),
+		responseID:       responseID,
 		imageCount:       countOpenAIResponseImageOutputsFromJSONBytes(body),
 		imageOutputSizes: collectOpenAIResponseImageOutputSizesFromJSONBytes(body),
 	}, nil
@@ -1463,7 +1469,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 // response for the passthrough path. It mirrors handleSSEToJSON while
 // preserving passthrough payloads, except compact-only model remapping may
 // rewrite model fields back to the original requested model.
-func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c *gin.Context, body []byte, originalModel string, mappedModel string) (*openaiNonStreamingResultPassthrough, error) {
+func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, body []byte, originalModel string, mappedModel string) (*openaiNonStreamingResultPassthrough, error) {
 	bodyText := string(body)
 	finalResponse, ok := extractCodexFinalResponse(bodyText)
 
@@ -1518,6 +1524,8 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 			contentType = "text/event-stream"
 		}
 	}
+	responseID := extractOpenAIResponseIDFromJSONBytes(body)
+	s.bindHTTPResponseAccount(ctx, c, account, responseID)
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
 		c.Data(resp.StatusCode, contentType, body)
 	}
@@ -1525,7 +1533,7 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 	return &openaiNonStreamingResultPassthrough{
 		OpenAIUsage:      usage,
 		usage:            usage,
-		responseID:       extractOpenAIResponseIDFromJSONBytes(body),
+		responseID:       responseID,
 		imageCount:       countOpenAIImageOutputsFromSSEBody(bodyText),
 		imageOutputSizes: collectOpenAIImageOutputSizesFromSSEBody(bodyText),
 	}, nil

@@ -1110,18 +1110,81 @@ func (s *APIKeyService) SearchAPIKeys(ctx context.Context, userID int64, keyword
 	return keys, nil
 }
 
-// GetUserAllowedGroupIDSet 返回 user_allowed_groups 授权给该用户的专属分组 ID 集合。
-//
-// 与 GetAvailableGroups 的区别：这里是「橱窗」语义（模型广场用），不检查订阅有效性，
-// 也不关心分组是否活跃——仅回答"哪些专属分组对该用户可见"。返回值恒非 nil。
-func (s *APIKeyService) GetUserAllowedGroupIDSet(ctx context.Context, userID int64) (map[int64]struct{}, error) {
+// loadUserGroupVisibilitySets loads the two independent sources of group
+// visibility: explicit user_allowed_groups grants and active subscriptions.
+// Keeping the sources separate lets the model plaza validate subscription
+// grants against the group's current subscription type.
+func (s *APIKeyService) loadUserGroupVisibilitySets(ctx context.Context, userID int64) (map[int64]struct{}, map[int64]struct{}, error) {
 	user, err := s.userRepo.GetByID(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("get user: %w", err)
+		return nil, nil, fmt.Errorf("get user: %w", err)
 	}
-	allowed := make(map[int64]struct{}, len(user.AllowedGroups))
+	explicit := make(map[int64]struct{}, len(user.AllowedGroups))
 	for _, id := range user.AllowedGroups {
+		explicit[id] = struct{}{}
+	}
+	subscribed := make(map[int64]struct{})
+
+	if s.userSubRepo == nil {
+		return explicit, subscribed, nil
+	}
+	activeSubscriptions, err := s.userSubRepo.ListActiveByUserID(ctx, userID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list active subscriptions: %w", err)
+	}
+	for _, subscription := range activeSubscriptions {
+		if subscription.GroupID > 0 {
+			subscribed[subscription.GroupID] = struct{}{}
+		}
+	}
+	return explicit, subscribed, nil
+}
+
+// GetUserAllowedGroupIDSet returns the union of explicit grants and active
+// subscription group IDs. It is kept as the general-purpose visibility helper;
+// model-plaza callers should use GetUserPlazaAllowedGroupIDSet so a stale
+// subscription cannot authorize a group after its type changes.
+func (s *APIKeyService) GetUserAllowedGroupIDSet(ctx context.Context, userID int64) (map[int64]struct{}, error) {
+	explicit, subscribed, err := s.loadUserGroupVisibilitySets(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	allowed := make(map[int64]struct{}, len(explicit)+len(subscribed))
+	for id := range explicit {
 		allowed[id] = struct{}{}
+	}
+	for id := range subscribed {
+		allowed[id] = struct{}{}
+	}
+	return allowed, nil
+}
+
+// GetUserPlazaAllowedGroupIDSet returns the group IDs visible in the model
+// plaza. Explicit grants authorize standard groups; current subscription
+// groups require an active subscription even if a stale explicit grant remains.
+// Active subscriptions are only applied to IDs currently classified as
+// subscription groups by the caller. This keeps both type-conversion directions
+// from leaking a group's existence through historical authorization rows.
+func (s *APIKeyService) GetUserPlazaAllowedGroupIDSet(
+	ctx context.Context,
+	userID int64,
+	currentSubscriptionGroupIDs map[int64]struct{},
+) (map[int64]struct{}, error) {
+	explicit, subscribed, err := s.loadUserGroupVisibilitySets(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	allowed := make(map[int64]struct{}, len(explicit)+len(subscribed))
+	for id := range explicit {
+		if _, isSubscriptionGroup := currentSubscriptionGroupIDs[id]; isSubscriptionGroup {
+			continue
+		}
+		allowed[id] = struct{}{}
+	}
+	for id := range subscribed {
+		if _, ok := currentSubscriptionGroupIDs[id]; ok {
+			allowed[id] = struct{}{}
+		}
 	}
 	return allowed, nil
 }

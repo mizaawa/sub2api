@@ -68,6 +68,7 @@ func TestModelPlazaHandler_NilSettingServiceFailsClosed404(t *testing.T) {
 	h.Get(c)
 
 	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Equal(t, "private, no-store", w.Header().Get("Cache-Control"))
 }
 
 func TestToModelPlazaGroupDTO_UserRateAndFieldWhitelist(t *testing.T) {

@@ -28,6 +28,389 @@ func TestOpenAIWSStateStore_BindGetDeleteResponseAccount(t *testing.T) {
 	require.Zero(t, accountID)
 }
 
+func TestOpenAIWSStateStore_HTTPResponseOwnerPersistsAcrossStoreInstances(t *testing.T) {
+	cache := &stubGatewayCache{}
+	ctx := context.Background()
+	groupID := int64(8)
+	writer := NewOpenAIWSStateStore(cache)
+
+	require.NoError(t, writer.BindHTTPResponseOwner(ctx, groupID, "resp_owned", 201, 301, time.Minute))
+	userID, apiKeyID, found, err := writer.GetHTTPResponseOwner(ctx, groupID, "resp_owned")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(201), userID)
+	require.Equal(t, int64(301), apiKeyID)
+
+	reader := NewOpenAIWSStateStore(cache)
+	userID, apiKeyID, found, err = reader.GetHTTPResponseOwner(ctx, groupID, "resp_owned")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(201), userID)
+	require.Zero(t, apiKeyID, "cross-instance ownership is intentionally keyed by user only")
+}
+
+type openAIHTTPResponseBindingTestValue struct {
+	accountID int64
+	userID    int64
+}
+
+type openAIHTTPResponseBindingTestCache struct {
+	bindings       map[string]openAIHTTPResponseBindingTestValue
+	legacyBindings map[string]int64
+	setErr         error
+	atomicSetCalls int
+	atomicGetCalls int
+	atomicDelCalls int
+	legacySetCalls int
+	legacyDelCalls []string
+	setHasDeadline bool
+	setDeadline    time.Duration
+	atomicDelErr   error
+	legacyDelErrs  map[string]error
+}
+
+func openAIHTTPResponseBindingTestKey(groupID int64, key string) string {
+	return fmt.Sprintf("%d:%s", groupID, key)
+}
+
+func (c *openAIHTTPResponseBindingTestCache) GetSessionAccountID(_ context.Context, groupID int64, key string) (int64, error) {
+	if value, ok := c.legacyBindings[openAIHTTPResponseBindingTestKey(groupID, key)]; ok {
+		return value, nil
+	}
+	return 0, ErrStickySessionNotFound
+}
+
+func (c *openAIHTTPResponseBindingTestCache) SetSessionAccountID(_ context.Context, groupID int64, key string, value int64, _ time.Duration) error {
+	c.legacySetCalls++
+	if c.legacyBindings == nil {
+		c.legacyBindings = make(map[string]int64)
+	}
+	c.legacyBindings[openAIHTTPResponseBindingTestKey(groupID, key)] = value
+	return nil
+}
+
+func (c *openAIHTTPResponseBindingTestCache) RefreshSessionTTL(context.Context, int64, string, time.Duration) error {
+	return nil
+}
+
+func (c *openAIHTTPResponseBindingTestCache) DeleteSessionAccountID(_ context.Context, groupID int64, key string) error {
+	c.legacyDelCalls = append(c.legacyDelCalls, key)
+	if err := c.legacyDelErrs[key]; err != nil {
+		return err
+	}
+	delete(c.legacyBindings, openAIHTTPResponseBindingTestKey(groupID, key))
+	return nil
+}
+
+func (c *openAIHTTPResponseBindingTestCache) SetOpenAIHTTPResponseBinding(
+	ctx context.Context,
+	groupID int64,
+	key string,
+	accountID, userID int64,
+	_ time.Duration,
+) error {
+	c.atomicSetCalls++
+	if deadline, ok := ctx.Deadline(); ok {
+		c.setHasDeadline = true
+		c.setDeadline = time.Until(deadline)
+	}
+	if c.setErr != nil {
+		return c.setErr
+	}
+	if c.bindings == nil {
+		c.bindings = make(map[string]openAIHTTPResponseBindingTestValue)
+	}
+	c.bindings[openAIHTTPResponseBindingTestKey(groupID, key)] = openAIHTTPResponseBindingTestValue{
+		accountID: accountID,
+		userID:    userID,
+	}
+	return nil
+}
+
+func (c *openAIHTTPResponseBindingTestCache) SetOpenAIHTTPResponseBindingWithLegacy(
+	ctx context.Context,
+	groupID int64,
+	key, legacyAccountKey, legacyOwnerKey string,
+	accountID, userID int64,
+	ttl time.Duration,
+) error {
+	// Model the production transaction as one logical operation while retaining
+	// the individual legacy maps for assertions about rolling-release mirrors.
+	if err := c.setOpenAIHTTPResponseBinding(ctx, groupID, key, accountID, userID, ttl); err != nil {
+		return err
+	}
+	if c.legacyBindings == nil {
+		c.legacyBindings = make(map[string]int64)
+	}
+	c.legacyBindings[openAIHTTPResponseBindingTestKey(groupID, legacyAccountKey)] = accountID
+	c.legacyBindings[openAIHTTPResponseBindingTestKey(groupID, legacyOwnerKey)] = userID
+	return nil
+}
+
+func (c *openAIHTTPResponseBindingTestCache) setOpenAIHTTPResponseBinding(
+	ctx context.Context,
+	groupID int64,
+	key string,
+	accountID, userID int64,
+	_ time.Duration,
+) error {
+	c.atomicSetCalls++
+	if deadline, ok := ctx.Deadline(); ok {
+		c.setHasDeadline = true
+		c.setDeadline = time.Until(deadline)
+	}
+	if c.setErr != nil {
+		return c.setErr
+	}
+	if c.bindings == nil {
+		c.bindings = make(map[string]openAIHTTPResponseBindingTestValue)
+	}
+	c.bindings[openAIHTTPResponseBindingTestKey(groupID, key)] = openAIHTTPResponseBindingTestValue{
+		accountID: accountID,
+		userID:    userID,
+	}
+	return nil
+}
+
+func (c *openAIHTTPResponseBindingTestCache) GetOpenAIHTTPResponseBinding(
+	_ context.Context,
+	groupID int64,
+	key string,
+) (int64, int64, error) {
+	c.atomicGetCalls++
+	value, ok := c.bindings[openAIHTTPResponseBindingTestKey(groupID, key)]
+	if !ok {
+		return 0, 0, ErrStickySessionNotFound
+	}
+	return value.accountID, value.userID, nil
+}
+
+func (c *openAIHTTPResponseBindingTestCache) DeleteOpenAIHTTPResponseBinding(_ context.Context, groupID int64, key string) error {
+	c.atomicDelCalls++
+	if c.atomicDelErr != nil {
+		return c.atomicDelErr
+	}
+	delete(c.bindings, openAIHTTPResponseBindingTestKey(groupID, key))
+	return nil
+}
+
+func TestOpenAIWSStateStore_BindHTTPResponseUsesOneAtomicCacheWrite(t *testing.T) {
+	cache := &openAIHTTPResponseBindingTestCache{}
+	store := NewOpenAIWSStateStore(cache)
+	ctx := context.Background()
+	groupID := int64(18)
+
+	require.NoError(t, store.BindHTTPResponse(ctx, groupID, "resp_atomic", 601, 701, 801, time.Minute))
+	require.Equal(t, 1, cache.atomicSetCalls)
+	require.Zero(t, cache.legacySetCalls, "atomic-capable caches must not receive legacy account/owner writes")
+	require.True(t, cache.setHasDeadline)
+	require.Greater(t, cache.setDeadline, 500*time.Millisecond)
+	require.LessOrEqual(t, cache.setDeadline, openAIHTTPResponseBindRedisTimeout)
+
+	accountID, err := store.GetResponseAccount(ctx, groupID, "resp_atomic")
+	require.NoError(t, err)
+	require.Equal(t, int64(601), accountID)
+	userID, apiKeyID, found, err := store.GetHTTPResponseOwner(ctx, groupID, "resp_atomic")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(701), userID)
+	require.Equal(t, int64(801), apiKeyID)
+}
+
+func TestOpenAIWSStateStore_HTTPResponseBindingPersistsAcrossStoreInstances(t *testing.T) {
+	cache := &openAIHTTPResponseBindingTestCache{}
+	ctx := context.Background()
+	groupID := int64(19)
+	writer := NewOpenAIWSStateStore(cache)
+	require.NoError(t, writer.BindHTTPResponse(ctx, groupID, "resp_atomic_shared", 602, 702, 802, time.Minute))
+
+	reader := NewOpenAIWSStateStore(cache)
+	accountID, err := reader.GetResponseAccount(ctx, groupID, "resp_atomic_shared")
+	require.NoError(t, err)
+	require.Equal(t, int64(602), accountID)
+	userID, apiKeyID, found, err := reader.GetHTTPResponseOwner(ctx, groupID, "resp_atomic_shared")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(702), userID)
+	require.Zero(t, apiKeyID, "API key identity is intentionally process-local")
+	require.Equal(t, 1, cache.atomicGetCalls, "account lookup must hydrate owner state from the same cache read")
+}
+
+func TestOpenAIWSStateStore_HTTPResponseOwnerLookupHydratesAccount(t *testing.T) {
+	cache := &openAIHTTPResponseBindingTestCache{}
+	ctx := context.Background()
+	groupID := int64(22)
+	writer := NewOpenAIWSStateStore(cache)
+	require.NoError(t, writer.BindHTTPResponse(ctx, groupID, "resp_owner_first", 605, 705, 805, time.Minute))
+
+	reader := NewOpenAIWSStateStore(cache)
+	userID, apiKeyID, found, err := reader.GetHTTPResponseOwner(ctx, groupID, "resp_owner_first")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(705), userID)
+	require.Zero(t, apiKeyID)
+	accountID, err := reader.GetResponseAccount(ctx, groupID, "resp_owner_first")
+	require.NoError(t, err)
+	require.Equal(t, int64(605), accountID)
+	require.Equal(t, 1, cache.atomicGetCalls, "owner lookup must hydrate account state from the same cache read")
+}
+
+func TestOpenAIWSStateStore_BindHTTPResponseFailureKeepsCoherentLocalState(t *testing.T) {
+	cache := &openAIHTTPResponseBindingTestCache{setErr: errors.New("redis unavailable")}
+	raw := NewOpenAIWSStateStore(cache)
+	store, ok := raw.(*defaultOpenAIWSStateStore)
+	require.True(t, ok)
+
+	err := store.BindHTTPResponse(context.Background(), 20, "resp_atomic_failed", 603, 703, 803, time.Minute)
+	require.Error(t, err)
+	require.Equal(t, 1, cache.atomicSetCalls)
+	require.Empty(t, cache.bindings)
+
+	mapKey := openAIWSResponseAccountMapKey(20, "resp_atomic_failed")
+	store.responseToAccountMu.RLock()
+	_, hasAccount := store.responseToAccount[mapKey]
+	store.responseToAccountMu.RUnlock()
+	store.responseOwnerMu.RLock()
+	_, hasOwner := store.responseOwners[mapKey]
+	store.responseOwnerMu.RUnlock()
+	require.True(t, hasAccount)
+	require.True(t, hasOwner)
+
+	accountID, getErr := store.GetResponseAccount(context.Background(), 20, "resp_atomic_failed")
+	require.NoError(t, getErr)
+	require.Equal(t, int64(603), accountID)
+	userID, apiKeyID, found, getErr := store.GetHTTPResponseOwner(context.Background(), 20, "resp_atomic_failed")
+	require.NoError(t, getErr)
+	require.True(t, found)
+	require.Equal(t, int64(703), userID)
+	require.Equal(t, int64(803), apiKeyID)
+}
+
+type legacyHTTPResponseRollbackProbe struct {
+	legacyBindings    map[string]int64
+	setCalls          int
+	secondSetContext  context.Context
+	secondSetDeadline time.Time
+	rollbackContext   context.Context
+	rollbackDeadline  time.Time
+	secondSetError    error
+}
+
+func (c *legacyHTTPResponseRollbackProbe) GetSessionAccountID(_ context.Context, groupID int64, key string) (int64, error) {
+	if value, ok := c.legacyBindings[openAIHTTPResponseBindingTestKey(groupID, key)]; ok {
+		return value, nil
+	}
+	return 0, ErrStickySessionNotFound
+}
+
+func (c *legacyHTTPResponseRollbackProbe) SetSessionAccountID(ctx context.Context, groupID int64, key string, value int64, _ time.Duration) error {
+	c.setCalls++
+	if c.setCalls == 2 {
+		c.secondSetContext = ctx
+		if deadline, ok := ctx.Deadline(); ok {
+			c.secondSetDeadline = deadline
+		}
+		if c.secondSetError != nil {
+			return c.secondSetError
+		}
+	}
+	if c.legacyBindings == nil {
+		c.legacyBindings = make(map[string]int64)
+	}
+	c.legacyBindings[openAIHTTPResponseBindingTestKey(groupID, key)] = value
+	return nil
+}
+
+func (*legacyHTTPResponseRollbackProbe) RefreshSessionTTL(context.Context, int64, string, time.Duration) error {
+	return nil
+}
+
+func (c *legacyHTTPResponseRollbackProbe) DeleteSessionAccountID(ctx context.Context, groupID int64, key string) error {
+	c.rollbackContext = ctx
+	if deadline, ok := ctx.Deadline(); ok {
+		c.rollbackDeadline = deadline
+	}
+	delete(c.legacyBindings, openAIHTTPResponseBindingTestKey(groupID, key))
+	return nil
+}
+
+func TestOpenAIWSStateStore_LegacyBindingRollbackUsesFreshTimeout(t *testing.T) {
+	probe := &legacyHTTPResponseRollbackProbe{secondSetError: errors.New("owner write failed")}
+	store := NewOpenAIWSStateStore(probe)
+	err := store.BindHTTPResponse(context.Background(), 25, "resp_legacy_rollback", 607, 707, 807, time.Minute)
+	require.ErrorIs(t, err, probe.secondSetError)
+	require.Equal(t, 2, probe.setCalls)
+	require.False(t, probe.secondSetDeadline.IsZero())
+	require.False(t, probe.rollbackDeadline.IsZero())
+	require.NotSame(t, probe.secondSetContext, probe.rollbackContext, "rollback must use a fresh context instead of the write context")
+	require.Empty(t, probe.legacyBindings, "failed owner write must not leave an account-only legacy binding")
+}
+
+func TestOpenAIWSStateStore_CombinedCacheReadsLegacyResponseBindings(t *testing.T) {
+	cache := &openAIHTTPResponseBindingTestCache{legacyBindings: make(map[string]int64)}
+	groupID := int64(21)
+	responseID := "resp_legacy_shared"
+	cache.legacyBindings[openAIHTTPResponseBindingTestKey(groupID, openAIWSResponseAccountCacheKey(responseID))] = 604
+	cache.legacyBindings[openAIHTTPResponseBindingTestKey(groupID, openAIHTTPResponseOwnerCacheKey(openAIHTTPResponseOwnerUserPrefix, responseID))] = 704
+
+	store := NewOpenAIWSStateStore(cache)
+	accountID, err := store.GetResponseAccount(context.Background(), groupID, responseID)
+	require.NoError(t, err)
+	require.Equal(t, int64(604), accountID)
+	userID, apiKeyID, found, err := store.GetHTTPResponseOwner(context.Background(), groupID, responseID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(704), userID)
+	require.Zero(t, apiKeyID)
+	require.Equal(t, 2, cache.atomicGetCalls, "new binding key should be checked before the legacy fallback")
+}
+
+func TestOpenAIWSStateStore_DeleteResponseAccountRemovesCombinedAndLegacyKeys(t *testing.T) {
+	cache := &openAIHTTPResponseBindingTestCache{
+		bindings:       make(map[string]openAIHTTPResponseBindingTestValue),
+		legacyBindings: make(map[string]int64),
+	}
+	ctx := context.Background()
+	groupID := int64(23)
+	responseID := "resp_delete_all"
+	combinedKey := openAIHTTPResponseBindingCacheKey(responseID)
+	accountKey := openAIWSResponseAccountCacheKey(responseID)
+	ownerKey := openAIHTTPResponseOwnerCacheKey(openAIHTTPResponseOwnerUserPrefix, responseID)
+	cache.bindings[openAIHTTPResponseBindingTestKey(groupID, combinedKey)] = openAIHTTPResponseBindingTestValue{accountID: 606, userID: 706}
+	cache.legacyBindings[openAIHTTPResponseBindingTestKey(groupID, accountKey)] = 606
+	cache.legacyBindings[openAIHTTPResponseBindingTestKey(groupID, ownerKey)] = 706
+
+	store := NewOpenAIWSStateStore(cache)
+	require.NoError(t, store.DeleteResponseAccount(ctx, groupID, responseID))
+	require.Empty(t, cache.bindings)
+	require.Empty(t, cache.legacyBindings)
+	require.Equal(t, 1, cache.atomicDelCalls)
+	require.ElementsMatch(t, []string{accountKey, ownerKey}, cache.legacyDelCalls)
+}
+
+func TestOpenAIWSStateStore_DeleteResponseAccountAggregatesCacheErrors(t *testing.T) {
+	combinedErr := errors.New("combined delete failed")
+	accountErr := errors.New("account delete failed")
+	ownerErr := errors.New("owner delete failed")
+	responseID := "resp_delete_errors"
+	accountKey := openAIWSResponseAccountCacheKey(responseID)
+	ownerKey := openAIHTTPResponseOwnerCacheKey(openAIHTTPResponseOwnerUserPrefix, responseID)
+	cache := &openAIHTTPResponseBindingTestCache{
+		atomicDelErr: combinedErr,
+		legacyDelErrs: map[string]error{
+			accountKey: accountErr,
+			ownerKey:   ownerErr,
+		},
+	}
+
+	err := NewOpenAIWSStateStore(cache).DeleteResponseAccount(context.Background(), 24, responseID)
+	require.ErrorIs(t, err, combinedErr)
+	require.ErrorIs(t, err, accountErr)
+	require.ErrorIs(t, err, ownerErr)
+	require.Equal(t, 1, cache.atomicDelCalls)
+	require.ElementsMatch(t, []string{accountKey, ownerKey}, cache.legacyDelCalls)
+}
+
 func TestOpenAIWSStateStore_ResponseConnTTL(t *testing.T) {
 	store := NewOpenAIWSStateStore(nil)
 	store.BindResponseConn("resp_conn", "conn_1", 30*time.Millisecond)

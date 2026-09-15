@@ -1006,6 +1006,9 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughModeR
 
 	serverErrCh := make(chan error, 1)
 	resultCh := make(chan *OpenAIForwardResult, 1)
+	ownerGroupID := int64(7552)
+	const ownerUserID int64 = 8552
+	const ownerAPIKeyID int64 = 9552
 	hooks := &OpenAIWSIngressHooks{
 		AfterTurn: func(_ int, result *OpenAIForwardResult, turnErr error) {
 			if turnErr == nil && result != nil {
@@ -1032,6 +1035,8 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughModeR
 		req.Header = req.Header.Clone()
 		req.Header.Set("User-Agent", "unit-test-agent/1.0")
 		ginCtx.Request = req
+		ginCtx.Set("api_key", &APIKey{ID: ownerAPIKeyID, GroupID: &ownerGroupID})
+		SetOpenAIHTTPResponseOwner(ginCtx, ownerUserID, ownerAPIKeyID)
 
 		readCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		msgType, firstMessage, readErr := conn.Read(readCtx)
@@ -1099,6 +1104,11 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughModeR
 
 	require.Equal(t, 1, captureDialer.DialCount(), "passthrough 模式应直接建立上游 websocket")
 	require.Len(t, upstreamConn.writes, 1, "passthrough 模式应透传首条 response.create")
+	owned, ownerErr := svc.ValidateOpenAIHTTPResponseOwner(
+		context.Background(), ownerGroupID, "resp_passthrough_turn_1", ownerUserID, ownerAPIKeyID,
+	)
+	require.NoError(t, ownerErr)
+	require.True(t, owned, "passthrough WS responses must bind the downstream owner")
 }
 
 func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_PassthroughHeadersUsePromptCacheAndTurnState(t *testing.T) {
@@ -1289,6 +1299,9 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_HTTPBridgeModeRe
 
 	serverErrCh := make(chan error, 1)
 	resultCh := make(chan *OpenAIForwardResult, 1)
+	bridgeOwnerGroupID := int64(7553)
+	const bridgeOwnerUserID int64 = 8553
+	const bridgeOwnerAPIKeyID int64 = 9553
 	hooks := &OpenAIWSIngressHooks{
 		AfterTurn: func(_ int, result *OpenAIForwardResult, turnErr error) {
 			if turnErr == nil && result != nil {
@@ -1315,6 +1328,8 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_HTTPBridgeModeRe
 		req.Header = req.Header.Clone()
 		req.Header.Set("User-Agent", "unit-test-agent/1.0")
 		ginCtx.Request = req
+		ginCtx.Set("api_key", &APIKey{ID: bridgeOwnerAPIKeyID, GroupID: &bridgeOwnerGroupID})
+		SetOpenAIHTTPResponseOwner(ginCtx, bridgeOwnerUserID, bridgeOwnerAPIKeyID)
 
 		readCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		msgType, firstMessage, readErr := conn.Read(readCtx)
@@ -1382,6 +1397,11 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_HTTPBridgeModeRe
 	}
 
 	require.NotNil(t, upstream.lastReq, "http_bridge 模式应调用 HTTP 上游")
+	owned, ownerErr := svc.ValidateOpenAIHTTPResponseOwner(
+		context.Background(), bridgeOwnerGroupID, "resp_http_bridge_1", bridgeOwnerUserID, bridgeOwnerAPIKeyID,
+	)
+	require.NoError(t, ownerErr)
+	require.True(t, owned, "WS HTTP-bridge responses must be reusable by the same user's HTTP continuation")
 }
 
 func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ModeOffReturnsPolicyViolation(t *testing.T) {

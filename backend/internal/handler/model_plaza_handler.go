@@ -15,7 +15,8 @@ import (
 // 广场路由挂 OptionalJWT 中间件：匿名可访问（除非 require_auth 开启），带 token 则
 // 识别用户。可见性规则（橱窗语义，与「可用渠道」的可绑定语义不同）：
 //   - 匿名：仅非专属分组（订阅型照常展示）；
-//   - 登录：非专属分组 + user_allowed_groups 授权的专属分组（不检查订阅有效性）。
+//   - 登录：非专属分组 + user_allowed_groups 授权的标准专属分组，或用户持有有效
+//     订阅的订阅型专属分组；订阅型分组始终要求当前有效订阅。
 type ModelPlazaHandler struct {
 	channelService *service.ChannelService
 	apiKeyService  *service.APIKeyService
@@ -82,6 +83,10 @@ type modelPlazaResponse struct {
 // Get 返回模型广场数据。
 // GET /api/v1/model-plaza
 func (h *ModelPlazaHandler) Get(c *gin.Context) {
+	// The response is personalized for authenticated users (exclusive groups and
+	// user-specific rates), so never let a browser or shared proxy reuse it.
+	c.Header("Cache-Control", "private, no-store")
+
 	if h.settingService == nil {
 		response.NotFound(c, "Model plaza is not enabled")
 		return
@@ -104,12 +109,21 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 		return
 	}
 
-	// allowedExclusive == nil 表示匿名；登录用户恒为非 nil（可能为空集合）。
-	var allowedExclusive map[int64]struct{}
+	// allowedGroups == nil 表示匿名；登录用户恒为非 nil（可能为空集合）。
+	// 订阅授权只对当前仍为订阅型的分组生效，避免分组类型变更后泄露旧订阅。
+	var allowedGroups map[int64]struct{}
 	var blockedGroups map[int64]struct{}
 	var userRates map[int64]float64
 	if authed {
-		allowedExclusive, err = h.apiKeyService.GetUserAllowedGroupIDSet(c.Request.Context(), subject.UserID)
+		currentSubscriptionGroups := make(map[int64]struct{})
+		for _, group := range groups {
+			if group.SubscriptionType == service.SubscriptionTypeSubscription {
+				currentSubscriptionGroups[group.ID] = struct{}{}
+			}
+		}
+		allowedGroups, err = h.apiKeyService.GetUserPlazaAllowedGroupIDSet(
+			c.Request.Context(), subject.UserID, currentSubscriptionGroups,
+		)
 		if err != nil {
 			// 可见性数据拿不到时不能静默降级成匿名视图（会错漏专属分组），直接报错。
 			response.ErrorFrom(c, err)
@@ -128,7 +142,7 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 		}
 	}
 
-	visible := filterPlazaVisibleGroups(groups, allowedExclusive, blockedGroups)
+	visible := filterPlazaVisibleGroups(groups, allowedGroups, blockedGroups)
 
 	out := make([]modelPlazaGroup, 0, len(visible))
 	for i := range visible {
@@ -141,10 +155,11 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 }
 
 // filterPlazaVisibleGroups 按登录态裁剪分组可见性。
-// allowedExclusive == nil 表示匿名（仅非专属）；非 nil 表示登录（非专属 + 授权专属）。
+// allowedGroups == nil 表示匿名（仅非专属）；非 nil 表示登录（非专属 +
+// user_allowed_groups 授权或当前订阅型分组的有效订阅）。
 func filterPlazaVisibleGroups(
 	groups []service.PlazaGroup,
-	allowedExclusive map[int64]struct{},
+	allowedGroups map[int64]struct{},
 	blockedGroupsArg ...map[int64]struct{},
 ) []service.PlazaGroup {
 	var blockedGroups map[int64]struct{}
@@ -159,10 +174,10 @@ func filterPlazaVisibleGroups(
 			}
 		}
 		if g.IsExclusive {
-			if allowedExclusive == nil {
+			if allowedGroups == nil {
 				continue
 			}
-			if _, ok := allowedExclusive[g.ID]; !ok {
+			if _, ok := allowedGroups[g.ID]; !ok {
 				continue
 			}
 		}

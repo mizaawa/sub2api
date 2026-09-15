@@ -567,7 +567,11 @@ func openAIWSRawItemsHaveToolCallContextForOutputs(items []json.RawMessage) bool
 	outputCallIDs := make(map[string]struct{})
 	for _, item := range items {
 		itemType := gjson.GetBytes(item, "type").String()
-		callID := strings.TrimSpace(gjson.GetBytes(item, "call_id").String())
+		callIDResult := gjson.GetBytes(item, "call_id")
+		callID := ""
+		if callIDResult.Type == gjson.String {
+			callID = strings.TrimSpace(callIDResult.String())
+		}
 		switch {
 		case isCodexToolCallContextItemType(itemType):
 			if callID != "" {

@@ -277,6 +277,20 @@ func TestSecurityHeaders(t *testing.T) {
 	})
 }
 
+func TestIsAPIRoutePathRecognizesOpenAIV1(t *testing.T) {
+	for _, path := range []string{
+		"/openai/v1",
+		"/openai/v1/responses",
+		"/openai/v1/responses/compact",
+	} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPost, path, nil)
+
+		require.True(t, isAPIRoutePath(c), "path=%s should be recognized as an API route", path)
+	}
+}
+
 func TestCSPNonceKey(t *testing.T) {
 	t.Run("constant_value", func(t *testing.T) {
 		assert.Equal(t, "csp_nonce", CSPNonceKey)

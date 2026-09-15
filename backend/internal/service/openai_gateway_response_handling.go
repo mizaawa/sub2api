@@ -19,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"go.uber.org/zap"
 )
 
 func (s *OpenAIGatewayService) responseModelAuditBypassEnabled(c *gin.Context) bool {
@@ -429,6 +430,9 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 			if responseID == "" {
 				responseID = extractOpenAIResponseIDFromJSONBytes(dataBytes)
+				if responseID != "" {
+					s.bindHTTPResponseAccount(ctx, c, account, responseID)
+				}
 			}
 			forceFlushFailedEvent := false
 			if eventType == "response.failed" {
@@ -1052,10 +1056,73 @@ func extractOpenAIResponseIDFromJSONBytes(body []byte) string {
 	if len(body) == 0 || !gjson.ValidBytes(body) {
 		return ""
 	}
-	if id := strings.TrimSpace(gjson.GetBytes(body, "id").String()); id != "" {
-		return id
+	values := gjson.GetManyBytes(body, "type", "response.id", "response_id", "id")
+	return selectOpenAIResponseID(
+		values[0].String(),
+		values[1].String(), // response.id
+		values[2].String(), // top-level response_id
+		values[3].String(), // top-level id
+	)
+}
+
+const (
+	openAIHTTPResponseOwnerContextKey         = "openai_http_response_owner"
+	openAIHTTPResponseBoundContextKey         = "openai_http_response_bound"
+	openAIHTTPResponseBindAttemptedContextKey = "openai_http_response_bind_attempted"
+)
+
+type openAIHTTPResponseOwner struct {
+	userID   int64
+	apiKeyID int64
+}
+
+type openAIHTTPResponseBound struct {
+	accountID  int64
+	responseID string
+}
+
+// SetOpenAIHTTPResponseOwner marks the authenticated downstream owner whose
+// successful Responses IDs may be used for later HTTP continuations.
+func SetOpenAIHTTPResponseOwner(c *gin.Context, userID, apiKeyID int64) {
+	if c == nil || userID <= 0 || apiKeyID <= 0 {
+		return
 	}
-	return strings.TrimSpace(gjson.GetBytes(body, "response.id").String())
+	c.Set(openAIHTTPResponseOwnerContextKey, openAIHTTPResponseOwner{userID: userID, apiKeyID: apiKeyID})
+}
+
+// ValidateOpenAIHTTPResponseOwner authorizes a continuation by downstream
+// tenant. API key identity is retained in the binding, while keys owned by the
+// same user remain interoperable.
+func (s *OpenAIGatewayService) ValidateOpenAIHTTPResponseOwner(
+	ctx context.Context,
+	groupID int64,
+	responseID string,
+	userID, apiKeyID int64,
+) (bool, error) {
+	if s == nil || strings.TrimSpace(responseID) == "" || userID <= 0 || apiKeyID <= 0 {
+		return false, nil
+	}
+	ownerUserID, ownerAPIKeyID, found, err := s.getOpenAIWSStateStore().GetHTTPResponseOwner(ctx, groupID, responseID)
+	if err != nil || !found {
+		return false, err
+	}
+	return ownerUserID == userID || (ownerUserID <= 0 && ownerAPIKeyID == apiKeyID), nil
+}
+
+// BindOpenAIHTTPResponseOwner records an HTTP continuation owner independently
+// from the upstream account selected for that response.
+func (s *OpenAIGatewayService) BindOpenAIHTTPResponseOwner(
+	ctx context.Context,
+	groupID int64,
+	responseID string,
+	userID, apiKeyID int64,
+) error {
+	if s == nil {
+		return nil
+	}
+	return s.getOpenAIWSStateStore().BindHTTPResponseOwner(
+		ctx, groupID, responseID, userID, apiKeyID, s.openAIWSResponseStickyTTL(),
+	)
 }
 
 func (s *OpenAIGatewayService) bindHTTPResponseAccount(ctx context.Context, c *gin.Context, account *Account, responseID string) {
@@ -1066,13 +1133,70 @@ func (s *OpenAIGatewayService) bindHTTPResponseAccount(ctx context.Context, c *g
 	if responseID == "" {
 		return
 	}
+	if c != nil {
+		if rawBinding, ok := c.Get(openAIHTTPResponseBoundContextKey); ok {
+			if binding, ok := rawBinding.(openAIHTTPResponseBound); ok &&
+				binding.accountID == account.ID && binding.responseID == responseID {
+				return
+			}
+		}
+		if rawAttempt, ok := c.Get(openAIHTTPResponseBindAttemptedContextKey); ok {
+			if attempt, ok := rawAttempt.(openAIHTTPResponseBound); ok &&
+				attempt.accountID == account.ID && attempt.responseID == responseID {
+				return
+			}
+		}
+		// A cache outage must not turn every event carrying the same response ID
+		// into another synchronous Redis timeout. Success is tracked separately
+		// below, but each response is attempted at most once per request/WS session.
+		c.Set(openAIHTTPResponseBindAttemptedContextKey, openAIHTTPResponseBound{
+			accountID: account.ID, responseID: responseID,
+		})
+	}
 	store := s.getOpenAIWSStateStore()
 	if store == nil {
 		return
 	}
+	// Response IDs remain useful for a later continuation even when the caller
+	// disconnects immediately after the terminal event. The store applies its
+	// own short timeout, so detach this persistence write from the request
+	// cancellation while retaining tracing/context values.
+	bindCtx := context.Background()
+	if ctx != nil {
+		bindCtx = context.WithoutCancel(ctx)
+	}
 	groupID := getOpenAIGroupIDFromContext(c)
 	ttl := s.openAIWSResponseStickyTTL()
-	logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, store.BindResponseAccount(ctx, groupID, responseID, account.ID, ttl))
+	var bindErr error
+	var owner openAIHTTPResponseOwner
+	if c != nil {
+		rawOwner, _ := c.Get(openAIHTTPResponseOwnerContextKey)
+		owner, _ = rawOwner.(openAIHTTPResponseOwner)
+	}
+	if owner.userID > 0 && owner.apiKeyID > 0 {
+		bindErr = store.BindHTTPResponse(
+			bindCtx, groupID, responseID, account.ID, owner.userID, owner.apiKeyID, ttl,
+		)
+		if bindErr != nil {
+			logger.L().Warn(
+				"openai.http_bind_response_failed",
+				zap.Int64("group_id", groupID),
+				zap.Int64("account_id", account.ID),
+				zap.Int64("user_id", owner.userID),
+				zap.Int64("api_key_id", owner.apiKeyID),
+				zap.String("response_id", truncateOpenAIWSLogValue(responseID, openAIWSIDValueMaxLen)),
+				zap.Error(bindErr),
+			)
+		}
+	} else {
+		bindErr = store.BindResponseAccount(bindCtx, groupID, responseID, account.ID, ttl)
+	}
+	logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, bindErr)
+	if c != nil && bindErr == nil {
+		c.Set(openAIHTTPResponseBoundContextKey, openAIHTTPResponseBound{
+			accountID: account.ID, responseID: responseID,
+		})
+	}
 }
 
 func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {
@@ -1173,7 +1297,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	// Some OpenAI-compatible upstreams (including other sub2api instances)
 	// may return SSE even when stream=false was requested.
 	if isEventStreamResponse(resp.Header) {
-		return s.handleSSEToJSON(resp, c, body, originalModel, mappedModel)
+		return s.handleSSEToJSON(ctx, resp, c, account, body, originalModel, mappedModel)
 	}
 	// bodyLooksLikeSSE is a line-level heuristic: real SSE framing requires
 	// "data:"/"event:" field names at the very start of a physical line. A
@@ -1189,7 +1313,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	// positives on JSON responses that coincidentally contain "data:" or
 	// "event:" in their text content.
 	if account.Type == AccountTypeOAuth && bodyLooksLikeSSE {
-		return s.handleSSEToJSON(resp, c, body, originalModel, mappedModel)
+		return s.handleSSEToJSON(ctx, resp, c, account, body, originalModel, mappedModel)
 	}
 	if account != nil && account.IsGrok() && isOpenAIResponsesCompactPath(c) {
 		body, err = convertGrokResponseToOpenAICompact(body)
@@ -1201,7 +1325,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	usageValue, usageOK := extractOpenAIUsageFromJSONBytes(body)
 	if !usageOK {
 		if bodyLooksLikeSSE {
-			return s.handleSSEToJSON(resp, c, body, originalModel, mappedModel)
+			return s.handleSSEToJSON(ctx, resp, c, account, body, originalModel, mappedModel)
 		}
 		return nil, fmt.Errorf("parse response: invalid json response")
 	}
@@ -1227,6 +1351,8 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 			contentType = upstreamType
 		}
 	}
+	responseID := extractOpenAIResponseIDFromJSONBytes(body)
+	s.bindHTTPResponseAccount(ctx, c, account, responseID)
 
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
 		c.Data(resp.StatusCode, contentType, body)
@@ -1235,7 +1361,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	return &openaiNonStreamingResult{
 		OpenAIUsage:      usage,
 		usage:            usage,
-		responseID:       extractOpenAIResponseIDFromJSONBytes(body),
+		responseID:       responseID,
 		imageCount:       countOpenAIResponseImageOutputsFromJSONBytes(body),
 		imageOutputSizes: collectOpenAIResponseImageOutputSizesFromJSONBytes(body),
 	}, nil
@@ -1262,7 +1388,7 @@ func bodyHasSSEFraming(body []byte) bool {
 	return false
 }
 
-func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Context, body []byte, originalModel, mappedModel string) (*openaiNonStreamingResult, error) {
+func (s *OpenAIGatewayService) handleSSEToJSON(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, body []byte, originalModel, mappedModel string) (*openaiNonStreamingResult, error) {
 	bodyText := string(body)
 	finalResponse, ok := extractCodexFinalResponse(bodyText)
 
@@ -1322,6 +1448,8 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 			contentType = "text/event-stream"
 		}
 	}
+	responseID := extractOpenAIResponseIDFromJSONBytes(body)
+	s.bindHTTPResponseAccount(ctx, c, account, responseID)
 	if !writeOpenAICompactSSEBridge(c, resp.StatusCode, body) {
 		c.Data(resp.StatusCode, contentType, body)
 	}
@@ -1329,7 +1457,7 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 	return &openaiNonStreamingResult{
 		OpenAIUsage:      usage,
 		usage:            usage,
-		responseID:       extractOpenAIResponseIDFromJSONBytes(body),
+		responseID:       responseID,
 		imageCount:       countOpenAIImageOutputsFromSSEBody(bodyText),
 		imageOutputSizes: collectOpenAIImageOutputSizesFromSSEBody(bodyText),
 	}, nil

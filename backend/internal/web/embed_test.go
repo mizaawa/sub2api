@@ -679,8 +679,10 @@ func TestFrontendServer_Middleware(t *testing.T) {
 
 }
 
-func TestEmbeddedFrontendBypassesBareVideoAPIRoutes(t *testing.T) {
+func TestEmbeddedFrontendBypassesAPIRoutes(t *testing.T) {
 	for _, path := range []string{
+		"/openai/v1/responses",
+		"/openai/v1/responses/compact",
 		"/videos/generations",
 		"/videos/edits",
 		"/videos/extensions",

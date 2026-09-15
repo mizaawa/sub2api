@@ -1,10 +1,13 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"runtime/debug"
 	"strconv"
@@ -17,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -175,11 +179,19 @@ func openAICompatibleRequestPlatform(ctx context.Context, apiKey *service.APIKey
 	return service.PlatformOpenAI
 }
 
-func openAIResponsesRequiredCapability(imageIntent bool, platform string) service.OpenAIEndpointCapability {
-	if imageIntent && platform == service.PlatformOpenAI {
+func openAIResponsesRequiredCapability(requireNativeResponses bool, platform string) service.OpenAIEndpointCapability {
+	if requireNativeResponses && platform == service.PlatformOpenAI {
 		return service.OpenAIEndpointCapabilityResponses
 	}
 	return service.OpenAIEndpointCapabilityChatCompletions
+}
+
+func openAIResponsesRequiresNativeUpstream(imageIntent bool, previousResponseID string, isCodexClient bool) bool {
+	return imageIntent || strings.TrimSpace(previousResponseID) != "" || isCodexClient
+}
+
+func openAIResponsesPreviousResponseCanMove(imageIntent bool, previousResponseID string) bool {
+	return strings.TrimSpace(previousResponseID) == "" && !imageIntent
 }
 
 func allowOpenAICompatibleMessagesDispatch(apiKey *service.APIKey) bool {
@@ -316,6 +328,18 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	if cappedBody, changed := applyOpenAIReasoningEffortPolicyForRequest(c, apiKey, body); changed {
 		body = cappedBody
 	}
+	if normalizedBody, changed := normalizeCodexAutomationBootstrap(body); changed {
+		body = normalizedBody
+		reqLog.Info("openai.codex_automation_bootstrap_normalized",
+			zap.String("normalization", "call_output_to_user_message"),
+		)
+	}
+	if normalizedBody, changed := normalizeCodexDelegationBootstrap(body); changed {
+		body = normalizedBody
+		reqLog.Info("openai.codex_delegation_bootstrap_normalized",
+			zap.String("normalization", "call_output_to_user_message"),
+		)
+	}
 
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if !ok {
@@ -338,12 +362,31 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "previous_response_id must be a response.id (resp_*), not a message id")
 			return
 		}
-		reqLog.Warn("openai.request_validation_failed",
-			zap.String("reason", "previous_response_id_requires_wsv2"),
+		groupID := int64(0)
+		if apiKey.GroupID != nil {
+			groupID = *apiKey.GroupID
+		}
+		owned, ownershipErr := h.gatewayService.ValidateOpenAIHTTPResponseOwner(
+			c.Request.Context(),
+			groupID,
+			previousResponseID,
+			subject.UserID,
+			apiKey.ID,
 		)
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "previous_response_id is only supported on Responses WebSocket v2")
-		return
+		if ownershipErr != nil {
+			reqLog.Warn("openai.previous_response_owner_lookup_failed", zap.Error(ownershipErr))
+			if !errors.Is(ownershipErr, service.ErrStickySessionNotFound) {
+				h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Unable to validate previous_response_id; please retry")
+				return
+			}
+		}
+		if !owned {
+			reqLog.Warn("openai.request_validation_failed", zap.String("reason", "previous_response_owner_mismatch"))
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "previous_response_id is not available for this user")
+			return
+		}
 	}
+	service.SetOpenAIHTTPResponseOwner(c, subject.UserID, apiKey.ID)
 
 	setOpsRequestContext(c, reqModel, reqStream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
@@ -432,12 +475,18 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	var passthroughFailoverState openAIPassthroughFailoverState
 
-	// 生图意图的 /v1/responses 请求必须调度到确实支持 Responses API 的账号，否则
-	// 会在 forward 阶段被静默降级为无法生图的 Chat Completions 直转（#4417）。
+	// Stateful /v1/responses requests must use an upstream that actually supports
+	// Responses. A Chat Completions fallback cannot honor previous_response_id,
+	// and returning its synthetic response ID to Codex only postpones the failure
+	// until the first tool output. Keep the fallback for explicitly stateless,
+	// non-Codex compatibility clients.
 	// 仅对 OpenAI 平台生效：Grok 生图走独立的 forwardGrokResponses 路径，不应被过滤。
 	// 复用前置权限与并发阶段在未修改 body 上确认的显式生图意图，避免大 tools 请求重复扫描。
 	// 该判断已排除 Codex 被动 image_gen namespace，避免 CC-only 账号被误过滤（#4476）。
-	requiredCapability := openAIResponsesRequiredCapability(imageIntent, requestPlatform)
+	isCodexClient := openai.IsCodexOfficialClientByHeaders(c.GetHeader("User-Agent"), c.GetHeader("originator")) ||
+		(h.cfg != nil && h.cfg.Gateway.ForceCodexCLI)
+	requiresNativeResponses := openAIResponsesRequiresNativeUpstream(imageIntent, previousResponseID, isCodexClient)
+	requiredCapability := openAIResponsesRequiredCapability(requiresNativeResponses, requestPlatform)
 
 	// 分组利润控制：请求级装配定价上下文——pricingAt 固定本请求的
 	// D 与计费高峰因子，选号、槽位终检与全部 failover 重入共用同一门与阈值。
@@ -465,7 +514,12 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			service.OpenAIUpstreamTransportAny,
 			requiredCapability,
 			requireCompact,
-			false,
+			// An HTTP continuation keeps previous_response_id in the upstream
+			// payload. It therefore cannot be migrated to another API-key
+			// account: the response state is scoped to the original key. The
+			// WebSocket path can explicitly rebuild movable tool context, but
+			// this HTTP path has no equivalent rewrite.
+			openAIResponsesPreviousResponseCanMove(imageIntent, previousResponseID),
 			!imageIntent,
 			requestPlatform,
 		)
@@ -519,6 +573,29 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			zap.Float64("load_skew", scheduleDecision.LoadSkew),
 		)
 		account := selection.Account
+		if previousResponseID != "" && requestPlatform == service.PlatformOpenAI && !account.IsOpenAIApiKey() {
+			// The public Responses HTTP API supports previous_response_id on API-key
+			// accounts. OAuth/SetupToken upstreams do not, so keep searching instead
+			// of silently deleting continuation state from a mixed account pool.
+			failedAccountIDs[account.ID] = struct{}{}
+			if selection.ReleaseFunc != nil {
+				selection.ReleaseFunc()
+				selection.ReleaseFunc = nil
+			}
+			lastFailoverErr = &service.UpstreamFailoverError{
+				StatusCode:       http.StatusBadRequest,
+				Stage:            service.GatewayFailureStageInference,
+				Scope:            service.GatewayFailureScopeRequest,
+				Reason:           service.OpenAIHTTPContinuationUnsupportedReason,
+				ClientStatusCode: http.StatusBadRequest,
+				ClientMessage:    "previous_response_id requires an OpenAI API-key account for HTTP requests",
+			}
+			reqLog.Debug("openai.account_skipped_http_continuation_unsupported",
+				zap.Int64("account_id", account.ID),
+				zap.String("account_type", account.Type),
+			)
+			continue
+		}
 		sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
 		reqLog.Debug("openai.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
 		setOpsSelectedAccount(c, account.ID, account.Platform)
@@ -1331,17 +1408,8 @@ func (h *OpenAIGatewayHandler) ensureAnthropicErrorResponse(c *gin.Context, stre
 }
 
 func (h *OpenAIGatewayHandler) validateFunctionCallOutputRequest(c *gin.Context, body []byte, reqLog *zap.Logger) bool {
-	if !gjson.GetBytes(body, `input.#(type=="function_call_output")`).Exists() {
-		return true
-	}
-
 	validation := service.ValidateFunctionCallOutputContextBytes(body)
 	if !validation.HasFunctionCallOutput {
-		return true
-	}
-
-	previousResponseID := gjson.GetBytes(body, "previous_response_id").String()
-	if strings.TrimSpace(previousResponseID) != "" || validation.HasToolCallContext {
 		return true
 	}
 
@@ -1349,18 +1417,468 @@ func (h *OpenAIGatewayHandler) validateFunctionCallOutputRequest(c *gin.Context,
 		reqLog.Warn("openai.request_validation_failed",
 			zap.String("reason", "function_call_output_missing_call_id"),
 		)
-		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "function_call_output requires call_id on HTTP requests; continuation via previous_response_id is only supported on Responses WebSocket v2")
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "function_call_output requires call_id on HTTP requests")
 		return false
 	}
-	if validation.HasItemReferenceForAllCallIDs {
+
+	previousResponseID := gjson.GetBytes(body, "previous_response_id").String()
+	if strings.TrimSpace(previousResponseID) != "" {
+		return true
+	}
+
+	coverage := service.AnalyzeToolCallOutputContextCoverageBytes(body)
+	if coverage.ContextCoversAllCallIDs {
 		return true
 	}
 
 	reqLog.Warn("openai.request_validation_failed",
 		zap.String("reason", "function_call_output_missing_item_reference"),
 	)
-	h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "function_call_output requires item_reference ids matching each call_id on HTTP requests; continuation via previous_response_id is only supported on Responses WebSocket v2")
+	h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "tool call output requires matching call context or item_reference ids when previous_response_id is absent")
 	return false
+}
+
+func normalizeCodexDelegationBootstrap(body []byte) ([]byte, bool) {
+	// 已有任务通过 send_message_to_thread 唤醒时会携带 previous_response_id；
+	// 完整历史回放还会带有已配对的调用项。delegation 仍是客户端注入的用户输入，
+	// 不属于这些历史调用的结果，因此允许它与可明确配对的历史上下文共存。
+	if !hasCodexCallOutputBootstrapShape(body, isCodexDelegationTool) {
+		return body, false
+	}
+	return normalizeCodexCallOutputBootstrap(body, isCodexDelegationCandidate, true)
+}
+
+func normalizeCodexAutomationBootstrap(body []byte) ([]byte, bool) {
+	if !hasCodexCallOutputBootstrapShape(body, isCodexAutomationTool) {
+		return body, false
+	}
+	return normalizeCodexCallOutputBootstrap(body, isCodexAutomationCandidate, false)
+}
+
+func hasCodexCallOutputBootstrapShape(body []byte, isTool func(namespace, name string) bool) bool {
+	input := gjson.GetBytes(body, "input")
+	if !input.IsArray() {
+		return false
+	}
+	found := false
+	input.ForEach(func(_, item gjson.Result) bool {
+		if item.IsObject() &&
+			item.Get("type").String() == "function_call_output" &&
+			isTool(item.Get("namespace").String(), item.Get("name").String()) {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+func normalizeCodexCallOutputBootstrap(body []byte, isCandidate func(map[string]any) bool, allowHistoricalContext bool) ([]byte, bool) {
+	if !hasUniqueJSONMembers(body) {
+		return body, false
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	var request map[string]any
+	if err := decoder.Decode(&request); err != nil {
+		return body, false
+	}
+	if previousResponseID, exists := request["previous_response_id"]; exists {
+		value, ok := previousResponseID.(string)
+		if !ok || (!allowHistoricalContext && strings.TrimSpace(value) != "") {
+			return body, false
+		}
+	}
+	input, ok := request["input"].([]any)
+	if !ok {
+		return body, false
+	}
+
+	// Responses built-ins follow the *_call / *_call_output naming convention,
+	// so classify by the wire type shape instead of maintaining an incomplete
+	// allowlist. Delegation may coexist with historical anchors only when their
+	// IDs make them unambiguous; automation retains the bootstrap-only boundary.
+	for _, raw := range input {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			// Responses input arrays contain objects. Do not partially rewrite a
+			// malformed mixed array: doing so could remove the only recognizable
+			// function_call_output and let local continuation validation miss the
+			// invalid item while the upstream eventually rejects the request.
+			return body, false
+		}
+		typ := stringField(item, "type")
+		if isCandidate(item) {
+			callIDValue, exists := item["call_id"]
+			callID, isString := callIDValue.(string)
+			if exists && (!isString || strings.TrimSpace(callID) != "") {
+				return body, false
+			}
+			continue
+		}
+		if typ == "item_reference" {
+			if allowHistoricalContext && strings.TrimSpace(stringField(item, "id")) != "" {
+				continue
+			}
+			return body, false
+		}
+		if strings.HasSuffix(typ, "_call") {
+			if allowHistoricalContext && hasCodexHistoricalCallIdentity(item, typ) {
+				continue
+			}
+			return body, false
+		}
+		if isResponsesCallOutputType(typ) {
+			if allowHistoricalContext && strings.TrimSpace(stringField(item, "call_id")) != "" {
+				continue
+			}
+			return body, false
+		}
+	}
+
+	changed := false
+	for i, raw := range input {
+		item, ok := raw.(map[string]any)
+		if !ok || !isCandidate(item) {
+			continue
+		}
+		output, ok := item["output"].(string)
+		if !ok {
+			continue
+		}
+		input[i] = map[string]any{
+			"type": "message",
+			"role": "user",
+			"content": []any{map[string]any{
+				"type": "input_text",
+				"text": output,
+			}},
+		}
+		changed = true
+	}
+	if !changed {
+		return body, false
+	}
+	normalized, err := json.Marshal(request)
+	if err != nil {
+		return body, false
+	}
+	return normalized, true
+}
+
+func hasUniqueJSONMembers(body []byte) bool {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if !consumeUniqueJSONValue(decoder) {
+		return false
+	}
+	_, err := decoder.Token()
+	return err == io.EOF
+}
+
+func consumeUniqueJSONValue(decoder *json.Decoder) bool {
+	token, err := decoder.Token()
+	if err != nil {
+		return false
+	}
+	delim, ok := token.(json.Delim)
+	if !ok {
+		return true
+	}
+
+	switch delim {
+	case '{':
+		members := make(map[string]struct{})
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return false
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return false
+			}
+			if _, duplicate := members[key]; duplicate {
+				return false
+			}
+			members[key] = struct{}{}
+			if !consumeUniqueJSONValue(decoder) {
+				return false
+			}
+		}
+		end, err := decoder.Token()
+		return err == nil && end == json.Delim('}')
+	case '[':
+		for decoder.More() {
+			if !consumeUniqueJSONValue(decoder) {
+				return false
+			}
+		}
+		end, err := decoder.Token()
+		return err == nil && end == json.Delim(']')
+	default:
+		return false
+	}
+}
+
+func isResponsesCallOutputType(typ string) bool {
+	return strings.HasSuffix(typ, "_call_output") || typ == "tool_search_output"
+}
+
+func hasCodexHistoricalCallIdentity(item map[string]any, typ string) bool {
+	if strings.TrimSpace(stringField(item, "call_id")) != "" {
+		return true
+	}
+	// Server-executed built-ins are response items identified by id and do not
+	// carry the call_id used by client-executed function/custom tool protocols.
+	switch typ {
+	case "web_search_call", "file_search_call", "image_generation_call", "code_interpreter_call", "mcp_call":
+		return strings.TrimSpace(stringField(item, "id")) != ""
+	default:
+		return false
+	}
+}
+
+func isCodexDelegationCandidate(item map[string]any) bool {
+	if stringField(item, "type") != "function_call_output" ||
+		!isCodexDelegationTool(stringField(item, "namespace"), stringField(item, "name")) {
+		return false
+	}
+	output, ok := item["output"].(string)
+	return ok && validCodexDelegationEnvelope(output)
+}
+
+func isCodexAutomationCandidate(item map[string]any) bool {
+	if stringField(item, "type") != "function_call_output" ||
+		!isCodexAutomationTool(stringField(item, "namespace"), stringField(item, "name")) {
+		return false
+	}
+	output, ok := item["output"].(string)
+	return ok && (validCodexAutomationBootstrap(output) || validCodexAutomationHeartbeat(output))
+}
+
+func stringField(item map[string]any, key string) string {
+	value, _ := item[key].(string)
+	return value
+}
+
+func isCodexDelegationTool(namespace, name string) bool {
+	return (namespace == "codex_app" || namespace == "codex_tui") &&
+		(name == "create_thread" || name == "send_message_to_thread")
+}
+
+func isCodexAutomationTool(namespace, name string) bool {
+	return namespace == "codex_app" && name == "automation_update"
+}
+
+func validCodexAutomationBootstrap(value string) bool {
+	normalized := strings.ReplaceAll(value, "\r\n", "\n")
+	if strings.ContainsRune(normalized, '\r') {
+		return false
+	}
+	lines := strings.Split(normalized, "\n")
+	if len(lines) < 6 {
+		return false
+	}
+	if _, ok := codexAutomationHeaderValue(lines[0], "Automation: "); !ok {
+		return false
+	}
+	automationID, ok := codexAutomationHeaderValue(lines[1], "Automation ID: ")
+	if !ok || !validCodexAutomationID(automationID) {
+		return false
+	}
+	expectedMemory := "Automation memory: $CODEX_HOME/automations/" + automationID + "/memory.md"
+	if lines[2] != expectedMemory {
+		return false
+	}
+	lastRun, ok := codexAutomationHeaderValue(lines[3], "Last run: ")
+	if !ok || !validCodexAutomationLastRun(lastRun) || lines[4] != "" {
+		return false
+	}
+	return strings.TrimSpace(strings.Join(lines[5:], "\n")) != ""
+}
+
+func codexAutomationHeaderValue(line, prefix string) (string, bool) {
+	if !strings.HasPrefix(line, prefix) {
+		return "", false
+	}
+	value := strings.TrimPrefix(line, prefix)
+	return value, value != "" && strings.TrimSpace(value) == value
+}
+
+func validCodexAutomationID(value string) bool {
+	if len(value) == 0 || len(value) > 128 || value == "." || value == ".." {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validCodexAutomationLastRun(value string) bool {
+	if value == "never" {
+		return true
+	}
+	separator := strings.LastIndex(value, " (")
+	if separator <= 0 || !strings.HasSuffix(value, ")") {
+		return false
+	}
+	runAt, err := time.Parse(time.RFC3339Nano, value[:separator])
+	if err != nil {
+		return false
+	}
+	epochMillis, err := strconv.ParseInt(value[separator+2:len(value)-1], 10, 64)
+	return err == nil && runAt.UnixMilli() == epochMillis
+}
+
+func validCodexAutomationHeartbeat(value string) bool {
+	decoder := xml.NewDecoder(strings.NewReader(value))
+	var rootSeen, automationIDSeen bool
+	var childName string
+	var childText bytes.Buffer
+	fields := make(map[string]string)
+	depth := 0
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			id := fields["automation_id"]
+			timestamp, hasTime := fields["current_time_iso"]
+			instructions, hasInstructions := fields["instructions"]
+			if hasTime != hasInstructions {
+				return false
+			}
+			if hasTime {
+				if _, err := time.Parse(time.RFC3339Nano, timestamp); err != nil || strings.TrimSpace(instructions) == "" {
+					return false
+				}
+			}
+			return rootSeen && automationIDSeen && depth == 0 &&
+				strings.TrimSpace(id) == id && validCodexAutomationID(id)
+		}
+		if err != nil {
+			return false
+		}
+		switch current := token.(type) {
+		case xml.StartElement:
+			depth++
+			if current.Name.Space != "" || len(current.Attr) != 0 || depth > 2 {
+				return false
+			}
+			if depth == 1 {
+				if rootSeen || current.Name.Local != "heartbeat" {
+					return false
+				}
+				rootSeen = true
+			} else {
+				childName = current.Name.Local
+				switch childName {
+				case "automation_id", "current_time_iso", "instructions":
+				default:
+					return false
+				}
+				if _, duplicate := fields[childName]; duplicate {
+					return false
+				}
+				childText.Reset()
+			}
+		case xml.EndElement:
+			if current.Name.Space != "" {
+				return false
+			}
+			if depth == 2 {
+				fields[childName] = childText.String()
+				automationIDSeen = automationIDSeen || childName == "automation_id"
+			}
+			depth--
+			if depth < 0 {
+				return false
+			}
+		case xml.CharData:
+			if depth == 2 {
+				_, _ = childText.Write(current)
+			} else if len(bytes.TrimSpace(current)) != 0 {
+				return false
+			}
+		case xml.Comment, xml.ProcInst, xml.Directive:
+			return false
+		}
+	}
+}
+
+func validCodexDelegationEnvelope(value string) bool {
+	decoder := xml.NewDecoder(strings.NewReader(value))
+	var rootSeen, sourceSeen, inputSeen bool
+	var childName string
+	var childText bytes.Buffer
+	depth := 0
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			return rootSeen && depth == 0 && sourceSeen && inputSeen
+		}
+		if err != nil {
+			return false
+		}
+		switch current := token.(type) {
+		case xml.StartElement:
+			depth++
+			if current.Name.Space != "" || len(current.Attr) != 0 || (depth == 1 && current.Name.Local != "codex_delegation") || depth > 2 {
+				return false
+			}
+			if depth == 1 {
+				if rootSeen {
+					return false
+				}
+				rootSeen = true
+				continue
+			}
+			if current.Name.Local != "source_thread_id" && current.Name.Local != "input" {
+				return false
+			}
+			childName = current.Name.Local
+			childText.Reset()
+		case xml.EndElement:
+			if current.Name.Space != "" {
+				return false
+			}
+			if depth == 2 {
+				if current.Name.Local != childName || strings.TrimSpace(childText.String()) == "" {
+					return false
+				}
+				if childName == "source_thread_id" {
+					if sourceSeen {
+						return false
+					}
+					sourceSeen = true
+				} else {
+					if inputSeen {
+						return false
+					}
+					inputSeen = true
+				}
+				childName = ""
+			}
+			depth--
+			if depth < 0 {
+				return false
+			}
+		case xml.CharData:
+			if depth == 2 {
+				_, _ = childText.Write(current)
+			} else if len(bytes.TrimSpace(current)) != 0 {
+				return false
+			}
+		case xml.Comment:
+			return false
+		case xml.ProcInst, xml.Directive:
+			return false
+		}
+	}
 }
 
 func (h *OpenAIGatewayHandler) acquireResponsesUserSlot(
@@ -1609,6 +2127,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	if !h.ensureResponsesDependencies(c, reqLog) {
 		return
 	}
+	service.SetOpenAIHTTPResponseOwner(c, subject.UserID, apiKey.ID)
 	reqLog.Info("openai.websocket_ingress_started")
 	clientIP := ip.GetClientIP(c)
 	userAgent := strings.TrimSpace(c.GetHeader("User-Agent"))
@@ -1707,6 +2226,26 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	previousResponseIDKind := service.ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
 	if previousResponseID != "" && previousResponseIDKind == service.OpenAIPreviousResponseIDKindMessageID {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "previous_response_id must be a response.id (resp_*), not a message id")
+		return
+	}
+	responseOwnerGroupID := int64(0)
+	if apiKey.GroupID != nil {
+		responseOwnerGroupID = *apiKey.GroupID
+	}
+	if ownerErr := h.validateOpenAIWSPreviousResponseOwner(
+		ctx,
+		responseOwnerGroupID,
+		previousResponseID,
+		subject.UserID,
+		apiKey.ID,
+	); ownerErr != nil {
+		reqLog.Warn("openai.websocket_previous_response_owner_validation_failed", zap.Error(ownerErr))
+		var closeErr *service.OpenAIWSClientCloseError
+		if errors.As(ownerErr, &closeErr) {
+			closeOpenAIClientWS(wsConn, closeErr.StatusCode(), closeErr.Reason())
+		} else {
+			closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "failed to validate previous_response_id")
+		}
 		return
 	}
 	firstMessageToolCoverage := service.AnalyzeToolCallOutputContextCoverageBytes(firstMessage)
@@ -2023,6 +2562,20 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			MaxReasoningEffort:      maxReasoningEffort,
 			ReasoningEffortMappings: reasoningEffortMappings,
 			BeforeRequest: func(turn int, payload []byte, originalModel string) error {
+				payloadPreviousResponseID := strings.TrimSpace(gjson.GetBytes(payload, "previous_response_id").String())
+				if ownerErr := h.validateOpenAIWSPreviousResponseOwner(
+					ctx,
+					responseOwnerGroupID,
+					payloadPreviousResponseID,
+					subject.UserID,
+					apiKey.ID,
+				); ownerErr != nil {
+					reqLog.Warn("openai.websocket_turn_previous_response_owner_validation_failed",
+						zap.Int("turn", turn),
+						zap.Error(ownerErr),
+					)
+					return ownerErr
+				}
 				if turn == 1 {
 					return nil
 				}
@@ -2282,6 +2835,34 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 
 }
 
+func (h *OpenAIGatewayHandler) validateOpenAIWSPreviousResponseOwner(
+	ctx context.Context,
+	groupID int64,
+	responseID string,
+	userID, apiKeyID int64,
+) error {
+	responseID = strings.TrimSpace(responseID)
+	if responseID == "" {
+		return nil
+	}
+	owned, err := h.gatewayService.ValidateOpenAIHTTPResponseOwner(ctx, groupID, responseID, userID, apiKeyID)
+	if err != nil && !errors.Is(err, service.ErrStickySessionNotFound) {
+		return service.NewOpenAIWSClientCloseError(
+			coderws.StatusTryAgainLater,
+			"unable to validate previous_response_id; please retry",
+			err,
+		)
+	}
+	if !owned {
+		return service.NewOpenAIWSClientCloseError(
+			coderws.StatusPolicyViolation,
+			"previous_response_id is not available for this user",
+			err,
+		)
+	}
+	return nil
+}
+
 func (h *OpenAIGatewayHandler) recoverResponsesPanic(c *gin.Context, streamStarted *bool) {
 	recovered := recover()
 	if recovered == nil {
@@ -2489,6 +3070,14 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 			service.OpenAIRequestBodyTooLargeClientMessage,
 			streamStarted,
 		)
+		return
+	}
+	if failoverErr.Reason == service.OpenAIHTTPContinuationUnsupportedReason {
+		message := strings.TrimSpace(failoverErr.ClientMessage)
+		if message == "" {
+			message = "previous_response_id requires an OpenAI API-key account for HTTP requests"
+		}
+		h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", message, streamStarted)
 		return
 	}
 	copyFailoverRetryAfter(c, failoverErr.ResponseHeaders)

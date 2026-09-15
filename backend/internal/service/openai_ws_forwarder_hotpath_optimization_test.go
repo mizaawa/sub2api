@@ -16,7 +16,42 @@ func TestParseOpenAIWSEventEnvelope(t *testing.T) {
 
 	eventType, responseID, response = parseOpenAIWSEventEnvelope([]byte(`{"type":"response.delta","id":"evt_1"}`))
 	require.Equal(t, "response.delta", eventType)
-	require.Equal(t, "evt_1", responseID)
+	require.Empty(t, responseID, "an event id must not become a response continuation id")
+	require.False(t, response.Exists())
+
+	eventType, responseID, response = parseOpenAIWSEventEnvelope([]byte(`{"type":"response.delta","id":"resp_2"}`))
+	require.Equal(t, "response.delta", eventType)
+	require.Equal(t, "resp_2", responseID)
+	require.False(t, response.Exists())
+
+	eventType, responseID, response = parseOpenAIWSEventEnvelope([]byte(`{"type":"response.output_text.delta","response_id":"resp_3","delta":"hello"}`))
+	require.Equal(t, "response.output_text.delta", eventType)
+	require.Equal(t, "resp_3", responseID)
+	require.False(t, response.Exists())
+
+	eventType, responseID, response = parseOpenAIWSEventEnvelope([]byte(`{"type":"response.output_text.delta","response_id":"evt_3","delta":"hello"}`))
+	require.Equal(t, "response.output_text.delta", eventType)
+	require.Empty(t, responseID, "a non-resp response_id must not become a response continuation id")
+	require.False(t, response.Exists())
+
+	eventType, responseID, response = parseOpenAIWSEventEnvelope([]byte(`{"type":"response.output_text.delta","response":{"id":"evt_nested"},"response_id":"resp_4"}`))
+	require.Equal(t, "response.output_text.delta", eventType)
+	require.Equal(t, "resp_4", responseID, "an invalid response.id must not mask a valid response_id")
+	require.True(t, response.Exists())
+
+	eventType, responseID, response = parseOpenAIWSEventEnvelope([]byte(`{"type":"response.output_text.delta","response":{"id":"resp_5"},"response_id":"evt_5","id":"evt_5_event"}`))
+	require.Equal(t, "response.output_text.delta", eventType)
+	require.Equal(t, "resp_5", responseID)
+	require.True(t, response.Exists())
+
+	eventType, responseID, response = parseOpenAIWSEventEnvelope([]byte(`{"type":"response.output_text.delta","response":{"id":"RESP_upper"}}`))
+	require.Equal(t, "response.output_text.delta", eventType)
+	require.Empty(t, responseID, "response IDs must use the canonical lowercase resp_ prefix")
+	require.True(t, response.Exists())
+
+	eventType, responseID, response = parseOpenAIWSEventEnvelope([]byte(`{"id":"evt_2"}`))
+	require.Empty(t, eventType)
+	require.Empty(t, responseID, "an untyped event id must not become a response continuation id")
 	require.False(t, response.Exists())
 }
 

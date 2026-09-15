@@ -178,7 +178,7 @@ func TestOpenAIGatewayService_Forward_HTTPIngressStaysHTTPWhenWSEnabled(t *testi
 	require.NotNil(t, result)
 	require.False(t, result.OpenAIWSMode, "HTTP 入站应保持 HTTP 转发")
 	require.NotNil(t, upstream.lastReq, "HTTP 入站应命中 HTTP 上游")
-	require.False(t, gjson.GetBytes(upstream.lastBody, "previous_response_id").Exists(), "HTTP 路径应沿用原逻辑移除 previous_response_id")
+	require.Equal(t, "resp_http_keep", gjson.GetBytes(upstream.lastBody, "previous_response_id").String(), "API-key HTTP must preserve official Responses continuation")
 
 	decision, _ := c.Get("openai_ws_transport_decision")
 	reason, _ := c.Get("openai_ws_transport_reason")
@@ -257,11 +257,11 @@ func TestOpenAIGatewayService_Forward_HTTPIngressRetriesInvalidEncryptedContentO
 
 	firstBody := upstream.bodies[0]
 	secondBody := upstream.bodies[1]
-	require.False(t, gjson.GetBytes(firstBody, "previous_response_id").Exists(), "HTTP 首次请求仍应沿用原逻辑移除 previous_response_id")
+	require.Equal(t, "resp_http_retry", gjson.GetBytes(firstBody, "previous_response_id").String(), "API-key HTTP must preserve continuation on the first attempt")
 	require.True(t, gjson.GetBytes(firstBody, "input.0.encrypted_content").Exists(), "首次请求不应做发送前预清理")
 	require.Equal(t, "keep me", gjson.GetBytes(firstBody, "input.0.summary.0.text").String())
 
-	require.False(t, gjson.GetBytes(secondBody, "previous_response_id").Exists(), "HTTP 精确重试不应重新带回 previous_response_id")
+	require.Equal(t, "resp_http_retry", gjson.GetBytes(secondBody, "previous_response_id").String(), "encrypted-content retry must preserve API-key continuation")
 	require.False(t, gjson.GetBytes(secondBody, "input.0.encrypted_content").Exists(), "精确重试应移除 reasoning.encrypted_content")
 	require.Equal(t, "keep me", gjson.GetBytes(secondBody, "input.0.summary.0.text").String(), "精确重试应保留有效 reasoning summary")
 	require.Equal(t, "input_text", gjson.GetBytes(secondBody, "input.1.type").String(), "非 reasoning input 应保持原样")
@@ -356,7 +356,7 @@ func TestOpenAIGatewayService_Forward_HTTPIngressRetriesWrappedInvalidEncryptedC
 	require.Equal(t, "client_protocol_http", reason)
 }
 
-func TestOpenAIGatewayService_Forward_RemovePreviousResponseIDWhenWSDisabled(t *testing.T) {
+func TestOpenAIGatewayService_Forward_APIKeyHTTPPreservesPreviousResponseIDWhenWSDisabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	wsFallbackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
@@ -409,7 +409,7 @@ func TestOpenAIGatewayService_Forward_RemovePreviousResponseIDWhenWSDisabled(t *
 	result, err := svc.Forward(context.Background(), c, account, body)
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.False(t, gjson.GetBytes(upstream.lastBody, "previous_response_id").Exists())
+	require.Equal(t, "resp_123", gjson.GetBytes(upstream.lastBody, "previous_response_id").String())
 }
 
 func TestOpenAIGatewayService_Forward_WSv2Dial426FallbackHTTP(t *testing.T) {
@@ -1087,6 +1087,11 @@ func TestOpenAIGatewayService_Forward_WSv2PreviousResponseNotFoundRecoversByDrop
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
 	c.Request.Header.Set("User-Agent", "custom-client/1.0")
+	ownerGroupID := int64(7091)
+	const ownerUserID int64 = 8091
+	const ownerAPIKeyID int64 = 9091
+	c.Set("api_key", &APIKey{ID: ownerAPIKeyID, GroupID: &ownerGroupID})
+	SetOpenAIHTTPResponseOwner(c, ownerUserID, ownerAPIKeyID)
 
 	upstream := &httpUpstreamRecorder{
 		resp: &http.Response{
@@ -1136,6 +1141,11 @@ func TestOpenAIGatewayService_Forward_WSv2PreviousResponseNotFoundRecoversByDrop
 	require.Equal(t, int32(2), wsAttempts.Load(), "previous_response_not_found 应触发一次去掉 previous_response_id 的恢复重试")
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "resp_ws_prev_recover_ok", gjson.Get(rec.Body.String(), "id").String())
+	owned, ownerErr := svc.ValidateOpenAIHTTPResponseOwner(
+		context.Background(), ownerGroupID, "resp_ws_prev_recover_ok", ownerUserID, ownerAPIKeyID,
+	)
+	require.NoError(t, ownerErr)
+	require.True(t, owned, "HTTP ingress routed over upstream WSv2 must bind its response owner")
 
 	wsRequestMu.Lock()
 	requests := append([][]byte(nil), wsRequestPayloads...)

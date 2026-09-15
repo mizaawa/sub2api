@@ -1113,6 +1113,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			},
 			OnTurnComplete: func(turn openaiwsv2.RelayTurnResult) {
 				turnNo := int(completedTurns.Add(1))
+				if responseID := strings.TrimSpace(turn.RequestID); responseID != "" {
+					s.bindHTTPResponseAccount(ctx, c, account, responseID)
+				}
 				turnRequestModel, turnUpstreamModel := usageMeta.turnModels(turn.RequestModel)
 				turnResult := &OpenAIForwardResult{
 					RequestID: turn.RequestID,
@@ -1155,6 +1158,12 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				}
 			},
 			BeforeClientWrite: func(msgType coderws.MessageType, payload []byte) {
+				if msgType == coderws.MessageText {
+					_, responseID, _ := parseOpenAIWSEventEnvelope(payload)
+					if responseID != "" {
+						s.bindHTTPResponseAccount(ctx, c, account, responseID)
+					}
+				}
 				if msgType == coderws.MessageText && openAIWSPassthroughIsTerminalOutput(payload) {
 					turnLifecycle.beginTerminalWrite()
 				}

@@ -390,6 +390,48 @@ func (s *OpenAIGatewayService) SelectAccountByPreviousResponseID(
 	return s.selectAccountByPreviousResponseIDForCapability(ctx, groupID, previousResponseID, requestedModel, excludedIDs, "", requireCompact)
 }
 
+func (s *OpenAIGatewayService) selectStrictAccountByPreviousResponseID(
+	ctx context.Context,
+	groupID *int64,
+	previousResponseID string,
+	platform string,
+	sessionHash string,
+	requestedModel string,
+	excludedIDs map[int64]struct{},
+	requiredTransport OpenAIUpstreamTransport,
+	requiredCapability OpenAIEndpointCapability,
+	requiredImageCapability OpenAIImagesCapability,
+	requireCompact bool,
+) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	decision := OpenAIAccountScheduleDecision{}
+	selection, err := s.selectAccountByPreviousResponseIDForPlatformCapabilityAndTransport(
+		ctx, groupID, previousResponseID, platform, requestedModel, excludedIDs, requiredCapability, requireCompact,
+		requiredTransport,
+	)
+	if err != nil {
+		return nil, decision, err
+	}
+	if selection == nil || selection.Account == nil {
+		return nil, decision, ErrNoAvailableAccounts
+	}
+	if !s.isOpenAIAccountTransportCompatible(selection.Account, requiredTransport) ||
+		!accountSupportsOpenAICapabilities(selection.Account, requiredCapability, requiredImageCapability) {
+		if selection.ReleaseFunc != nil {
+			selection.ReleaseFunc()
+		}
+		return nil, decision, ErrNoAvailableAccounts
+	}
+
+	decision.Layer = openAIAccountScheduleLayerPreviousResponse
+	decision.StickyPreviousHit = true
+	decision.SelectedAccountID = selection.Account.ID
+	decision.SelectedAccountType = selection.Account.Type
+	if sessionHash != "" {
+		_ = s.bindOpenAIStickySessionDuringSelection(ctx, groupID, sessionHash, selection.Account.ID)
+	}
+	return selection, decision, nil
+}
+
 func (s *OpenAIGatewayService) selectAccountByPreviousResponseIDForCapability(
 	ctx context.Context,
 	groupID *int64,
@@ -399,10 +441,45 @@ func (s *OpenAIGatewayService) selectAccountByPreviousResponseIDForCapability(
 	requiredCapability OpenAIEndpointCapability,
 	requireCompact bool,
 ) (*AccountSelectionResult, error) {
+	return s.selectAccountByPreviousResponseIDForPlatformCapability(
+		ctx, groupID, previousResponseID, PlatformOpenAI, requestedModel, excludedIDs, requiredCapability, requireCompact,
+	)
+}
+
+func (s *OpenAIGatewayService) selectAccountByPreviousResponseIDForPlatformCapability(
+	ctx context.Context,
+	groupID *int64,
+	previousResponseID string,
+	platform string,
+	requestedModel string,
+	excludedIDs map[int64]struct{},
+	requiredCapability OpenAIEndpointCapability,
+	requireCompact bool,
+) (*AccountSelectionResult, error) {
+	return s.selectAccountByPreviousResponseIDForPlatformCapabilityAndTransport(
+		ctx, groupID, previousResponseID, platform, requestedModel, excludedIDs,
+		requiredCapability, requireCompact, OpenAIUpstreamTransportResponsesWebsocketV2,
+	)
+}
+
+func (s *OpenAIGatewayService) selectAccountByPreviousResponseIDForPlatformCapabilityAndTransport(
+	ctx context.Context,
+	groupID *int64,
+	previousResponseID string,
+	platform string,
+	requestedModel string,
+	excludedIDs map[int64]struct{},
+	requiredCapability OpenAIEndpointCapability,
+	requireCompact bool,
+	requiredTransport OpenAIUpstreamTransport,
+) (*AccountSelectionResult, error) {
 	if s == nil {
 		return nil, nil
 	}
-	accountID, account, responseID, store := s.resolveAccountByPreviousResponseIDForCapability(ctx, groupID, previousResponseID, requestedModel, excludedIDs, requiredCapability, requireCompact)
+	accountID, account, responseID, store := s.resolveAccountByPreviousResponseIDForPlatformCapabilityAndTransport(
+		ctx, groupID, previousResponseID, platform, requestedModel, excludedIDs, requiredCapability, requireCompact,
+		requiredTransport,
+	)
 	if accountID <= 0 || account == nil || store == nil {
 		return nil, nil
 	}
@@ -459,9 +536,42 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 	requiredCapability OpenAIEndpointCapability,
 	requireCompact bool,
 ) (int64, *Account, string, OpenAIWSStateStore) {
+	return s.resolveAccountByPreviousResponseIDForPlatformCapability(
+		ctx, groupID, previousResponseID, PlatformOpenAI, requestedModel, excludedIDs, requiredCapability, requireCompact,
+	)
+}
+
+func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForPlatformCapability(
+	ctx context.Context,
+	groupID *int64,
+	previousResponseID string,
+	platform string,
+	requestedModel string,
+	excludedIDs map[int64]struct{},
+	requiredCapability OpenAIEndpointCapability,
+	requireCompact bool,
+) (int64, *Account, string, OpenAIWSStateStore) {
+	return s.resolveAccountByPreviousResponseIDForPlatformCapabilityAndTransport(
+		ctx, groupID, previousResponseID, platform, requestedModel, excludedIDs,
+		requiredCapability, requireCompact, OpenAIUpstreamTransportResponsesWebsocketV2,
+	)
+}
+
+func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForPlatformCapabilityAndTransport(
+	ctx context.Context,
+	groupID *int64,
+	previousResponseID string,
+	platform string,
+	requestedModel string,
+	excludedIDs map[int64]struct{},
+	requiredCapability OpenAIEndpointCapability,
+	requireCompact bool,
+	requiredTransport OpenAIUpstreamTransport,
+) (int64, *Account, string, OpenAIWSStateStore) {
 	if s == nil {
 		return 0, nil, "", nil
 	}
+	platform = normalizeOpenAICompatiblePlatform(platform)
 	responseID := strings.TrimSpace(previousResponseID)
 	if responseID == "" {
 		return 0, nil, "", nil
@@ -482,21 +592,38 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 	}
 
 	account, err := s.getSchedulableAccount(ctx, accountID)
-	if err != nil || account == nil {
+	if err != nil {
+		// Repository/cache failures are transient. Keep the binding so a retry can
+		// resume the same upstream chain once account state is readable again.
+		return 0, nil, "", nil
+	}
+	if account == nil {
 		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 		return 0, nil, "", nil
 	}
-	// 非 WSv2 场景（如 force_http/全局关闭）不应使用 previous_response_id 粘连，
-	// 以保持“回滚到 HTTP”后的历史行为一致性。
-	if s.getOpenAIWSProtocolResolver().Resolve(account).Transport != OpenAIUpstreamTransportResponsesWebsocketV2 {
+	if !account.IsOpenAICompatible() || account.Platform != platform || !account.IsActive() {
+		// The account identity backing this response no longer belongs to the
+		// requested upstream platform (or has been administratively disabled).
+		// Unlike cooldowns, this cannot become usable through an automatic retry.
+		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 		return 0, nil, "", nil
 	}
-	if shouldClearStickySession(account, requestedModel) || !account.IsOpenAI() || !account.IsSchedulable() {
-		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
+	// OAuth/SetupToken continuation state lives on the WSv2 session and cannot
+	// survive an HTTP fallback. Official API-key Responses HTTP requests are
+	// different: previous_response_id is supported by the provider and scoped
+	// to the selected key/project, so retain the response-id binding.
+	if account.IsOpenAI() && !account.IsOpenAIApiKey() &&
+		!s.isOpenAIPreviousResponseTransportCompatible(account, requiredTransport) {
+		return 0, nil, "", nil
+	}
+	if shouldClearStickySession(account, requestedModel) || !account.IsSchedulable() ||
+		s.isOpenAIAccountRequestRuntimeBlocked(account, requestedModel) {
+		// Rate limits, overload windows, temporary transport blocks, quota state,
+		// and model cooldowns are transient. A stateful response cannot move to a
+		// different credential, so preserve its binding for a later retry.
 		return 0, nil, "", nil
 	}
 	if !parentHealthyForShadow(account, s.parentAccountLookup(ctx)) {
-		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 		return 0, nil, "", nil
 	}
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
@@ -520,16 +647,34 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 	}
 	if s.schedulerSnapshot != nil && s.accountRepo != nil {
 		latest, latestErr := s.accountRepo.GetByID(ctx, account.ID)
-		if latestErr != nil || latest == nil {
+		if latestErr != nil {
+			return 0, nil, "", nil
+		}
+		if latest == nil {
 			_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 			return 0, nil, "", nil
 		}
-		if shouldClearStickySession(latest, requestedModel) || !latest.IsOpenAI() || !latest.IsSchedulable() {
+		if !latest.IsOpenAICompatible() || latest.Platform != platform || !latest.IsActive() {
 			_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 			return 0, nil, "", nil
+		}
+		if latest.IsOpenAI() && !latest.IsOpenAIApiKey() &&
+			!s.isOpenAIPreviousResponseTransportCompatible(latest, requiredTransport) {
+			return 0, nil, "", nil
+		}
+		if shouldClearStickySession(latest, requestedModel) || !latest.IsSchedulable() {
+			return 0, nil, "", nil
+		}
+		if !s.openAIAccountMatchesSchedulingGroup(latest, groupID) {
+			return 0, nil, "", nil
+		}
+		if groupID != nil && s.schedulerSnapshot != nil {
+			group, groupErr := s.schedulerSnapshot.GetGroupByID(ctx, *groupID)
+			if groupErr != nil || (group != nil && group.RequirePrivacySet && latest.SupportsPrivacySetting() && !latest.IsPrivacySet()) {
+				return 0, nil, "", nil
+			}
 		}
 		if !parentHealthyForShadow(latest, s.parentAccountLookup(ctx)) {
-			_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 			return 0, nil, "", nil
 		}
 		if requestedModel != "" && !latest.IsModelSupported(requestedModel) {
@@ -546,16 +691,37 @@ func (s *OpenAIGatewayService) resolveAccountByPreviousResponseIDForCapability(
 			return 0, nil, "", nil
 		}
 		if s.isOpenAIAccountRequestRuntimeBlocked(latest, requestedModel) {
-			_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 			return 0, nil, "", nil
 		}
 		account = latest
 	}
 	if requireCompact && openAICompactSupportTier(account) == 0 {
-		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
+		return 0, nil, "", nil
+	}
+	if groupID != nil &&
+		s.needsUpstreamChannelRestrictionCheck(ctx, groupID) &&
+		s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel, requireCompact) {
 		return 0, nil, "", nil
 	}
 	return accountID, account, responseID, store
+}
+
+// isOpenAIPreviousResponseTransportCompatible keeps the legacy sticky helper
+// strict while allowing the WS ingress scheduler to select an OAuth account
+// whose configured ingress mode is HTTP bridge. The bridge rebuilds each turn
+// over HTTP and therefore has no Responses WebSocket upstream transport to
+// report from the protocol resolver.
+func (s *OpenAIGatewayService) isOpenAIPreviousResponseTransportCompatible(account *Account, requiredTransport OpenAIUpstreamTransport) bool {
+	if s == nil || account == nil {
+		return false
+	}
+	if !account.IsOpenAI() || account.IsOpenAIApiKey() {
+		return true
+	}
+	if requiredTransport == OpenAIUpstreamTransportResponsesWebsocketV2Ingress {
+		return s.isOpenAIAccountTransportCompatible(account, requiredTransport)
+	}
+	return s.getOpenAIWSProtocolResolver().Resolve(account).Transport == OpenAIUpstreamTransportResponsesWebsocketV2
 }
 
 func classifyOpenAIWSAcquireError(err error) string {
