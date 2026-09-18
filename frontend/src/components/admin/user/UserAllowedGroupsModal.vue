@@ -38,7 +38,7 @@
                 : 'border-gray-200 bg-white hover:border-gray-300 dark:border-dark-600 dark:bg-dark-800 dark:hover:border-dark-500'"
             >
               <div class="flex items-center gap-4">
-                <!-- 复选框：使用可见按钮，确保未选状态在浅色和深色主题中都有清晰边框。 -->
+                <!-- app-shell 会清空中性边框，因此用 ring 保证未选状态仍清晰可见。 -->
                 <div class="flex-shrink-0">
                   <button
                     type="button"
@@ -46,10 +46,10 @@
                     :aria-checked="config.isSelected"
                     :aria-label="config.isSelected ? t('admin.users.deselectExclusiveGroup') : t('admin.users.selectExclusiveGroup')"
                     :data-test="`exclusive-group-checkbox-${config.groupId}`"
-                    class="flex h-6 w-6 items-center justify-center rounded-md border-2 text-white transition-colors focus:outline-none focus:ring-2 focus:ring-primary-400 focus:ring-offset-1 dark:focus:ring-offset-dark-800"
+                    class="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-white shadow-sm ring-1 ring-inset transition-colors focus:outline-none focus:ring-2 focus:ring-primary-400 focus:ring-offset-1 dark:focus:ring-offset-dark-800"
                     :class="config.isSelected
-                      ? 'border-primary-500 bg-primary-500 dark:border-primary-400 dark:bg-primary-500'
-                      : 'border-gray-400 bg-white hover:border-primary-400 dark:border-dark-400 dark:bg-dark-800 dark:hover:border-primary-400'"
+                      ? 'bg-primary-500 ring-primary-600 dark:bg-primary-500 dark:ring-primary-300'
+                      : 'bg-gray-100 ring-gray-400 hover:bg-primary-50 hover:ring-primary-400 dark:bg-dark-700 dark:ring-dark-400 dark:hover:bg-dark-600 dark:hover:ring-primary-400'"
                     @click.stop="toggleExclusiveGroup(config.groupId)"
                   >
                     <svg v-if="config.isSelected" class="h-full w-full" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">

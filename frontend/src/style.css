@@ -978,10 +978,6 @@
     border-color: transparent !important;
   }
 
-  .dashboard-layout .app-header {
-    box-shadow: 0 0.625rem 1.75rem rgb(15 23 42 / 0.08) !important;
-  }
-
   /* Select menus are teleported to body, so keep their dashboard border
    * transparent while the dashboard shell is mounted. */
   body:has(.dashboard-layout) .select-dropdown-portal,

@@ -3,6 +3,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,19 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+type plazaModelAvailabilityStub struct {
+	models    map[string][]string
+	platforms map[string]struct{}
+}
+
+func (s *plazaModelAvailabilityStub) GetAvailableModels(_ context.Context, _ *int64, platform string) []string {
+	return s.models[platform]
+}
+
+func (s *plazaModelAvailabilityStub) GetSchedulablePlatforms(_ context.Context, _ *int64) map[string]struct{} {
+	return s.platforms
+}
 
 func plazaGroups() []service.PlazaGroup {
 	return []service.PlazaGroup{
@@ -56,6 +70,74 @@ func TestFilterPlazaVisibleGroups_BlockedIDsOnlyHidePublicStandardGroups(t *test
 	// A stale deny row must not hide an exclusive or subscription group after
 	// its type changes; only the public standard group is removed.
 	require.ElementsMatch(t, []int64{2, 3, 4}, []int64{visible[0].ID, visible[1].ID, visible[2].ID})
+}
+
+func TestFilterGroupsByAccountModels_UsesBoundAccountMappings(t *testing.T) {
+	h := &ModelPlazaHandler{modelAvailability: &plazaModelAvailabilityStub{
+		models:    map[string][]string{service.PlatformOpenAI: {"gpt-5.6-sol"}},
+		platforms: map[string]struct{}{service.PlatformOpenAI: {}},
+	}}
+	groups := []service.PlazaGroup{{
+		ID: 1, Platform: service.PlatformOpenAI,
+		Models: []service.PlazaModel{
+			{Name: "gpt-5.6-sol", Platform: service.PlatformOpenAI},
+			{Name: "gpt-5.6-terra", Platform: service.PlatformOpenAI},
+			{Name: "gpt-image-2", Platform: service.PlatformOpenAI},
+		},
+	}}
+
+	got := h.filterGroupsByAccountModels(context.Background(), groups)
+
+	require.Len(t, got, 1)
+	require.Equal(t, []service.PlazaModel{{Name: "gpt-5.6-sol", Platform: service.PlatformOpenAI}}, got[0].Models)
+}
+
+func TestFilterGroupsByAccountModels_UsesAPIKeyFallbackAndCustomList(t *testing.T) {
+	stub := &plazaModelAvailabilityStub{
+		models:    map[string][]string{}, // no account mapping: /v1/models uses platform defaults
+		platforms: map[string]struct{}{service.PlatformOpenAI: {}},
+	}
+	h := &ModelPlazaHandler{modelAvailability: stub}
+	groups := []service.PlazaGroup{
+		{
+			ID: 1, Platform: service.PlatformOpenAI,
+			Models: []service.PlazaModel{
+				{Name: "gpt-5.6", Platform: service.PlatformOpenAI},
+				{Name: "private-upstream-model", Platform: service.PlatformOpenAI},
+			},
+		},
+		{
+			ID: 2, Platform: service.PlatformOpenAI,
+			ModelsListConfig: service.GroupModelsListConfig{
+				Enabled: true,
+				Models:  []string{"gpt-5.6-terra"},
+			},
+			Models: []service.PlazaModel{
+				{Name: "gpt-5.6", Platform: service.PlatformOpenAI},
+				{Name: "gpt-5.6-terra", Platform: service.PlatformOpenAI},
+			},
+		},
+	}
+
+	got := h.filterGroupsByAccountModels(context.Background(), groups)
+
+	require.Len(t, got, 2)
+	require.Equal(t, []string{"gpt-5.6"}, []string{got[0].Models[0].Name})
+	require.Equal(t, []string{"gpt-5.6-terra"}, []string{got[1].Models[0].Name})
+}
+
+func TestFilterGroupsByAccountModels_HidesGroupsWithoutBoundAccounts(t *testing.T) {
+	h := &ModelPlazaHandler{modelAvailability: &plazaModelAvailabilityStub{
+		models:    map[string][]string{service.PlatformOpenAI: {"gpt-5.6-sol"}},
+		platforms: map[string]struct{}{},
+	}}
+	groups := []service.PlazaGroup{{
+		ID:       1,
+		Platform: service.PlatformOpenAI,
+		Models:   []service.PlazaModel{{Name: "gpt-5.6-sol", Platform: service.PlatformOpenAI}},
+	}}
+
+	require.Empty(t, h.filterGroupsByAccountModels(context.Background(), groups))
 }
 
 func TestModelPlazaHandler_NilSettingServiceFailsClosed404(t *testing.T) {

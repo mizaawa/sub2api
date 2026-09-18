@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"context"
 	"log/slog"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -18,9 +20,15 @@ import (
 //   - 登录：非专属分组 + user_allowed_groups 授权的标准专属分组，或用户持有有效
 //     订阅的订阅型专属分组；订阅型分组始终要求当前有效订阅。
 type ModelPlazaHandler struct {
-	channelService *service.ChannelService
-	apiKeyService  *service.APIKeyService
-	settingService *service.SettingService
+	channelService    *service.ChannelService
+	apiKeyService     *service.APIKeyService
+	settingService    *service.SettingService
+	modelAvailability plazaModelAvailability
+}
+
+type plazaModelAvailability interface {
+	GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string
+	GetSchedulablePlatforms(ctx context.Context, groupID *int64) map[string]struct{}
 }
 
 // NewModelPlazaHandler 创建模型广场 handler。
@@ -28,11 +36,13 @@ func NewModelPlazaHandler(
 	channelService *service.ChannelService,
 	apiKeyService *service.APIKeyService,
 	settingService *service.SettingService,
+	gatewayService *service.GatewayService,
 ) *ModelPlazaHandler {
 	return &ModelPlazaHandler{
-		channelService: channelService,
-		apiKeyService:  apiKeyService,
-		settingService: settingService,
+		channelService:    channelService,
+		apiKeyService:     apiKeyService,
+		settingService:    settingService,
+		modelAvailability: gatewayService,
 	}
 }
 
@@ -143,6 +153,7 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 	}
 
 	visible := filterPlazaVisibleGroups(groups, allowedGroups, blockedGroups)
+	visible = h.filterGroupsByAccountModels(c.Request.Context(), visible)
 
 	out := make([]modelPlazaGroup, 0, len(visible))
 	for i := range visible {
@@ -152,6 +163,111 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 		Description: rt.Description,
 		Groups:      out,
 	})
+}
+
+// filterGroupsByAccountModels keeps the plaza catalogue aligned with what an API
+// key bound to the group can discover from /v1/models. Channel configuration
+// remains the pricing source, but cannot introduce models that no account in the
+// group exposes.
+func (h *ModelPlazaHandler) filterGroupsByAccountModels(ctx context.Context, groups []service.PlazaGroup) []service.PlazaGroup {
+	if h == nil || h.modelAvailability == nil {
+		return groups
+	}
+
+	filtered := make([]service.PlazaGroup, 0, len(groups))
+	for i := range groups {
+		group := groups[i]
+		groupID := group.ID
+		schedulablePlatforms := h.modelAvailability.GetSchedulablePlatforms(ctx, &groupID)
+		if len(schedulablePlatforms) == 0 {
+			continue
+		}
+
+		allowedByPlatform := make(map[string][]string)
+		if group.Platform == service.PlatformComposite {
+			merged := make([]string, 0)
+			seen := make(map[string]struct{})
+			for _, platform := range []string{
+				service.PlatformAnthropic,
+				service.PlatformGemini,
+				service.PlatformOpenAI,
+				service.PlatformAntigravity,
+				service.PlatformGrok,
+			} {
+				if _, ok := schedulablePlatforms[platform]; !ok {
+					continue
+				}
+				models := h.modelsForGroupPlatform(ctx, &groupID, platform, service.GroupModelsListConfig{})
+				allowedByPlatform[platform] = models
+				for _, model := range models {
+					if _, ok := seen[model]; ok {
+						continue
+					}
+					seen[model] = struct{}{}
+					merged = append(merged, model)
+				}
+			}
+			if group.ModelsListConfig.Enabled && len(group.ModelsListConfig.Models) > 0 {
+				merged = filterModelsByCustomList(merged, defaultModelIDsForPlatform(service.PlatformComposite), group.ModelsListConfig.Models)
+				for platform, models := range allowedByPlatform {
+					allowedByPlatform[platform] = filterModelIDs(models, merged)
+				}
+			}
+		} else {
+			if _, ok := schedulablePlatforms[group.Platform]; !ok {
+				continue
+			}
+			allowedByPlatform[group.Platform] = h.modelsForGroupPlatform(ctx, &groupID, group.Platform, group.ModelsListConfig)
+		}
+
+		models := make([]service.PlazaModel, 0, len(group.Models))
+		for _, model := range group.Models {
+			if modelIDAllowed(allowedByPlatform[model.Platform], model.Name) {
+				models = append(models, model)
+			}
+		}
+		if len(models) == 0 {
+			continue
+		}
+		group.Models = models
+		filtered = append(filtered, group)
+	}
+	return filtered
+}
+
+func (h *ModelPlazaHandler) modelsForGroupPlatform(
+	ctx context.Context,
+	groupID *int64,
+	platform string,
+	config service.GroupModelsListConfig,
+) []string {
+	models := h.modelAvailability.GetAvailableModels(ctx, groupID, platform)
+	fallback := defaultModelIDsForPlatform(platform)
+	if config.Enabled && len(config.Models) > 0 {
+		return filterModelsByCustomList(customModelsListSource(platform, models, fallback), fallback, config.Models)
+	}
+	if len(models) == 0 {
+		return fallback
+	}
+	return models
+}
+
+func filterModelIDs(models, allowed []string) []string {
+	filtered := make([]string, 0, len(models))
+	for _, model := range models {
+		if modelIDAllowed(allowed, model) {
+			filtered = append(filtered, model)
+		}
+	}
+	return filtered
+}
+
+func modelIDAllowed(patterns []string, model string) bool {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return false
+	}
+	return customModelsListAllowsModel(patterns, model)
 }
 
 // filterPlazaVisibleGroups 按登录态裁剪分组可见性。

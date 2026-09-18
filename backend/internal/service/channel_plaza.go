@@ -46,7 +46,10 @@ type PlazaGroup struct {
 	// = 档位价 × ImageRateMultiplier，不乘分组/用户专属倍率（与计费口径一致）。
 	ImageRateIndependent bool
 	ImageRateMultiplier  float64
-	Models               []PlazaModel
+	// ModelsListConfig 仅供 handler 按 API Key 的 /v1/models 配置裁剪广场模型，
+	// 不会暴露到模型广场响应中。
+	ModelsListConfig GroupModelsListConfig
+	Models           []PlazaModel
 }
 
 // ListPlazaGroups 返回模型广场数据：每个活跃分组附带其可用模型与定价。
@@ -95,6 +98,7 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 			IsExclusive:          g.IsExclusive,
 			ImageRateIndependent: g.ImageRateIndependent,
 			ImageRateMultiplier:  g.ImageRateMultiplier,
+			ModelsListConfig:     g.ModelsListConfig,
 		}
 		groupEnt[g.ID] = g
 		order = append(order, g.ID)
