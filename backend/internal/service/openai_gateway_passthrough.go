@@ -345,14 +345,15 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	case AccountTypeOAuth:
 		targetURL = chatgptCodexURL
 	case AccountTypeAPIKey:
-		baseURL := account.GetOpenAIBaseURL()
-		if baseURL != "" {
-			validatedURL, err := s.validateUpstreamBaseURL(baseURL)
-			if err != nil {
-				return nil, err
-			}
-			targetURL = buildOpenAIResponsesURL(validatedURL)
+		baseURL, err := requireOpenAIBaseURL(account)
+		if err != nil {
+			return nil, err
 		}
+		validatedURL, err := s.validateUpstreamBaseURL(baseURL)
+		if err != nil {
+			return nil, err
+		}
+		targetURL = buildOpenAIResponsesURL(validatedURL)
 	}
 	targetURL = appendOpenAIResponsesRequestPathSuffix(targetURL, openAIResponsesRequestPathSuffix(c))
 

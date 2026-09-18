@@ -632,7 +632,7 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 	}
 	// OpenAI 账号保持官方 openai 传输画像；其他平台探测走默认画像。
 	profile := HTTPUpstreamProfileDefault
-	if account.Platform == PlatformOpenAI {
+	if account.Platform == PlatformOpenAI || account.Platform == PlatformCustom {
 		profile = HTTPUpstreamProfileOpenAI
 	}
 	reqCtx := WithHTTPUpstreamProfile(req.Context(), profile)
@@ -965,7 +965,7 @@ func decodeUpstreamBillingProbeSnapshot(extra map[string]any) *UpstreamBillingPr
 
 // IsUpstreamBillingProbeIdentity reports whether an account identity may opt
 // in to the upstream billing probe. `/v1/sub2api/billing` is a key-scoped
-// sub2api convention shared by the five supported API-key platforms.
+// sub2api convention shared by the supported API-key platforms.
 // Non-sub2api upstreams return 404 and the snapshot records "unsupported".
 // Only AccountTypeAPIKey is in scope. OAuth/Bedrock hold no static API key to
 // present at all; AccountTypeUpstream (antigravity relay accounts) does carry
@@ -978,7 +978,7 @@ func IsUpstreamBillingProbeIdentity(platform, accountType string) bool {
 		return false
 	}
 	switch platform {
-	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformAntigravity, PlatformGrok:
+	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformAntigravity, PlatformGrok, PlatformCustom:
 		return true
 	default:
 		return false

@@ -423,6 +423,7 @@
                 <label class="input-label text-xs mb-0">{{ t('admin.channels.form.modelPricing', 'Model Pricing') }}</label>
                 <div class="flex items-center gap-2">
                   <button
+                    v-if="section.platform !== 'custom'"
                     type="button"
                     @click="syncLatestModels(sIdx)"
                     :disabled="syncingPlatform === section.platform"
@@ -761,7 +762,7 @@ const form = reactive({
 let abortController: AbortController | null = null
 
 // ── Platform config ──
-const platformOrder: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok']
+const platformOrder: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'custom']
 
 // ── Helpers ──
 function formatDate(value: string): string {

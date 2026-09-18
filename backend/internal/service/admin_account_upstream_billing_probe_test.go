@@ -161,6 +161,41 @@ func TestCreateAccountAcceptsDedicatedUpstreamBillingProbeSetting(t *testing.T) 
 	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
 }
 
+func TestCreateAccountRateSyncEnablesRequiredProbe(t *testing.T) {
+	enabled := true
+	repo := &upstreamBillingProbeAccountRepo{}
+	created, err := (&adminServiceImpl{accountRepo: repo}).CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                 "rate-sync",
+		Platform:             PlatformOpenAI,
+		Type:                 AccountTypeAPIKey,
+		Credentials:          map[string]any{"api_key": "sk-test"},
+		RateSyncEnabled:      &enabled,
+		SkipDefaultGroupBind: true,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, true, created.Extra[UpstreamBillingProbeEnabledExtraKey])
+	require.Equal(t, true, created.Extra[UpstreamBillingRateSyncEnabledExtraKey])
+}
+
+func TestCreateAccountPersistsExplicitlyDisabledUpstreamBillingSettings(t *testing.T) {
+	disabled := false
+	repo := &upstreamBillingProbeAccountRepo{}
+	created, err := (&adminServiceImpl{accountRepo: repo}).CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                 "rate-sync-disabled",
+		Platform:             PlatformOpenAI,
+		Type:                 AccountTypeAPIKey,
+		Credentials:          map[string]any{"api_key": "sk-test"},
+		ProbeEnabled:         &disabled,
+		RateSyncEnabled:      &disabled,
+		SkipDefaultGroupBind: true,
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, false, created.Extra[UpstreamBillingProbeEnabledExtraKey])
+	require.Equal(t, false, created.Extra[UpstreamBillingRateSyncEnabledExtraKey])
+}
+
 func TestUpdateAccountPreservesManagedUpstreamBillingProbeStateForUnrelatedEdit(t *testing.T) {
 	accountID := int64(110)
 	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{

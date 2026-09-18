@@ -50,9 +50,9 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 	if apiKey == "" {
 		return nil, fmt.Errorf("account %d missing api_key", account.ID)
 	}
-	baseURL := account.GetOpenAIBaseURL()
-	if baseURL == "" {
-		baseURL = "https://api.openai.com"
+	baseURL, err := requireOpenAIBaseURL(account)
+	if err != nil {
+		return nil, err
 	}
 	validatedURL, err := s.validateUpstreamBaseURL(baseURL)
 	if err != nil {

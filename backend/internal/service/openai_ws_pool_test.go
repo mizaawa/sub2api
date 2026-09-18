@@ -978,21 +978,24 @@ func TestOpenAIWSConnPool_EffectiveMaxConnsByAccount_ModeRouterV2RespectsHardCap
 	require.Equal(t, 8, pool.effectiveMaxConnsByAccount(high), "v2 路径也必须受连接池硬上限约束")
 
 	nonPositive := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 0}
-	require.Equal(t, 0, pool.effectiveMaxConnsByAccount(nonPositive), "并发数<=0 时应不可调度")
+	require.Equal(t, 8, pool.effectiveMaxConnsByAccount(nonPositive), "无限并发仍应受连接池硬上限约束")
 }
 
-func TestOpenAIWSConnPool_AcquireRejectsWhenEffectiveMaxConnsIsZero(t *testing.T) {
+func TestOpenAIWSConnPool_AcquireDoesNotTreatUnlimitedAsZeroCapacity(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Gateway.OpenAIWS.ModeRouterV2Enabled = true
 	cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 8
 	pool := newOpenAIWSConnPool(cfg)
 
 	account := &Account{ID: 901, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 0}
-	_, err := pool.Acquire(context.Background(), openAIWSAcquireRequest{
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := pool.Acquire(ctx, openAIWSAcquireRequest{
 		Account: account,
 		WSURL:   "wss://example.com/v1/responses",
 	})
-	require.ErrorIs(t, err, errOpenAIWSConnQueueFull)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, errOpenAIWSConnQueueFull)
 }
 
 func TestOpenAIWSConnLease_ReadMessageWithContextTimeout_PerRead(t *testing.T) {

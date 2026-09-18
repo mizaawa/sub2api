@@ -11,7 +11,7 @@ import (
 // made through a composite group.
 func WithResolvedTargetPlatform(ctx context.Context, platform string) context.Context {
 	platform = strings.TrimSpace(platform)
-	if ctx == nil || platform == "" {
+	if ctx == nil || !isConcreteRequestPlatform(platform) {
 		return ctx
 	}
 	return context.WithValue(ctx, ctxkey.ResolvedTargetPlatform, platform)
@@ -25,7 +25,7 @@ func ResolvedTargetPlatformFromContext(ctx context.Context) (string, bool) {
 	}
 	platform, ok := ctx.Value(ctxkey.ResolvedTargetPlatform).(string)
 	platform = strings.TrimSpace(platform)
-	if !ok || platform == "" {
+	if !ok || !isConcreteRequestPlatform(platform) {
 		return "", false
 	}
 	return platform, true
@@ -102,6 +102,8 @@ func DetectModelPlatform(model string) (string, bool) {
 			return PlatformAnthropic, true
 		case "openai", "chatgpt":
 			return PlatformOpenAI, true
+		case "custom":
+			return "", false
 		case "google", "google-ai-studio", "gemini":
 			return PlatformGemini, true
 		case "xai", "x-ai", "grok":

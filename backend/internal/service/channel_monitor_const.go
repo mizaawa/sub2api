@@ -56,11 +56,12 @@ const (
 	// providerGeminiPathTemplate Gemini generateContent 路径模板（含 model 占位）。
 	providerGeminiPathTemplate = "/v1beta/models/%s:generateContent"
 
-	// MonitorProviderOpenAI / Anthropic / Gemini / Grok provider 字符串常量（也是 ent enum 的实际值）。
+	// MonitorProvider* provider 字符串常量（也是 ent enum 的实际值）。
 	MonitorProviderOpenAI    = "openai"
 	MonitorProviderAnthropic = "anthropic"
 	MonitorProviderGemini    = "gemini"
 	MonitorProviderGrok      = "grok"
+	MonitorProviderCustom    = "custom"
 
 	// MonitorDefaultGrokModel 是新增 Grok 监控未显式指定模型时使用的轻量测活模型。
 	MonitorDefaultGrokModel = "grok-4.5"
@@ -118,10 +119,10 @@ var (
 		"CHANNEL_MONITOR_NOT_FOUND", "channel monitor not found",
 	)
 	ErrChannelMonitorInvalidProvider = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/grok",
+		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/grok/custom",
 	)
 	ErrChannelMonitorInvalidAPIMode = infraerrors.BadRequest(
-		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions or responses; responses is only supported for openai",
+		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions or responses; responses is only supported for openai-compatible providers",
 	)
 	ErrChannelMonitorInvalidRequestBody = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_REQUEST_BODY", "openai-compatible replace-mode body_override must include non-empty messages for chat_completions or non-empty instructions and input for responses",
@@ -155,5 +156,20 @@ var (
 	)
 	ErrChannelMonitorAPIKeyDecryptFailed = infraerrors.InternalServer(
 		"CHANNEL_MONITOR_KEY_DECRYPT_FAILED", "api key decryption failed; please re-edit the monitor with a fresh key",
+	)
+)
+
+var (
+	ErrChannelMonitorDisabled = infraerrors.Forbidden(
+		"CHANNEL_MONITOR_DISABLED",
+		"channel monitor feature is disabled",
+	)
+	ErrChannelMonitorActiveProbesRetired = infraerrors.Forbidden(
+		"CHANNEL_MONITOR_ACTIVE_PROBES_RETIRED",
+		"channel monitor active probes are retired in v2 mode",
+	)
+	ErrChannelMonitorModeMismatch = infraerrors.Forbidden(
+		"CHANNEL_MONITOR_MODE_MISMATCH",
+		"channel monitor mode does not allow this operation",
 	)
 )

@@ -13,6 +13,7 @@ export const PROVIDER_OPENAI: Provider = 'openai'
 export const PROVIDER_ANTHROPIC: Provider = 'anthropic'
 export const PROVIDER_GEMINI: Provider = 'gemini'
 export const PROVIDER_GROK: Provider = 'grok'
+export const PROVIDER_CUSTOM: Provider = 'custom'
 
 export const DEFAULT_GROK_ENDPOINT = 'https://api.x.ai'
 export const DEFAULT_GROK_MODEL = 'grok-4.5'
@@ -25,7 +26,12 @@ export const PROVIDERS: readonly Provider[] = [
   PROVIDER_ANTHROPIC,
   PROVIDER_GEMINI,
   PROVIDER_GROK,
+  PROVIDER_CUSTOM,
 ]
+
+export function isOpenAIProtocolProvider(provider: Provider | string): boolean {
+  return provider === PROVIDER_OPENAI || provider === PROVIDER_CUSTOM
+}
 
 export const API_MODES: readonly APIMode[] = [
   API_MODE_CHAT_COMPLETIONS,

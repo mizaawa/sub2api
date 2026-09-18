@@ -414,7 +414,13 @@ export const commonErrorCodes = [
 // 按平台获取模型
 export function getModelsByPlatform(platform: string): string[] {
   switch (platform) {
-    case 'openai': return openaiModels
+    case 'openai':
+      return openaiModels
+    // A Custom upstream can expose arbitrary OpenAI-compatible model IDs.
+    // Keep its default whitelist empty so creating an account does not
+    // accidentally restrict it to Sub2API's built-in OpenAI catalog.
+    case 'custom':
+      return []
     case 'anthropic':
     case 'claude': return claudeModels
     case 'gemini': return geminiModels
@@ -441,7 +447,7 @@ export function getModelsByPlatform(platform: string): string[] {
 
 // 按平台获取预设映射
 export function getPresetMappingsByPlatform(platform: string) {
-  if (platform === 'openai') return openaiPresetMappings
+  if (platform === 'openai' || platform === 'custom') return openaiPresetMappings
   if (platform === 'gemini') return geminiPresetMappings
   if (platform === 'grok' || platform === 'xai') return grokPresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings

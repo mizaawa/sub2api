@@ -450,7 +450,8 @@ export default {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
       gemini: 'Gemini',
-      grok: 'Grok'
+      grok: 'Grok',
+      custom: 'Custom'
     },
     extraModelsHeader: '附加模型',
     extraModelsEmpty: '无附加模型',

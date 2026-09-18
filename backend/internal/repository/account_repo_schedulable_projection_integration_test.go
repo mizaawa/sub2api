@@ -40,11 +40,11 @@ func TestListSchedulableAccountLoadsMatchesListSchedulable(t *testing.T) {
 	unschedulable := create("projection-unschedulable")
 	_, err = client.Account.UpdateOneID(unschedulable.ID).SetSchedulable(false).Save(ctx)
 	require.NoError(t, err)
-	expired := create("projection-expired")
-	_, err = client.Account.UpdateOneID(expired.ID).SetExpiresAt(past).SetAutoPauseOnExpired(true).Save(ctx)
+	expiredLegacyOptIn := create("projection-expired-legacy-opt-in")
+	_, err = client.Account.UpdateOneID(expiredLegacyOptIn.ID).SetExpiresAt(past).SetAutoPauseOnExpired(true).Save(ctx)
 	require.NoError(t, err)
-	expiredAllowed := create("projection-expired-allowed")
-	_, err = client.Account.UpdateOneID(expiredAllowed.ID).SetExpiresAt(past).SetAutoPauseOnExpired(false).Save(ctx)
+	expiredLegacyOptOut := create("projection-expired-legacy-opt-out")
+	_, err = client.Account.UpdateOneID(expiredLegacyOptOut.ID).SetExpiresAt(past).SetAutoPauseOnExpired(false).Save(ctx)
 	require.NoError(t, err)
 	overloaded := create("projection-overloaded")
 	_, err = client.Account.UpdateOneID(overloaded.ID).SetOverloadUntil(future).Save(ctx)
@@ -98,10 +98,10 @@ func TestListSchedulableAccountLoadsMatchesListSchedulable(t *testing.T) {
 	require.Equal(t, 9, byID[positiveLoad.ID])
 	require.Equal(t, 4, byID[concurrencyFallback.ID])
 	require.Equal(t, 1, byID[zeroFallback.ID])
-	for _, included := range []*service.Account{expiredAllowed, overloadCleared, rateLimitCleared, tempCleared} {
+	for _, included := range []*service.Account{expiredLegacyOptIn, expiredLegacyOptOut, overloadCleared, rateLimitCleared, tempCleared} {
 		require.Contains(t, byID, included.ID)
 	}
-	for _, excluded := range []*service.Account{disabled, unschedulable, expired, overloaded, rateLimited, tempBlocked} {
+	for _, excluded := range []*service.Account{disabled, unschedulable, overloaded, rateLimited, tempBlocked} {
 		require.NotContains(t, byID, excluded.ID)
 	}
 }

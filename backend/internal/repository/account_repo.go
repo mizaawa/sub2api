@@ -1392,7 +1392,6 @@ func (r *accountRepository) SetGrokCredentialErrorIfMatch(
 			AND a.type = $6
 			AND a.schedulable IS TRUE
 		` + transientGuards + `
-			AND (a.auto_pause_on_expired IS NOT TRUE OR a.expires_at IS NULL OR a.expires_at > NOW())
 			AND a.credentials = $7::jsonb
 			AND a.proxy_id IS NOT DISTINCT FROM $8
 			AND ($2 <> $9 OR (
@@ -1974,10 +1973,9 @@ func (r *accountRepository) ListSchedulableCapacityByGroupIDs(ctx context.Contex
 			AND a.status = $2
 			AND a.schedulable = TRUE
 			` + transientPredicates + `
-			AND (a.expires_at IS NULL OR a.expires_at > $3 OR a.auto_pause_on_expired = FALSE)
 		ORDER BY ag.group_id ASC, ag.priority ASC, a.priority ASC, a.id ASC
 	`
-	rows, err := r.sql.QueryContext(ctx, query, pq.Array(groupIDs), service.StatusActive, time.Now())
+	rows, err := r.sql.QueryContext(ctx, query, pq.Array(groupIDs), service.StatusActive)
 	if err != nil {
 		return nil, err
 	}
@@ -2377,7 +2375,6 @@ func (r *accountRepository) SetGrokCredentialTempUnschedulableIfMatch(
 			AND (a.temp_unschedulable_until IS NULL OR a.temp_unschedulable_until <= NOW())
 			AND (a.rate_limit_reset_at IS NULL OR a.rate_limit_reset_at <= NOW())
 			AND (a.overload_until IS NULL OR a.overload_until <= NOW())
-			AND (a.auto_pause_on_expired IS NOT TRUE OR a.expires_at IS NULL OR a.expires_at > NOW())
 			AND a.credentials = $7::jsonb
 			AND a.proxy_id IS NOT DISTINCT FROM $8
 		RETURNING a.id
@@ -2919,13 +2916,9 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		idx++
 	}
 	if updates.LoadFactor != nil {
-		if *updates.LoadFactor <= 0 {
-			setClauses = append(setClauses, "load_factor = NULL")
-		} else {
-			setClauses = append(setClauses, "load_factor = $"+itoa(idx))
-			args = append(args, *updates.LoadFactor)
-			idx++
-		}
+		setClauses = append(setClauses, "load_factor = $"+itoa(idx))
+		args = append(args, *updates.LoadFactor)
+		idx++
 	}
 	if updates.Status != nil {
 		statusPlaceholder := "$" + itoa(idx)
@@ -3293,12 +3286,8 @@ func transientRateLimitPredicate(now time.Time) dbpredicate.Account {
 	return dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now))
 }
 
-func notExpiredPredicate(now time.Time) dbpredicate.Account {
-	return dbaccount.Or(
-		dbaccount.ExpiresAtIsNil(),
-		dbaccount.ExpiresAtGT(now),
-		dbaccount.AutoPauseOnExpiredEQ(false),
-	)
+func notExpiredPredicate(_ time.Time) dbpredicate.Account {
+	return transientNoopAccountPredicate()
 }
 
 func (r *accountRepository) loadProxies(ctx context.Context, proxyIDs []int64) (map[int64]*service.Proxy, error) {

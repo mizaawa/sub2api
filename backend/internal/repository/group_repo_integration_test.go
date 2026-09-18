@@ -880,7 +880,7 @@ func (s *GroupRepoSuite) TestListWithFilters_RateLimitedAccountCount() {
 	}
 	s.Require().NotNil(found, "created group must appear in ListWithFilters result")
 	s.Assert().Equal(int64(5), found.AccountCount, "AccountCount must include all linked accounts")
-	s.Assert().Equal(int64(1), found.ActiveAccountCount, "ActiveAccountCount must include only currently schedulable accounts")
+	s.Assert().Equal(int64(2), found.ActiveAccountCount, "ActiveAccountCount must include expired accounts because expiry metadata no longer blocks scheduling")
 	s.Assert().Equal(int64(3), found.RateLimitedAccountCount, "RateLimitedAccountCount must include temporarily limited accounts")
 
 	total, active, err := s.repo.GetAccountCount(s.ctx, g.ID)

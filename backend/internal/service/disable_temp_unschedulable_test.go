@@ -41,7 +41,7 @@ func TestDisableTempUnschedulableSwitchControlsAccountScheduling(t *testing.T) {
 	}
 }
 
-func TestDisableTempUnschedulableSwitchKeepsExpiryAndHardQuotaEnforced(t *testing.T) {
+func TestDisableTempUnschedulableSwitchIgnoresExpiryAndKeepsHardQuotaEnforced(t *testing.T) {
 	t.Cleanup(func() { SetDisableTempUnschedulableRuntime(false) })
 	SetDisableTempUnschedulableRuntime(true)
 
@@ -52,8 +52,8 @@ func TestDisableTempUnschedulableSwitchKeepsExpiryAndHardQuotaEnforced(t *testin
 		AutoPauseOnExpired: true,
 		ExpiresAt:          &expiresAt,
 	}
-	if expired.IsSchedulable() {
-		t.Fatal("expired account must remain blocked")
+	if !expired.IsSchedulable() {
+		t.Fatal("legacy expiry metadata must not block account scheduling")
 	}
 
 	quotaExceeded := &Account{

@@ -127,6 +127,7 @@ type CreateAccountRequest struct {
 	ExpiresAt               *int64         `json:"expires_at"`
 	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
 	ProbeEnabled            *bool          `json:"upstream_billing_probe_enabled"`
+	RateSyncEnabled         *bool          `json:"upstream_billing_rate_sync_enabled"`
 	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 }
 
@@ -862,6 +863,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 			ExpiresAt:             req.ExpiresAt,
 			AutoPauseOnExpired:    req.AutoPauseOnExpired,
 			ProbeEnabled:          req.ProbeEnabled,
+			RateSyncEnabled:       req.RateSyncEnabled,
 			SkipMixedChannelCheck: skipCheck,
 		})
 		if execErr != nil {
@@ -1020,12 +1022,12 @@ func (h *AccountHandler) Update(c *gin.Context) {
 
 // scheduleOpenAIResponsesProbe 异步触发 OpenAI APIKey 账号的 Responses API 能力探测。
 //
-// 仅对 platform=openai && type=apikey 账号生效；其他账号无操作。
+// 仅对 platform=openai/custom && type=apikey 账号生效；其他账号无操作。
 // 探测本身在 goroutine 中执行（会发一次 HTTP 请求到上游），不会阻塞
 // 当前请求。探测错误仅记录日志，不向上下文传播：探测失败时标记保持缺失，
 // 网关会按"现状即证据"默认走 Responses。
 func (h *AccountHandler) scheduleOpenAIResponsesProbe(account *service.Account) {
-	if account == nil || account.Platform != service.PlatformOpenAI || account.Type != service.AccountTypeAPIKey {
+	if account == nil || (account.Platform != service.PlatformOpenAI && account.Platform != service.PlatformCustom) || account.Type != service.AccountTypeAPIKey {
 		return
 	}
 	if h.accountTestService == nil {
@@ -2512,8 +2514,8 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	// Handle OpenAI accounts
-	if account.IsOpenAI() {
+	// Handle OpenAI-compatible OpenAI and Custom accounts.
+	if account.IsOpenAI() || account.IsCustom() {
 		// OpenAI 自动透传会绕过常规模型改写，测试/模型列表也应回落到默认模型集。
 		if account.IsOpenAIPassthroughEnabled() {
 			response.Success(c, openai.DefaultModels)
@@ -2521,13 +2523,13 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		}
 
 		mapping := account.GetModelMapping()
-		if len(mapping) == 0 {
+		if len(mapping) == 0 && account.IsOpenAI() {
 			response.Success(c, openai.DefaultModels)
 			return
 		}
 
 		// Return mapped models
-		var models []openai.Model
+		models := make([]openai.Model, 0, len(mapping))
 		for requestedModel := range mapping {
 			var found bool
 			for _, dm := range openai.DefaultModels {

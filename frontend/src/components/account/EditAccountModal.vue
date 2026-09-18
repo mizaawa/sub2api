@@ -43,7 +43,9 @@
                     ? 'https://cloudcode-pa.googleapis.com'
                     : account.platform === 'grok'
                       ? 'https://api.x.ai/v1'
-                      : 'https://api.anthropic.com'
+                      : account.platform === 'custom'
+                        ? 'https://api.example.com/v1'
+                        : 'https://api.anthropic.com'
             "
           />
           <p v-if="baseUrlHint" class="input-hint">{{ baseUrlHint }}</p>
@@ -72,7 +74,9 @@
                     ? 'sk-...'
                     : account.platform === 'grok'
                       ? 'xai-...'
-                      : 'sk-ant-...'
+                      : account.platform === 'custom'
+                        ? 'sk-...'
+                        : 'sk-ant-...'
             "
           />
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
@@ -1418,14 +1422,15 @@
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
-          <input v-model.number="form.concurrency" type="number" min="1" class="input"
-            @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
+          <input v-model.number="form.concurrency" type="number" min="0" class="input"
+            @input="form.concurrency = Math.max(0, form.concurrency || 0)" />
+          <p class="input-hint">{{ t('admin.accounts.concurrencyHint') }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.loadFactor') }}</label>
-          <input v-model.number="form.load_factor" type="number" min="1"
-            class="input" :placeholder="String(form.concurrency || 1)"
-            @input="form.load_factor = (form.load_factor &amp;&amp; form.load_factor >= 1) ? form.load_factor : null" />
+          <input v-model.number="form.load_factor" type="number" min="0"
+            class="input" placeholder="0"
+            @input="form.load_factor = Math.max(0, form.load_factor || 0)" />
           <p class="input-hint">{{ t('admin.accounts.loadFactorHint') }}</p>
         </div>
         <div>
@@ -1466,9 +1471,6 @@
             <div class="min-w-0">
               <p class="text-xs font-medium text-gray-700 dark:text-gray-200">
                 {{ t('admin.accounts.upstreamBilling.syncRate') }}
-              </p>
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.accounts.upstreamBilling.syncRateHint') }}
               </p>
             </div>
             <Toggle
@@ -1682,24 +1684,6 @@
           </div>
           <p class="input-hint">{{ t('admin.accounts.openai.endpointCapabilitiesDesc') }}</p>
         </div>
-      </div>
-
-      <div
-        v-if="account?.type === 'apikey'"
-        class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
-      >
-        <div>
-          <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
-          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            {{ t('admin.accounts.upstreamBilling.autoProbeHint') }}
-          </p>
-        </div>
-        <Toggle
-          :model-value="upstreamBillingAutoProbeEnabled"
-          data-testid="upstream-billing-auto-probe"
-          :aria-label="t('admin.accounts.upstreamBilling.autoProbe')"
-          @update:model-value="handleUpstreamBillingAutoProbeChange"
-        />
       </div>
 
       <OllamaCloudUsageSettings
@@ -2057,34 +2041,6 @@
           </div>
           <button type="button" @click="addOpenAICompactModelMapping" class="btn btn-secondary text-sm">
             + {{ t('admin.accounts.addMapping') }}
-          </button>
-        </div>
-      </div>
-
-      <div>
-        <div class="flex items-center justify-between">
-          <div>
-            <label class="input-label mb-0">{{
-              t('admin.accounts.autoPauseOnExpired')
-            }}</label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.autoPauseOnExpiredDesc') }}
-            </p>
-          </div>
-          <button
-            type="button"
-            @click="autoPauseOnExpired = !autoPauseOnExpired"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              autoPauseOnExpired ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                autoPauseOnExpired ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
           </button>
         </div>
       </div>
@@ -2870,12 +2826,10 @@ const grokOAuthBaseUrl = ref('')
 const grokClientToolCacheEnabled = ref(true)
 
 const interceptWarmupRequests = ref(false)
-const autoPauseOnExpired = ref(false)
 const autoPause5hThreshold = ref<number | null>(null)
 const autoPause7dThreshold = ref<number | null>(null)
 const autoPause5hDisabled = ref(false)
 const autoPause7dDisabled = ref(false)
-const upstreamBillingAutoProbeEnabled = ref(false)
 const upstreamBillingRateSyncEnabled = ref(false)
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
@@ -3231,7 +3185,9 @@ const tempUnschedPresets = computed(() => [
 const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
+  if (props.account?.platform === 'antigravity') return 'https://cloudcode-pa.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
+  if (props.account?.platform === 'custom') return ''
   return 'https://api.anthropic.com'
 })
 
@@ -3257,16 +3213,6 @@ const form = reactive({
 
 const handleUpstreamBillingRateSyncChange = (enabled: boolean) => {
   upstreamBillingRateSyncEnabled.value = enabled
-  if (enabled) {
-    upstreamBillingAutoProbeEnabled.value = true
-  }
-}
-
-const handleUpstreamBillingAutoProbeChange = (enabled: boolean) => {
-  upstreamBillingAutoProbeEnabled.value = enabled
-  if (!enabled) {
-    upstreamBillingRateSyncEnabled.value = false
-  }
 }
 
 const statusOptions = computed(() => {
@@ -3362,7 +3308,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Load intercept warmup requests setting (applies to all account types)
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
-  autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
   editVertexProjectId.value = ''
   editVertexClientEmail.value = ''
   editVertexLocation.value = 'us-central1'
@@ -3383,9 +3328,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? extra.auto_pause_7d_threshold * 100 : null
 	autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
 	autoPause7dDisabled.value = extra?.auto_pause_7d_disabled === true
-	upstreamBillingAutoProbeEnabled.value = extra?.upstream_billing_probe_enabled === true
   upstreamBillingRateSyncEnabled.value =
-    upstreamBillingAutoProbeEnabled.value && extra?.upstream_billing_rate_sync_enabled === true
+    newAccount.type === 'apikey' && extra?.upstream_billing_rate_sync_enabled !== false
 
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   openaiPassthroughEnabled.value = false
@@ -3581,13 +3525,17 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   if (newAccount.type === 'apikey' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
     const platformDefaultUrl =
-      newAccount.platform === 'openai'
-        ? 'https://api.openai.com'
-        : newAccount.platform === 'gemini'
-          ? 'https://generativelanguage.googleapis.com'
-          : newAccount.platform === 'grok'
-            ? 'https://api.x.ai/v1'
-            : 'https://api.anthropic.com'
+        newAccount.platform === 'openai'
+          ? 'https://api.openai.com'
+          : newAccount.platform === 'gemini'
+            ? 'https://generativelanguage.googleapis.com'
+            : newAccount.platform === 'antigravity'
+              ? 'https://cloudcode-pa.googleapis.com'
+              : newAccount.platform === 'grok'
+                ? 'https://api.x.ai/v1'
+                : newAccount.platform === 'custom'
+                  ? ''
+                  : 'https://api.anthropic.com'
     editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
 
     // Load model mappings and detect mode
@@ -4172,17 +4120,16 @@ const handleSubmit = async () => {
     if (form.expires_at === null) {
       updatePayload.expires_at = 0
     }
-    // load_factor: 空值/NaN/0/负数 时发送 0（后端约定 <= 0 = 清除）
+    // load_factor: 空值/NaN/0 时发送 0，表示不限制。
     const lf = form.load_factor
-    if (lf == null || Number.isNaN(lf) || lf <= 0) {
+    if (lf == null || Number.isNaN(lf) || lf < 0) {
       updatePayload.load_factor = 0
     }
-    updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
     if (props.account.type === 'apikey') {
       // API-key availability is changed only by the scheduling switch in the
       // account table. Ordinary edits must not create a conflicting status.
       delete updatePayload.status
-      updatePayload.upstream_billing_probe_enabled = upstreamBillingAutoProbeEnabled.value
+      updatePayload.upstream_billing_probe_enabled = upstreamBillingRateSyncEnabled.value
       updatePayload.upstream_billing_rate_sync_enabled = upstreamBillingRateSyncEnabled.value
       if (upstreamBillingRateSyncEnabled.value) {
         delete updatePayload.rate_multiplier
@@ -4193,6 +4140,10 @@ const handleSubmit = async () => {
     if (props.account.type === 'apikey') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
       const newBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
+      if (props.account.platform === 'custom' && !newBaseUrl) {
+        appStore.showError(t('admin.accounts.customBaseUrlRequired'))
+        return
+      }
       const shouldApplyModelMapping = !(props.account.platform === 'openai' && openaiPassthroughEnabled.value)
 
       // Always update credentials for apikey type to handle model mapping changes

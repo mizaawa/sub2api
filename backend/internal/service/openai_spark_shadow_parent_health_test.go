@@ -176,8 +176,8 @@ func TestParentHealthyForShadow(t *testing.T) {
 			"母账号 TempUnschedulableUntil(凭据/传输坏死)冷却期内应挡住影子")
 	})
 
-	t.Run("expired_parent_credentials_block_shadow", func(t *testing.T) {
-		// 凭据真正过期(AutoPauseOnExpired + ExpiresAt 已过)→ 透传 token 不可用 → 影子应被挡。
+	t.Run("legacy_expiry_metadata_does_not_block_shadow", func(t *testing.T) {
+		// 账号到期字段仅作为兼容元数据保留，不再改变母账号或影子的调度状态。
 		expiredAt := time.Now().Add(-1 * time.Hour)
 		expiredParent := &Account{
 			ID:                 100,
@@ -194,8 +194,8 @@ func TestParentHealthyForShadow(t *testing.T) {
 			}
 			return nil
 		}
-		require.False(t, parentHealthyForShadow(shadow, lookup),
-			"母账号凭据过期时影子应被挡(透传 token 不可用)")
+		require.True(t, parentHealthyForShadow(shadow, lookup),
+			"母账号的旧到期元数据不应阻止影子调度")
 	})
 
 	t.Run("non_oauth_parent_blocks_shadow", func(t *testing.T) {
