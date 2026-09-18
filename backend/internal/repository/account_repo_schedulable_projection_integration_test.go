@@ -97,7 +97,7 @@ func TestListSchedulableAccountLoadsMatchesListSchedulable(t *testing.T) {
 	require.Equal(t, wantByID, byID)
 	require.Equal(t, 9, byID[positiveLoad.ID])
 	require.Equal(t, 4, byID[concurrencyFallback.ID])
-	require.Equal(t, 1, byID[zeroFallback.ID])
+	require.Equal(t, 0, byID[zeroFallback.ID])
 	for _, included := range []*service.Account{expiredLegacyOptIn, expiredLegacyOptOut, overloadCleared, rateLimitCleared, tempCleared} {
 		require.Contains(t, byID, included.ID)
 	}

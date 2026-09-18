@@ -296,14 +296,6 @@ func TestErrorRateTTFTAndCacheScoreHelpers(t *testing.T) {
 	require.Equal(t, "healthy", cacheRateBand(0.50, 0.20, 0.05))
 }
 
-type channelMonitorV2RuntimeStub struct {
-	rt ChannelMonitorRuntime
-}
-
-func (s channelMonitorV2RuntimeStub) GetChannelMonitorRuntime(context.Context) ChannelMonitorRuntime {
-	return s.rt
-}
-
 func TestChannelMonitorV2ReadAPIsRejectDisabledConfig(t *testing.T) {
 	repo := &channelMonitorV2RepoStub{config: ChannelMonitorV2Config{Enabled: false}}
 	_, err := NewChannelMonitorV2Service(repo).Matrix(context.Background(), ChannelMonitorV2Filter{}, ChannelMonitorV2GroupByPlatform, false)
