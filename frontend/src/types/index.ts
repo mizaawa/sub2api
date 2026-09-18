@@ -263,11 +263,7 @@ export interface PublicSettings {
   account_quota_notify_enabled: boolean
   balance_low_notify_threshold: number
   channel_monitor_enabled: boolean
-  /** Exclusive mode: v1 active probes or v2 passive aggregation. Default v1. */
-  channel_monitor_mode?: 'v1' | 'v2'
   channel_monitor_default_interval_seconds: number
-  /** When true, user monitor hides RPM/TPM so scale cannot be reverse-estimated. */
-  channel_monitor_hide_throughput?: boolean
   available_channels_enabled: boolean
   leaderboard_enabled: boolean
   model_plaza_enabled: boolean
@@ -526,7 +522,7 @@ export interface PaginationConfig {
 
 // ==================== API Key & Group Types ====================
 
-export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'custom' | 'composite'
+export type GroupPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'composite'
 
 export type SubscriptionType = 'standard' | 'subscription'
 
@@ -654,7 +650,7 @@ export interface CompositeModelRoute {
   group_id: number
   public_model: string
   match_type: CompositeRouteMatchType
-  target_platform: Exclude<GroupPlatform, 'composite' | 'custom'>
+  target_platform: Exclude<GroupPlatform, 'composite'>
   upstream_model: string
   endpoint: CompositeRouteEndpoint
   priority: number
@@ -667,7 +663,7 @@ export interface CompositeModelRoute {
 export interface CompositeModelRouteInput {
   public_model: string
   match_type: CompositeRouteMatchType
-  target_platform: Exclude<GroupPlatform, 'composite' | 'custom'>
+  target_platform: Exclude<GroupPlatform, 'composite'>
   upstream_model?: string
   endpoint: CompositeRouteEndpoint
   priority?: number
@@ -685,7 +681,7 @@ export interface CompositeRouteDecision {
   source: CompositeRouteSource
   group_id: number
   public_model: string
-  target_platform: Exclude<GroupPlatform, 'composite' | 'custom'> | ''
+  target_platform: Exclude<GroupPlatform, 'composite'> | ''
   upstream_model: string
   endpoint: CompositeRouteEndpoint
   route?: CompositeModelRoute
@@ -866,7 +862,7 @@ export interface UpdateGroupRequest {
 
 // ==================== Account & Proxy Types ====================
 
-export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'custom'
+export type AccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok'
 export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'
@@ -1395,7 +1391,6 @@ export interface CreateAccountRequest {
   expires_at?: number | null
   auto_pause_on_expired?: boolean
   upstream_billing_probe_enabled?: boolean
-  upstream_billing_rate_sync_enabled?: boolean
   confirm_mixed_channel_risk?: boolean
 }
 

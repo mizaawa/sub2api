@@ -212,66 +212,6 @@ func TestAdminService_BulkUpdateAccounts_RejectsRateChangeForSyncedAccounts(t *t
 	require.Empty(t, repo.bulkUpdateIDs, "rate conflict must be rejected before any write")
 }
 
-func TestAdminService_BulkUpdateAccounts_ValidatesMergedCustomCredentialsBeforeWrite(t *testing.T) {
-	tests := []struct {
-		name        string
-		existing    map[string]any
-		updates     map[string]any
-		wantReason  string
-		wantSuccess bool
-	}{
-		{
-			name:       "rejects base URL removal",
-			existing:   map[string]any{"api_key": "sk-existing", "base_url": "https://api.example.com/v1"},
-			updates:    map[string]any{"base_url": "   "},
-			wantReason: "CUSTOM_BASE_URL_REQUIRED",
-		},
-		{
-			name:       "rejects unrelated edit to invalid legacy account",
-			existing:   map[string]any{"api_key": "sk-existing"},
-			updates:    map[string]any{"organization": "example"},
-			wantReason: "CUSTOM_BASE_URL_REQUIRED",
-		},
-		{
-			name:        "allows partial repair after merge",
-			existing:    map[string]any{"base_url": "https://api.example.com/v1"},
-			updates:     map[string]any{"api_key": "sk-repaired"},
-			wantSuccess: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			repo := &accountRepoStubForBulkUpdate{
-				getByIDsAccounts: []*Account{{
-					ID:          1,
-					Platform:    PlatformCustom,
-					Type:        AccountTypeAPIKey,
-					Credentials: tt.existing,
-				}},
-			}
-			svc := &adminServiceImpl{accountRepo: repo}
-
-			result, err := svc.BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
-				AccountIDs:  []int64{1},
-				Credentials: tt.updates,
-			})
-
-			if tt.wantSuccess {
-				require.NoError(t, err)
-				require.Equal(t, 1, result.Success)
-				require.Equal(t, []int64{1}, repo.bulkUpdateIDs)
-				require.Equal(t, tt.updates, repo.bulkUpdate.Credentials)
-				return
-			}
-			require.Nil(t, result)
-			require.Error(t, err)
-			require.Equal(t, tt.wantReason, infraerrors.Reason(err))
-			require.Empty(t, repo.bulkUpdateIDs, "invalid merged credentials must be rejected before any write")
-		})
-	}
-}
-
 // TestAdminService_BulkUpdateAccounts_PartialFailureIDs 验证部分失败时 success_ids/failed_ids 正确。
 func TestAdminService_BulkUpdateAccounts_PartialFailureIDs(t *testing.T) {
 	repo := &accountRepoStubForBulkUpdate{

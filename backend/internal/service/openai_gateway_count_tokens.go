@@ -234,15 +234,13 @@ func (s *OpenAIGatewayService) buildInputTokensUpstreamRequest(
 ) (*http.Request, error) {
 	targetURL := openaiPlatformAPIInputTokensURL
 	if account.Type == AccountTypeAPIKey {
-		baseURL, err := requireOpenAIBaseURL(account)
-		if err != nil {
-			return nil, err
+		if baseURL := account.GetOpenAIBaseURL(); strings.TrimSpace(baseURL) != "" {
+			validatedURL, err := s.validateUpstreamBaseURL(baseURL)
+			if err != nil {
+				return nil, err
+			}
+			targetURL = buildOpenAIResponsesInputTokensURL(validatedURL)
 		}
-		validatedURL, err := s.validateUpstreamBaseURL(baseURL)
-		if err != nil {
-			return nil, err
-		}
-		targetURL = buildOpenAIResponsesInputTokensURL(validatedURL)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))

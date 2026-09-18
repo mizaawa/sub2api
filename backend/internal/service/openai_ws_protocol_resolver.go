@@ -82,6 +82,9 @@ func (r *defaultOpenAIWSProtocolResolver) Resolve(account *Account) OpenAIWSProt
 		default:
 			return openAIWSHTTPDecision("account_mode_off")
 		}
+		if account.Concurrency <= 0 {
+			return openAIWSHTTPDecision("account_concurrency_invalid")
+		}
 		if wsCfg.ResponsesWebsocketsV2 {
 			return OpenAIWSProtocolDecision{
 				Transport: OpenAIUpstreamTransportResponsesWebsocketV2,

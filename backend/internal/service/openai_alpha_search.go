@@ -654,9 +654,9 @@ func (s *OpenAIGatewayService) openAIAlphaSearchURL(account *Account) (string, e
 	case AccountTypeOAuth:
 		return chatgptCodexAlphaSearchURL, nil
 	case AccountTypeAPIKey:
-		baseURL, err := requireOpenAIBaseURL(account)
-		if err != nil {
-			return "", err
+		baseURL := account.GetOpenAIBaseURL()
+		if baseURL == "" {
+			return openAIPlatformAlphaSearchURL, nil
 		}
 		validatedURL, err := s.validateUpstreamBaseURL(baseURL)
 		if err != nil {

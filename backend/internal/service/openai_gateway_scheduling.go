@@ -194,14 +194,10 @@ func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.C
 // noAvailableOpenAISelectionError builds the standard "no account available" error
 // while preserving the compact-specific error when applicable.
 func normalizeOpenAICompatiblePlatform(platform string) string {
-	switch platform {
-	case PlatformGrok:
+	if platform == PlatformGrok {
 		return PlatformGrok
-	case PlatformCustom:
-		return PlatformCustom
-	default:
-		return PlatformOpenAI
 	}
+	return PlatformOpenAI
 }
 
 // details carries an optional machine-parseable exclusion summary (e.g.
@@ -245,7 +241,7 @@ func openAICompactSupportTier(account *Account) int {
 	if account.IsGrok() {
 		return 2
 	}
-	if !account.IsOpenAI() && !account.IsCustom() {
+	if !account.IsOpenAI() {
 		return 0
 	}
 	supported, known := account.OpenAICompactSupportKnown()
@@ -266,11 +262,6 @@ func openAICompactSupportTier(account *Account) int {
 func isOpenAICompatibleAccountEligibleForRequest(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	if account == nil || account.Platform != platform || !account.IsOpenAICompatible() || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
-		return false
-	}
-	if account.IsCustom() && (account.Type != AccountTypeAPIKey ||
-		strings.TrimSpace(account.GetOpenAIApiKey()) == "" ||
-		strings.TrimSpace(account.GetOpenAIBaseURL()) == "") {
 		return false
 	}
 	if account.IsOpenAI() {

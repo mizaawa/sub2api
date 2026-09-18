@@ -13,7 +13,7 @@
 
       <div>
         <label class="input-label">{{ t('admin.channelMonitor.form.provider') }} <span class="text-red-500">*</span></label>
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <button
             v-for="opt in providerOptions"
             :key="opt.value"
@@ -30,14 +30,13 @@
         </div>
       </div>
 
-      <div v-if="isOpenAIProtocolProvider(form.provider)" class="rounded-lg border border-blue-100 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/10">
+      <div v-if="form.provider === PROVIDER_OPENAI" class="rounded-lg border border-blue-100 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/10">
         <label class="input-label">{{ t('admin.channelMonitor.form.apiMode') }}</label>
         <div class="grid gap-3 sm:grid-cols-2">
           <button
             v-for="opt in apiModeOptions"
             :key="opt.value"
             type="button"
-            :data-testid="`monitor-api-mode-${opt.value}`"
             :aria-pressed="form.api_mode === opt.value"
             class="rounded-lg border-2 px-3 py-2 text-left transition-colors"
             :class="apiModeButtonClass(opt.value)"
@@ -217,13 +216,11 @@ import {
   PROVIDER_ANTHROPIC,
   PROVIDER_GEMINI,
   PROVIDER_GROK,
-  PROVIDER_CUSTOM,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
   DEFAULT_GROK_ENDPOINT,
   DEFAULT_GROK_MODEL,
   DEFAULT_INTERVAL_SECONDS,
-  isOpenAIProtocolProvider,
 } from '@/constants/channelMonitor'
 
 const props = defineProps<{
@@ -307,7 +304,7 @@ const templatesLoading = ref(false)
 const templateOptions = computed(() => {
   const items = templatesCache.value.filter((t) => {
     if (t.provider !== form.provider) return false
-    if (!isOpenAIProtocolProvider(form.provider)) return true
+    if (form.provider !== PROVIDER_OPENAI) return true
     return normalizeAPIMode(t.api_mode) === form.api_mode
   })
   return [
@@ -381,7 +378,7 @@ function apiModeButtonClass(mode: APIMode): string {
 }
 
 function templateOptionLabel(tpl: ChannelMonitorTemplate): string {
-  if (!isOpenAIProtocolProvider(tpl.provider)) return tpl.name
+  if (tpl.provider !== PROVIDER_OPENAI) return tpl.name
   const labelKey = normalizeAPIMode(tpl.api_mode) === API_MODE_RESPONSES
     ? 'admin.channelMonitor.form.apiModeResponses'
     : 'admin.channelMonitor.form.apiModeChatCompletions'
@@ -405,7 +402,6 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_OPENAI, label: t('monitorCommon.providers.openai') },
   { value: PROVIDER_GEMINI, label: t('monitorCommon.providers.gemini') },
   { value: PROVIDER_GROK, label: t('monitorCommon.providers.grok') },
-  { value: PROVIDER_CUSTOM, label: t('monitorCommon.providers.custom') },
 ])
 
 function selectProvider(provider: Provider) {
@@ -433,7 +429,7 @@ function selectProvider(provider: Provider) {
 watch(() => form.provider, () => {
   if (suppressFormWatchers) return
   form.api_key = ''
-  if (!isOpenAIProtocolProvider(form.provider)) {
+  if (form.provider !== PROVIDER_OPENAI) {
     form.api_mode = API_MODE_CHAT_COMPLETIONS
   }
   clearRequestSnapshot()
@@ -441,7 +437,7 @@ watch(() => form.provider, () => {
 
 watch(() => form.api_mode, () => {
   if (suppressFormWatchers) return
-  if (isOpenAIProtocolProvider(form.provider)) {
+  if (form.provider === PROVIDER_OPENAI) {
     clearRequestSnapshot()
   }
 }, { flush: 'sync' })
@@ -536,7 +532,7 @@ function buildPayload(): CreateParams {
   return {
     name: form.name.trim(),
     provider: form.provider,
-    api_mode: isOpenAIProtocolProvider(form.provider) ? form.api_mode : API_MODE_CHAT_COMPLETIONS,
+    api_mode: form.provider === PROVIDER_OPENAI ? form.api_mode : API_MODE_CHAT_COMPLETIONS,
     endpoint: form.endpoint.trim(),
     api_key: form.api_key.trim(),
     primary_model: form.primary_model.trim(),

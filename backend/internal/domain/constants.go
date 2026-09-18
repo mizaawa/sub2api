@@ -23,11 +23,7 @@ const (
 	PlatformGemini      = "gemini"
 	PlatformAntigravity = "antigravity"
 	PlatformGrok        = "grok"
-	// PlatformCustom is an OpenAI-compatible, API-key-only upstream.
-	// Keep it distinct from PlatformOpenAI so downstream billing can evolve
-	// independently while sharing the OpenAI wire protocol.
-	PlatformCustom    = "custom"
-	PlatformComposite = "composite"
+	PlatformComposite   = "composite"
 )
 
 // Account type constants

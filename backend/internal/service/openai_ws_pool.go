@@ -1870,9 +1870,7 @@ func (p *openAIWSConnPool) effectiveMaxConnsByAccount(account *Account) int {
 			return hardCap
 		}
 		if account.Concurrency <= 0 {
-			// Account concurrency 0 is unlimited. The pool's global hard cap is
-			// still an operational connection ceiling, not an account limit.
-			return hardCap
+			return 0
 		}
 		return min(account.Concurrency, hardCap)
 	}

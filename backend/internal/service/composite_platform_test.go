@@ -25,7 +25,6 @@ func TestDetectModelPlatform(t *testing.T) {
 		{name: "learnlm", model: "learnlm-2.0-flash-experimental", platform: PlatformGemini, ok: true},
 		{name: "grok", model: "grok-4", platform: PlatformGrok, ok: true},
 		{name: "xai prefix", model: "xai/grok-4", platform: PlatformGrok, ok: true},
-		{name: "custom prefix is isolated", model: "custom/gpt-5", ok: false},
 		{name: "unknown", model: "llama-4-maverick", ok: false},
 	}
 
@@ -36,20 +35,6 @@ func TestDetectModelPlatform(t *testing.T) {
 			require.Equal(t, tt.platform, platform)
 		})
 	}
-}
-
-func TestCompositePlatformRejectsCustomTargets(t *testing.T) {
-	ctx := WithResolvedTargetPlatform(context.Background(), PlatformCustom)
-	_, ok := ResolvedTargetPlatformFromContext(ctx)
-	require.False(t, ok)
-	require.False(t, isConcreteRequestPlatform(PlatformCustom))
-	require.False(t, canCopyAccountsFromGroupPlatform(PlatformComposite, PlatformCustom))
-
-	_, err := compositeRouteFromInput(7, CompositeRouteInput{
-		PublicModel:    "custom-model",
-		TargetPlatform: PlatformCustom,
-	})
-	require.ErrorContains(t, err, "target_platform must be a concrete provider")
 }
 
 func TestQuotaPlatformCompositeUsesResolvedOrForceOnly(t *testing.T) {
@@ -74,7 +59,7 @@ func TestCompositeGroupSchedulerHasAllCanonicalPlatformBuckets(t *testing.T) {
 		platforms = append(platforms, platform)
 	}
 	require.ElementsMatch(t,
-		[]string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformCustom},
+		[]string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok},
 		platforms,
 	)
 }

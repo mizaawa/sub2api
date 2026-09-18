@@ -191,29 +191,6 @@ func TestCompositeRouteResolverIgnoresDisabledRoutesAndFallsBackToDetector(t *te
 	require.Nil(t, decision.Route)
 }
 
-func TestCompositeRouteResolverIgnoresCustomTargetFromLegacyData(t *testing.T) {
-	resolver := NewCompositeRouteResolver(compositeRouteRepoStub{
-		routes: []CompositeModelRoute{
-			{
-				ID:             1,
-				GroupID:        7,
-				PublicModel:    "private-model",
-				MatchType:      CompositeRouteMatchExact,
-				TargetPlatform: PlatformCustom,
-				Endpoint:       CompositeRouteEndpointAny,
-				Priority:       1,
-				Enabled:        true,
-			},
-		},
-	})
-
-	decision, err := resolver.Resolve(context.Background(), 7, "private-model", CompositeRouteEndpointAny)
-
-	require.NoError(t, err)
-	require.False(t, decision.Matched)
-	require.Equal(t, "no explicit route or built-in detector match", decision.Reason)
-}
-
 func TestCompositeRouteResolverExplicitRoutesCoverBucketTwoProviders(t *testing.T) {
 	resolver := NewCompositeRouteResolver(compositeRouteRepoStub{
 		routes: []CompositeModelRoute{

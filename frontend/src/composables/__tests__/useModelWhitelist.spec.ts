@@ -7,10 +7,6 @@ vi.mock('@/api/admin/accounts', () => ({
 import { buildModelMappingObject, getModelsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
-  it('does not impose OpenAI model defaults on Custom accounts', () => {
-    expect(getModelsByPlatform('custom')).toEqual([])
-  })
-
   it('openai 模型列表包含 GPT-5.4 官方快照', () => {
     const models = getModelsByPlatform('openai')
 

@@ -14,17 +14,6 @@ const { listTemplates } = vi.hoisted(() => ({
   listTemplates: vi.fn(),
 }))
 
-
-vi.mock('@/utils/featureFlags', () => ({
-  isChannelMonitorV1Mode: () => true,
-  isChannelMonitorV2Mode: () => false,
-  getChannelMonitorMode: () => 'v1' as const,
-}))
-
-vi.mock('@/features/channel-monitor-v2/MonitorSettingsPanel.vue', () => ({
-  default: { name: 'MonitorSettingsPanel', template: '<div data-testid="v2-settings" />' },
-}))
-
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     channelMonitor: {
@@ -93,9 +82,9 @@ describe('channel monitor Grok provider', () => {
 
     expect(PROVIDERS).toContain(PROVIDER_GROK)
     const providerButtons = wrapper.findAll('[data-testid^="monitor-provider-"]')
-    expect(providerButtons).toHaveLength(5)
+    expect(providerButtons).toHaveLength(4)
     expect(providerButtons[0].element.parentElement?.className).toContain('grid-cols-2')
-    expect(providerButtons[0].element.parentElement?.className).toContain('sm:grid-cols-5')
+    expect(providerButtons[0].element.parentElement?.className).toContain('sm:grid-cols-4')
 
     const grokButton = wrapper.get('[data-testid="monitor-provider-grok"]')
     expect(grokButton.find('svg').exists()).toBe(true)

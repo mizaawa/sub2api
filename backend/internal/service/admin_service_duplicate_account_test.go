@@ -103,7 +103,7 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 		Schedulable:           true,
 		ErrorMessage:          "upstream unavailable",
 		ExpiresAt:             &expiresAt,
-		AutoPauseOnExpired:    true,
+		AutoPauseOnExpired:    false,
 		Credentials: map[string]any{
 			"api_key": "secret",
 			"nested":  map[string]any{"token": "source-token"},
@@ -154,7 +154,7 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 	require.Equal(t, source.Type, duplicate.Type)
 	require.Equal(t, source.Concurrency, duplicate.Concurrency)
 	require.Equal(t, source.Priority, duplicate.Priority)
-	require.False(t, duplicate.AutoPauseOnExpired, "legacy auto-pause setting must not be copied")
+	require.Equal(t, source.AutoPauseOnExpired, duplicate.AutoPauseOnExpired)
 	require.Equal(t, source.GroupIDs, duplicate.GroupIDs)
 	require.Equal(t, source.Credentials, duplicate.Credentials)
 	require.Equal(t, map[string]any{
@@ -242,48 +242,6 @@ func TestDuplicateAccountRejectsRotatingOrUnknownCredentialTypes(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
 			require.Equal(t, "ACCOUNT_DUPLICATE_CREDENTIAL_TYPE_UNSUPPORTED", infraerrors.Reason(err))
 			require.Len(t, repo.accounts, 1)
-		})
-	}
-}
-
-func TestDuplicateAccountRejectsInvalidLegacyCustomCredentials(t *testing.T) {
-	tests := []struct {
-		name        string
-		credentials map[string]any
-		wantReason  string
-	}{
-		{
-			name:        "missing API key",
-			credentials: map[string]any{"base_url": "https://api.example.com/v1"},
-			wantReason:  "CUSTOM_API_KEY_REQUIRED",
-		},
-		{
-			name:        "missing base URL",
-			credentials: map[string]any{"api_key": "sk-legacy"},
-			wantReason:  "CUSTOM_BASE_URL_REQUIRED",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			repo := newDuplicateAccountRepoStub()
-			svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}
-			source := &Account{
-				Name:        "legacy-custom",
-				Platform:    PlatformCustom,
-				Type:        AccountTypeAPIKey,
-				Credentials: tt.credentials,
-			}
-			require.NoError(t, repo.Create(ctx, source))
-
-			duplicate, err := svc.DuplicateAccount(ctx, source.ID, "admin:1", "")
-
-			require.Nil(t, duplicate)
-			require.Error(t, err)
-			require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
-			require.Equal(t, tt.wantReason, infraerrors.Reason(err))
-			require.Len(t, repo.accounts, 1, "invalid legacy credentials must not be cloned")
 		})
 	}
 }

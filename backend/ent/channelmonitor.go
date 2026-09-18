@@ -27,7 +27,7 @@ type ChannelMonitor struct {
 	Name string `json:"name,omitempty"`
 	// Provider holds the value of the "provider" field.
 	Provider channelmonitor.Provider `json:"provider,omitempty"`
-	// OpenAI-compatible request protocol: chat_completions or responses; other providers use chat_completions
+	// OpenAI request protocol: chat_completions or responses; non-OpenAI uses chat_completions
 	APIMode string `json:"api_mode,omitempty"`
 	// Provider base origin, e.g. https://api.openai.com
 	Endpoint string `json:"endpoint,omitempty"`

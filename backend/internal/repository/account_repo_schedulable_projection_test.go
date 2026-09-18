@@ -68,14 +68,14 @@ func TestListSchedulableAccountLoadsUsesSingleProjectionQuery(t *testing.T) {
 		"status",
 		"schedulable",
 		"temp_unschedulable_until",
+		"expires_at",
+		"auto_pause_on_expired",
 		"overload_until",
 		"rate_limit_reset_at",
 		"deleted_at",
 	} {
 		require.Contains(t, normalized, predicateColumn)
 	}
-	require.NotContains(t, normalized, "expires_at")
-	require.NotContains(t, normalized, "auto_pause_on_expired")
 	_, orderClause, hasOrder := strings.Cut(normalized, " ORDER BY ")
 	require.True(t, hasOrder, "projection query must preserve schedulable account order: %s", normalized)
 	require.Contains(t, orderClause, `"priority" ASC`)

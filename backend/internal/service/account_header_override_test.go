@@ -27,10 +27,8 @@ func TestIsHeaderOverrideEligible(t *testing.T) {
 	}{
 		{"anthropic apikey", PlatformAnthropic, AccountTypeAPIKey, true},
 		{"openai apikey", PlatformOpenAI, AccountTypeAPIKey, true},
-		{"custom apikey", PlatformCustom, AccountTypeAPIKey, true},
 		{"anthropic oauth", PlatformAnthropic, AccountTypeOAuth, false},
 		{"openai oauth", PlatformOpenAI, AccountTypeOAuth, false},
-		{"custom oauth", PlatformCustom, AccountTypeOAuth, false},
 		{"gemini apikey", PlatformGemini, AccountTypeAPIKey, false},
 		{"grok apikey", PlatformGrok, AccountTypeAPIKey, true},
 		{"grok oauth", PlatformGrok, AccountTypeOAuth, true},

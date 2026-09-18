@@ -425,8 +425,8 @@ func TestResetAccountQuota_RejectsShadow(t *testing.T) {
 	require.NoError(t, svc.ResetAccountQuota(ctx, parent.ID), "母账号 reset-quota 应放行")
 }
 
-// sparkShadowGroupRepoStub 嵌入 groupRepoStub(其余方法 panic),并覆写
-// 默认绑组和绑组校验所需的查询。
+// sparkShadowGroupRepoStub 嵌入 groupRepoStub(其余方法 panic),仅覆写
+// ListActiveByPlatform 以供 F4 默认绑组测试。
 type sparkShadowGroupRepoStub struct {
 	groupRepoStub
 	groups []Group
@@ -436,16 +436,6 @@ func (s *sparkShadowGroupRepoStub) ListActiveByPlatform(_ context.Context, _ str
 	return s.groups, nil
 }
 
-func (s *sparkShadowGroupRepoStub) GetByID(_ context.Context, id int64) (*Group, error) {
-	for i := range s.groups {
-		if s.groups[i].ID == id {
-			group := s.groups[i]
-			return &group, nil
-		}
-	}
-	return nil, ErrGroupNotFound
-}
-
 // TestCreateShadow_DefaultGroupBinding 验证外审 F4:未指定 group_ids 时
 // 影子回落绑定 openai-default 组(否则无组、组内路由选不到)。
 func TestCreateShadow_DefaultGroupBinding(t *testing.T) {
@@ -453,8 +443,8 @@ func TestCreateShadow_DefaultGroupBinding(t *testing.T) {
 	repo := newSparkShadowRepoStub()
 	groupRepo := &sparkShadowGroupRepoStub{
 		groups: []Group{
-			{ID: 99, Name: PlatformOpenAI + "-default", Platform: PlatformOpenAI},
-			{ID: 7, Name: "some-other-group", Platform: PlatformOpenAI},
+			{ID: 99, Name: PlatformOpenAI + "-default"},
+			{ID: 7, Name: "some-other-group"},
 		},
 	}
 	svc := &adminServiceImpl{accountRepo: repo, groupRepo: groupRepo}
@@ -476,11 +466,7 @@ func TestCreateShadow_InheritsParentGroups(t *testing.T) {
 	ctx := context.Background()
 	repo := newSparkShadowRepoStub()
 	// groupRepo 故意提供 openai-default,以证明「继承母分组」优先于「回落 openai-default」。
-	groupRepo := &sparkShadowGroupRepoStub{groups: []Group{
-		{ID: 99, Name: PlatformOpenAI + "-default", Platform: PlatformOpenAI},
-		{ID: 11, Name: "parent-group-1", Platform: PlatformOpenAI},
-		{ID: 22, Name: "parent-group-2", Platform: PlatformOpenAI},
-	}}
+	groupRepo := &sparkShadowGroupRepoStub{groups: []Group{{ID: 99, Name: PlatformOpenAI + "-default"}}}
 	svc := &adminServiceImpl{accountRepo: repo, groupRepo: groupRepo}
 
 	parent := &Account{
@@ -769,8 +755,8 @@ func (s *bindFailRepoStub) BindGroups(_ context.Context, _ int64, _ []int64) err
 	return errors.New("simulated bind failure")
 }
 
-// sparkShadowValidatingGroupRepoStub implements the existence and platform
-// lookups performed when binding an account to groups.
+// sparkShadowValidatingGroupRepoStub 实现 groupExistenceBatchReader(ExistsByIDs),
+// 使 validateGroupIDsExist 走批量存在性校验路径。
 type sparkShadowValidatingGroupRepoStub struct {
 	groupRepoStub
 	existing map[int64]bool
@@ -782,13 +768,6 @@ func (s *sparkShadowValidatingGroupRepoStub) ExistsByIDs(_ context.Context, ids 
 		out[id] = s.existing[id]
 	}
 	return out, nil
-}
-
-func (s *sparkShadowValidatingGroupRepoStub) GetByID(_ context.Context, id int64) (*Group, error) {
-	if !s.existing[id] {
-		return nil, ErrGroupNotFound
-	}
-	return &Group{ID: id, Platform: PlatformOpenAI}, nil
 }
 
 // TestCreateShadow_DefaultsNameFromParent 验证外审 E/P2:空 name 不应 500,

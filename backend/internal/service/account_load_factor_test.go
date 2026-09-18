@@ -20,9 +20,9 @@ func TestEffectiveLoadFactor_NilLoadFactor_PositiveConcurrency(t *testing.T) {
 	require.Equal(t, 5, a.EffectiveLoadFactor())
 }
 
-func TestEffectiveLoadFactor_NilLoadFactor_ZeroConcurrencyIsUnlimited(t *testing.T) {
+func TestEffectiveLoadFactor_NilLoadFactor_ZeroConcurrency(t *testing.T) {
 	a := &Account{Concurrency: 0}
-	require.Equal(t, 0, a.EffectiveLoadFactor())
+	require.Equal(t, 1, a.EffectiveLoadFactor())
 }
 
 func TestEffectiveLoadFactor_PositiveLoadFactor(t *testing.T) {
@@ -30,9 +30,9 @@ func TestEffectiveLoadFactor_PositiveLoadFactor(t *testing.T) {
 	require.Equal(t, 20, a.EffectiveLoadFactor())
 }
 
-func TestEffectiveLoadFactor_ZeroLoadFactor_IsUnlimited(t *testing.T) {
+func TestEffectiveLoadFactor_ZeroLoadFactor_FallbackToConcurrency(t *testing.T) {
 	a := &Account{Concurrency: 5, LoadFactor: intPtrHelper(0)}
-	require.Equal(t, 0, a.EffectiveLoadFactor())
+	require.Equal(t, 5, a.EffectiveLoadFactor())
 }
 
 func TestEffectiveLoadFactor_NegativeLoadFactor_FallbackToConcurrency(t *testing.T) {
@@ -40,7 +40,7 @@ func TestEffectiveLoadFactor_NegativeLoadFactor_FallbackToConcurrency(t *testing
 	require.Equal(t, 3, a.EffectiveLoadFactor())
 }
 
-func TestEffectiveLoadFactor_APIKeyDefaultsToUnlimited(t *testing.T) {
-	a := &Account{Type: AccountTypeAPIKey, Concurrency: 0, LoadFactor: intPtrHelper(0)}
-	require.Equal(t, 0, a.EffectiveLoadFactor())
+func TestEffectiveLoadFactor_ZeroLoadFactor_ZeroConcurrency(t *testing.T) {
+	a := &Account{Concurrency: 0, LoadFactor: intPtrHelper(0)}
+	require.Equal(t, 1, a.EffectiveLoadFactor())
 }

@@ -99,13 +99,11 @@ describe('applyAntigravityProjectID', () => {
 })
 
 describe('isHeaderOverrideCapable', () => {
-  it('anthropic/openai/custom only support apikey accounts', () => {
+  it('anthropic/openai only support apikey accounts', () => {
     expect(isHeaderOverrideCapable('anthropic', 'apikey')).toBe(true)
     expect(isHeaderOverrideCapable('openai', 'apikey')).toBe(true)
-    expect(isHeaderOverrideCapable('custom', 'apikey')).toBe(true)
     expect(isHeaderOverrideCapable('anthropic', 'oauth')).toBe(false)
     expect(isHeaderOverrideCapable('openai', 'oauth')).toBe(false)
-    expect(isHeaderOverrideCapable('custom', 'oauth')).toBe(false)
   })
 
   it('grok supports both apikey and oauth accounts', () => {
@@ -470,3 +468,4 @@ describe('plan_type helpers', () => {
     })
   })
 })
+

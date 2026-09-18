@@ -888,7 +888,6 @@ export default {
         gemini: 'Gemini',
         antigravity: 'Antigravity',
         grok: 'Grok',
-        custom: 'Custom',
         composite: 'Composite',
       },
       saving: '保存中...',

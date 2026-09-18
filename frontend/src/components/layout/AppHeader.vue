@@ -62,7 +62,7 @@
         <!-- Balance Display -->
         <div
           v-if="user"
-          class="group relative hidden items-center gap-2 rounded-xl px-3 py-1.5 sm:flex"
+          class="group relative hidden items-center gap-2 rounded-xl bg-primary-50 px-3 py-1.5 dark:bg-primary-900/20 sm:flex"
         >
           <svg
             class="h-4 w-4 text-primary-600 dark:text-primary-400"
@@ -119,7 +119,7 @@
         <div v-if="user" class="relative" ref="dropdownRef">
           <button
             @click="toggleDropdown"
-            class="flex items-center gap-2 rounded-xl bg-gray-100 p-1.5 transition-colors hover:bg-gray-200 dark:bg-dark-700 dark:hover:bg-dark-600"
+            class="flex items-center gap-2 rounded-xl p-1.5 transition-colors hover:bg-gray-100 dark:hover:bg-dark-800"
             :aria-label="t('common.userMenu')"
           >
             <div class="flex h-8 w-8 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 text-sm font-medium text-white shadow-sm">
@@ -405,7 +405,11 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .app-header {
-  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 1.375rem;
+  background: color-mix(in srgb, var(--md-sys-color-surface) 88%, transparent);
+  box-shadow: 0 0.625rem 1.75rem rgb(15 23 42 / 0.08);
+  backdrop-filter: blur(18px) saturate(1.08);
 }
 
 .user-menu-backdrop {
@@ -449,7 +453,14 @@ onBeforeUnmount(() => {
 
 .app-header-actions {
   padding: 0.1875rem;
-  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--md-sys-color-surface-container) 64%, transparent);
+}
+
+:global(.dark) .app-header {
+  background: color-mix(in srgb, var(--md-sys-color-surface) 90%, transparent);
+  box-shadow: 0 0.625rem 1.75rem rgb(0 0 0 / 0.22);
 }
 
 .dropdown-enter-active,

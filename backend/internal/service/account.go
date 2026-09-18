@@ -166,18 +166,13 @@ func (a *Account) EffectiveLoadFactor() int {
 	if a == nil {
 		return 1
 	}
-	if a.LoadFactor != nil {
-		if *a.LoadFactor >= 0 {
-			return *a.LoadFactor
-		}
+	if a.LoadFactor != nil && *a.LoadFactor > 0 {
+		return *a.LoadFactor
 	}
 	if a.Concurrency > 0 {
 		return a.Concurrency
 	}
-	// Concurrency <= 0 is unlimited in the slot limiter. Keep the load
-	// projection unlimited as well so load-aware schedulers do not reject the
-	// account after its first in-flight request.
-	return 0
+	return 1
 }
 
 func (a *Account) IsSchedulable() bool {
@@ -185,6 +180,9 @@ func (a *Account) IsSchedulable() bool {
 		return false
 	}
 	now := time.Now()
+	if a.AutoPauseOnExpired && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt) {
+		return false
+	}
 	if ShouldApplyTransientUnschedulableBlock() {
 		if a.OverloadUntil != nil && now.Before(*a.OverloadUntil) {
 			return false
@@ -206,6 +204,7 @@ func (a *Account) IsSchedulable() bool {
 //
 // 检查「凭据/账号/传输可用性」:
 //   - 账号 active(非禁用/删除);
+//   - OAuth token 未过期(AutoPauseOnExpired+ExpiresAt);
 //   - 未处于 TempUnschedulableUntil 冷却期 —— 对 OpenAI 账号该字段由 401 鉴权失败 /
 //     token 刷新耗尽 / transport·proxy 故障写入(ratelimit/token_refresh/upstream_transport),
 //     都代表**共享凭据或传输通道坏死**;影子共享母 token+proxy,故母处于该冷却期时影子也不可用。
@@ -218,6 +217,9 @@ func (a *Account) IsCredentialUsableForShadow() bool {
 		return false
 	}
 	now := time.Now()
+	if a.AutoPauseOnExpired && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt) {
+		return false
+	}
 	if ShouldApplyTransientUnschedulableBlock() && a.TempUnschedulableUntil != nil && now.Before(*a.TempUnschedulableUntil) {
 		return false
 	}
@@ -274,19 +276,12 @@ func (a *Account) IsGrok() bool {
 	return a.Platform == PlatformGrok
 }
 
-// IsCustom reports whether this is the API-key-only custom OpenAI-compatible
-// platform. It intentionally remains distinct from IsOpenAI so custom
-// accounts do not inherit OpenAI OAuth/entitlement billing behavior.
-func (a *Account) IsCustom() bool {
-	return a != nil && a.Platform == PlatformCustom
-}
-
 func (a *Account) IsGrokOAuth() bool {
 	return a.IsGrok() && a.Type == AccountTypeOAuth
 }
 
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformCustom || a.Platform == PlatformGrok)
+	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok)
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -862,7 +857,7 @@ func (a *Account) ResolveMappedModel(requestedModel string) (mappedModel string,
 // GetOpenAICompactMode returns the compact routing mode for an OpenAI account.
 // Missing or invalid values fall back to "auto".
 func (a *Account) GetOpenAICompactMode() string {
-	if a == nil || (!a.IsOpenAI() && !a.IsCustom()) || a.Extra == nil {
+	if a == nil || !a.IsOpenAI() || a.Extra == nil {
 		return OpenAICompactModeAuto
 	}
 	mode, _ := a.Extra["openai_compact_mode"].(string)
@@ -872,7 +867,7 @@ func (a *Account) GetOpenAICompactMode() string {
 // OpenAICompactSupportKnown reports whether compact capability is known for this
 // account and, when known, whether it is supported.
 func (a *Account) OpenAICompactSupportKnown() (supported bool, known bool) {
-	if a == nil || (!a.IsOpenAI() && !a.IsCustom()) {
+	if a == nil || !a.IsOpenAI() {
 		return false, false
 	}
 
@@ -897,7 +892,7 @@ func (a *Account) OpenAICompactSupportKnown() (supported bool, known bool) {
 // requests. Unknown capability remains allowed to avoid breaking older accounts
 // before an explicit probe has been run.
 func (a *Account) AllowsOpenAICompact() bool {
-	if a == nil || (!a.IsOpenAI() && !a.IsCustom()) {
+	if a == nil || !a.IsOpenAI() {
 		return false
 	}
 	supported, known := a.OpenAICompactSupportKnown()
@@ -1289,43 +1284,20 @@ func (a *Account) IsOpenAIPersonalAccessToken() bool {
 }
 
 func (a *Account) IsOpenAIApiKey() bool {
-	return a != nil && (a.IsOpenAI() || a.IsCustom()) && a.Type == AccountTypeAPIKey
+	return a.IsOpenAI() && a.Type == AccountTypeAPIKey
 }
 
 func (a *Account) GetOpenAIBaseURL() string {
-	if a == nil || (!a.IsOpenAI() && !a.IsCustom()) {
+	if !a.IsOpenAI() {
 		return ""
 	}
-	// Custom accounts are API-key-only and must always name their upstream.
-	// Falling back to api.openai.com here could disclose a custom provider key
-	// to OpenAI when legacy or otherwise invalid data reaches a runtime path.
-	if a.IsCustom() {
-		if a.Type != AccountTypeAPIKey {
-			return ""
-		}
-		return strings.TrimSpace(a.GetCredential("base_url"))
-	}
 	if a.Type == AccountTypeAPIKey {
-		baseURL := strings.TrimSpace(a.GetCredential("base_url"))
+		baseURL := a.GetCredential("base_url")
 		if baseURL != "" {
 			return baseURL
 		}
 	}
 	return "https://api.openai.com"
-}
-
-func requireOpenAIBaseURL(account *Account) (string, error) {
-	if account == nil {
-		return "", errors.New("account is required")
-	}
-	baseURL := strings.TrimSpace(account.GetOpenAIBaseURL())
-	if baseURL == "" {
-		if account.IsCustom() {
-			return "", errors.New("custom account missing base_url")
-		}
-		return "", errors.New("OpenAI base_url is unavailable")
-	}
-	return baseURL, nil
 }
 
 func (a *Account) GetOpenAIAccessToken() string {
@@ -1417,7 +1389,7 @@ func (a *Account) GetOpenAIApiKey() string {
 }
 
 func (a *Account) GetOpenAIUserAgent() string {
-	if a == nil || (!a.IsOpenAI() && !a.IsCustom()) {
+	if !a.IsOpenAI() {
 		return ""
 	}
 	return a.GetCredential("user_agent")
@@ -1638,7 +1610,7 @@ func (a *Account) SupportsOpenAIImageCapability(capability OpenAIImagesCapabilit
 	if capability == "" {
 		return true
 	}
-	if !a.IsOpenAI() && !a.IsCustom() {
+	if !a.IsOpenAI() {
 		return false
 	}
 	switch capability {

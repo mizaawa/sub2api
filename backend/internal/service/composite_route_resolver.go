@@ -79,10 +79,6 @@ func matchCompositeRoute(routes []CompositeModelRoute, model, endpoint string) (
 	}
 	candidates := make([]candidate, 0, len(routes))
 	for _, route := range routes {
-		route.TargetPlatform = strings.TrimSpace(route.TargetPlatform)
-		if !isConcreteRequestPlatform(route.TargetPlatform) {
-			continue
-		}
 		route.Endpoint = normalizeCompositeRouteEndpoint(route.Endpoint)
 		if route.Endpoint != endpoint && route.Endpoint != CompositeRouteEndpointAny {
 			continue

@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -218,35 +217,6 @@ func NewAccountService(accountRepo AccountRepository, groupRepo GroupRepository)
 	}
 }
 
-func validateCustomAccountGroupPlatform(accountPlatform, groupPlatform string) error {
-	if (accountPlatform == PlatformCustom) != (groupPlatform == PlatformCustom) {
-		return infraerrors.BadRequest(
-			"CUSTOM_ACCOUNT_GROUP_PLATFORM_MISMATCH",
-			"custom accounts and groups can only be assigned to each other",
-		)
-	}
-	return nil
-}
-
-func validateCustomAccountGroupBindings(ctx context.Context, groupRepo GroupRepository, accountPlatform string, groupIDs []int64) error {
-	if len(groupIDs) == 0 {
-		return nil
-	}
-	if groupRepo == nil {
-		return errors.New("group repository not configured")
-	}
-	for _, groupID := range groupIDs {
-		group, err := groupRepo.GetByID(ctx, groupID)
-		if err != nil {
-			return fmt.Errorf("get group: %w", err)
-		}
-		if err := validateCustomAccountGroupPlatform(accountPlatform, group.Platform); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // Create 创建账号
 func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (*Account, error) {
 	// 验证分组是否存在（如果指定了分组）
@@ -254,9 +224,6 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		if err := s.validateGroupIDsExist(ctx, req.GroupIDs); err != nil {
 			return nil, err
 		}
-	}
-	if err := validateCustomAccountGroupBindings(ctx, s.groupRepo, req.Platform, req.GroupIDs); err != nil {
-		return nil, err
 	}
 
 	// 创建账号
@@ -273,7 +240,11 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		Status:      StatusActive,
 		ExpiresAt:   req.ExpiresAt,
 	}
-	account.AutoPauseOnExpired = false
+	if req.AutoPauseOnExpired != nil {
+		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
+	} else {
+		account.AutoPauseOnExpired = true
+	}
 
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, fmt.Errorf("create account: %w", err)
@@ -386,12 +357,13 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	if req.ExpiresAt != nil {
 		account.ExpiresAt = req.ExpiresAt
 	}
+	if req.AutoPauseOnExpired != nil {
+		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
+	}
+
 	// 先验证分组是否存在（在任何写操作之前）
 	if req.GroupIDs != nil {
 		if err := s.validateGroupIDsExist(ctx, *req.GroupIDs); err != nil {
-			return nil, err
-		}
-		if err := validateCustomAccountGroupBindings(ctx, s.groupRepo, account.Platform, *req.GroupIDs); err != nil {
 			return nil, err
 		}
 	}

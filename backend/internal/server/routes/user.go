@@ -145,26 +145,5 @@ func RegisterUserRoutes(
 			monitors.GET("", h.ChannelMonitor.List)
 			monitors.GET("/:id/status", h.ChannelMonitor.GetStatus)
 		}
-
-		registerChannelMonitorV2UserRoutes(authenticated, h, settingService, panelRateLimiter)
-	}
-}
-
-func registerChannelMonitorV2UserRoutes(
-	authenticated *gin.RouterGroup,
-	h *handler.Handlers,
-	settingService *service.SettingService,
-	panelRateLimiter *middleware.PanelRateLimiter,
-) {
-	// V2 passive views require feature on + mode=v2.
-	monitorV2 := authenticated.Group("/channel-monitor-v2")
-	monitorV2.Use(panelRateLimiter.Heavy())
-	monitorV2.Use(channelMonitorModeV2Guard(settingService))
-	{
-		monitorV2.GET("/dimensions", h.ChannelMonitorV2.Dimensions)
-		monitorV2.GET("/snapshot", h.ChannelMonitorV2.Snapshot)
-		monitorV2.GET("/models", h.ChannelMonitorV2.Models)
-		monitorV2.GET("/matrix", h.ChannelMonitorV2.Matrix)
-		monitorV2.GET("/errors", h.ChannelMonitorV2.Errors)
 	}
 }

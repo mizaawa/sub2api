@@ -22,12 +22,6 @@ func TestAdminService_CreateCompositeGroupCopiesAccountsFromConcreteGroups(t *te
 	var copiedFrom []int64
 	var boundGroupID int64
 	var boundAccountIDs []int64
-	accountRepo := &accountRepoStubForBulkUpdate{
-		getByIDsAccounts: []*Account{
-			{ID: 101, Platform: PlatformOpenAI},
-			{ID: 202, Platform: PlatformGemini},
-		},
-	}
 	groupRepo := &groupRepoStubForAdmin{
 		createID: 99,
 		getByIDByID: map[int64]*Group{
@@ -44,7 +38,7 @@ func TestAdminService_CreateCompositeGroupCopiesAccountsFromConcreteGroups(t *te
 			return nil
 		},
 	}
-	svc := &adminServiceImpl{accountRepo: accountRepo, groupRepo: groupRepo}
+	svc := &adminServiceImpl{groupRepo: groupRepo}
 
 	group, err := svc.CreateGroup(context.Background(), &CreateGroupInput{
 		Name:               "Composite",
@@ -66,7 +60,6 @@ func TestAdminService_CreateCompositeGroupCopiesAccountsFromConcreteGroups(t *te
 	require.ElementsMatch(t, []int64{10, 20}, copiedFrom)
 	require.Equal(t, int64(99), boundGroupID)
 	require.ElementsMatch(t, []int64{101, 202}, boundAccountIDs)
-	require.ElementsMatch(t, []int64{101, 202}, accountRepo.getByIDsIDs)
 }
 
 func TestAdminService_UpdateCompositeGroupCopiesAccountsFromConcreteGroups(t *testing.T) {
@@ -74,12 +67,6 @@ func TestAdminService_UpdateCompositeGroupCopiesAccountsFromConcreteGroups(t *te
 	var copiedFrom []int64
 	var boundGroupID int64
 	var boundAccountIDs []int64
-	accountRepo := &accountRepoStubForBulkUpdate{
-		getByIDsAccounts: []*Account{
-			{ID: 301, Platform: PlatformOpenAI},
-			{ID: 302, Platform: PlatformGrok},
-		},
-	}
 	groupRepo := &groupRepoStubForAdmin{
 		getByIDByID: map[int64]*Group{
 			10: {ID: 10, Platform: PlatformOpenAI},
@@ -100,7 +87,7 @@ func TestAdminService_UpdateCompositeGroupCopiesAccountsFromConcreteGroups(t *te
 			return nil
 		},
 	}
-	svc := &adminServiceImpl{accountRepo: accountRepo, groupRepo: groupRepo}
+	svc := &adminServiceImpl{groupRepo: groupRepo}
 	maxReasoningEffort := "low"
 	reasoningEffortMappings := []ReasoningEffortMapping{{From: "max", To: "high"}}
 
@@ -118,7 +105,6 @@ func TestAdminService_UpdateCompositeGroupCopiesAccountsFromConcreteGroups(t *te
 	require.ElementsMatch(t, []int64{10, 20}, copiedFrom)
 	require.Equal(t, int64(99), boundGroupID)
 	require.ElementsMatch(t, []int64{301, 302}, boundAccountIDs)
-	require.ElementsMatch(t, []int64{301, 302}, accountRepo.getByIDsIDs)
 }
 
 func TestAdminService_CreateAccountAllowsCompositeGroupAssignment(t *testing.T) {

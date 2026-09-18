@@ -380,7 +380,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
 	requestPlatform := normalizeOpenAICompatiblePlatform(req.Platform)
 	if previousResponseID != "" &&
-		(requestPlatform == PlatformOpenAI || requestPlatform == PlatformCustom || requestPlatform == PlatformGrok) &&
+		(requestPlatform == PlatformOpenAI || requestPlatform == PlatformGrok) &&
 		(!req.StickyWeighted || !req.PreviousResponseCanMove) {
 		selection, err := s.service.selectAccountByPreviousResponseIDForPlatformCapabilityAndTransport(
 			ctx,
@@ -2034,19 +2034,14 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForImages(
 	requestedModel string,
 	excludedIDs map[int64]struct{},
 	requiredCapability OpenAIImagesCapability,
-	platformOverride ...string,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
-	platform := PlatformOpenAI
-	if len(platformOverride) > 0 {
-		platform = platformOverride[0]
-	}
-	selection, decision, err := s.selectAccountWithScheduler(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", requiredCapability, false, platform, false, false)
+	selection, decision, err := s.selectAccountWithScheduler(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", requiredCapability, false, PlatformOpenAI, false, false)
 	if err == nil && selection != nil && selection.Account != nil {
 		return selection, decision, nil
 	}
 	// 如果要求 native 能力（如指定了模型）但没有可用的 APIKey 账号，回退到 basic（OAuth 账号）
 	if requiredCapability == OpenAIImagesCapabilityNative {
-		return s.selectAccountWithScheduler(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", OpenAIImagesCapabilityBasic, false, platform, false, false)
+		return s.selectAccountWithScheduler(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", OpenAIImagesCapabilityBasic, false, PlatformOpenAI, false, false)
 	}
 	return selection, decision, err
 }
@@ -2121,7 +2116,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	decision := OpenAIAccountScheduleDecision{}
 	if strings.TrimSpace(previousResponseID) != "" &&
-		(platform == PlatformOpenAI || platform == PlatformCustom || platform == PlatformGrok) &&
+		(platform == PlatformOpenAI || platform == PlatformGrok) &&
 		!previousResponseCanMove {
 		if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 			slog.Warn("channel pricing restriction blocked strict response continuation",

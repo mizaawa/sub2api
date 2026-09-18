@@ -253,9 +253,6 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 			"linked credential shadow accounts cannot be duplicated; duplicate the parent account instead",
 		)
 	}
-	if err := validateCustomAccountCredentials(source.Platform, source.Type, source.Credentials); err != nil {
-		return nil, err
-	}
 	if !canDuplicateAccountType(source.Type) {
 		return nil, infraerrors.BadRequest(
 			"ACCOUNT_DUPLICATE_CREDENTIAL_TYPE_UNSUPPORTED",
@@ -283,6 +280,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 		unix := source.ExpiresAt.Unix()
 		expiresAt = &unix
 	}
+	autoPauseOnExpired := source.AutoPauseOnExpired
 	groups, groupIDs := duplicateAccountGroups(source)
 	proxyID := source.ProxyID
 	if source.ProxyFallbackOriginID != nil {
@@ -303,6 +301,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 		LoadFactor:            cloneAccountValuePointer(source.LoadFactor),
 		GroupIDs:              groupIDs,
 		ExpiresAt:             expiresAt,
+		AutoPauseOnExpired:    &autoPauseOnExpired,
 		SkipDefaultGroupBind:  true,
 		SkipMixedChannelCheck: true,
 	}
@@ -340,24 +339,6 @@ func normalizeAccountConcurrency(platform, accountType string, concurrency int) 
 		}
 	}
 	return concurrency
-}
-
-func validateCustomAccountCredentials(platform, accountType string, credentials map[string]any) error {
-	if platform != PlatformCustom {
-		return nil
-	}
-	if accountType != AccountTypeAPIKey {
-		return infraerrors.BadRequest("CUSTOM_ACCOUNT_TYPE_INVALID", "custom accounts only support apikey credentials")
-	}
-	apiKey, _ := credentials["api_key"].(string)
-	if strings.TrimSpace(apiKey) == "" {
-		return infraerrors.BadRequest("CUSTOM_API_KEY_REQUIRED", "custom accounts require an api_key")
-	}
-	baseURL, _ := credentials["base_url"].(string)
-	if strings.TrimSpace(baseURL) == "" {
-		return infraerrors.BadRequest("CUSTOM_BASE_URL_REQUIRED", "custom accounts require a base_url")
-	}
-	return nil
 }
 
 // ValidateOpenAILongContextBillingExtra validates the OpenAI account billing flag when present.
@@ -472,7 +453,7 @@ func normalizeGrokMediaEligibilityUpdateExtra(account *Account, input *UpdateAcc
 }
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
-	// Probe/session state is system-managed and may only be set through typed inputs.
+	// Probe/session state is system-managed. New accounts always start with automatic refresh disabled.
 	delete(accountExtra, UpstreamBillingProbeEnabledExtraKey)
 	delete(accountExtra, UpstreamBillingRateSyncEnabledExtraKey)
 	delete(accountExtra, UpstreamBillingProbeExtraKey)
@@ -492,21 +473,14 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Status:      StatusActive,
 		Schedulable: true,
 	}
-	probeSettingsProvided := input.ProbeEnabled != nil || input.RateSyncEnabled != nil
-	probeEnabled := input.ProbeEnabled != nil && *input.ProbeEnabled
-	rateSyncEnabled := input.RateSyncEnabled != nil && *input.RateSyncEnabled
-	if rateSyncEnabled {
-		probeEnabled = true
-	}
-	if probeEnabled && !isUpstreamBillingProbeAccount(account) {
-		return nil, ErrUpstreamBillingProbeAccountInvalid
-	}
-	if probeSettingsProvided && isUpstreamBillingProbeAccount(account) {
+	if input.ProbeEnabled != nil && *input.ProbeEnabled {
+		if !isUpstreamBillingProbeAccount(account) {
+			return nil, ErrUpstreamBillingProbeAccountInvalid
+		}
 		if account.Extra == nil {
 			account.Extra = make(map[string]any)
 		}
-		account.Extra[UpstreamBillingProbeEnabledExtraKey] = probeEnabled
-		account.Extra[UpstreamBillingRateSyncEnabledExtraKey] = rateSyncEnabled
+		account.Extra[UpstreamBillingProbeEnabledExtraKey] = true
 	}
 	// 预计算固定时间重置的下次重置时间
 	if account.Extra != nil {
@@ -520,17 +494,18 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		expiresAt := time.Unix(*input.ExpiresAt, 0)
 		account.ExpiresAt = &expiresAt
 	}
-	account.AutoPauseOnExpired = false
+	if input.AutoPauseOnExpired != nil {
+		account.AutoPauseOnExpired = *input.AutoPauseOnExpired
+	} else {
+		account.AutoPauseOnExpired = true
+	}
 	if input.RateMultiplier != nil {
 		if *input.RateMultiplier < 0 {
 			return nil, errors.New("rate_multiplier must be >= 0")
 		}
 		account.RateMultiplier = input.RateMultiplier
 	}
-	if input.LoadFactor != nil {
-		if *input.LoadFactor < 0 {
-			return nil, errors.New("load_factor must be >= 0")
-		}
+	if input.LoadFactor != nil && *input.LoadFactor > 0 {
 		if *input.LoadFactor > 10000 {
 			return nil, errors.New("load_factor must be <= 10000")
 		}
@@ -540,9 +515,6 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
-	if err := validateCustomAccountCredentials(input.Platform, input.Type, input.Credentials); err != nil {
-		return nil, err
-	}
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {
 		return nil, err
@@ -566,9 +538,6 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 				}
 			}
 		}
-	}
-	if err := validateCustomAccountGroupBindings(ctx, s.groupRepo, input.Platform, groupIDs); err != nil {
-		return nil, err
 	}
 
 	// 检查混合渠道风险（除非用户已确认）
@@ -692,9 +661,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		if err := NormalizeHeaderOverrideCredentials(account.Credentials); err != nil {
 			return nil, err
 		}
-	}
-	if err := validateCustomAccountCredentials(account.Platform, account.Type, account.Credentials); err != nil {
-		return nil, err
 	}
 	// Extra 使用 map：需要区分“未提供(nil)”与“显式清空({})”。
 	// 关闭配额限制时前端会删除 quota_* 键并提交 extra:{}，此时也必须落库。
@@ -836,8 +802,8 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		account.RateMultiplier = input.RateMultiplier
 	}
 	if input.LoadFactor != nil {
-		if *input.LoadFactor < 0 {
-			return nil, errors.New("load_factor must be >= 0")
+		if *input.LoadFactor <= 0 {
+			account.LoadFactor = nil // 0 或负数表示清除
 		} else if *input.LoadFactor > 10000 {
 			return nil, errors.New("load_factor must be <= 10000")
 		} else {
@@ -866,12 +832,13 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			account.ExpiresAt = &expiresAt
 		}
 	}
+	if input.AutoPauseOnExpired != nil {
+		account.AutoPauseOnExpired = *input.AutoPauseOnExpired
+	}
+
 	// 先验证分组是否存在（在任何写操作之前）
 	if input.GroupIDs != nil {
 		if err := s.validateGroupIDsExist(ctx, *input.GroupIDs); err != nil {
-			return nil, err
-		}
-		if err := validateCustomAccountGroupBindings(ctx, s.groupRepo, account.Platform, *input.GroupIDs); err != nil {
 			return nil, err
 		}
 
@@ -1003,7 +970,6 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		}
 	}
 
-	needCustomGroupCheck := input.GroupIDs != nil
 	needMixedChannelCheck := input.GroupIDs != nil && !input.SkipMixedChannelCheck
 	_, hasLongContextBillingUpdate := input.Extra[openAILongContextBillingEnabledKey]
 
@@ -1011,7 +977,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	var cachedTargets []*Account
 	needsAPIKeyRuntimeClearLookup := s.runtimeBlocker != nil && ((input.Schedulable != nil && *input.Schedulable) ||
 		(input.Schedulable == nil && input.Status == StatusActive))
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needCustomGroupCheck || needMixedChannelCheck || hasLongContextBillingUpdate || input.ProbeEnabled != nil || input.RateMultiplier != nil || needsAPIKeyRuntimeClearLookup {
+	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate || input.ProbeEnabled != nil || input.RateMultiplier != nil || needsAPIKeyRuntimeClearLookup {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
@@ -1051,20 +1017,9 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	// UpdateAccount 守卫对齐)。覆盖显式 IDs 与 filter 解析出的 IDs(此处 AccountIDs 已解析完成)。
 	if len(input.Credentials) > 0 {
 		for _, acc := range cachedTargets {
-			if acc == nil {
-				continue
-			}
-			if acc.IsCredentialShadow() {
+			if acc != nil && acc.IsCredentialShadow() {
 				return nil, infraerrors.Newf(http.StatusBadRequest, "SPARK_SHADOW_NO_CREDENTIALS",
 					"spark shadow account %d cannot hold credentials; manage credentials on the parent account", acc.ID)
-			}
-			prospectiveCredentials := maps.Clone(acc.Credentials)
-			if prospectiveCredentials == nil {
-				prospectiveCredentials = make(map[string]any, len(input.Credentials))
-			}
-			maps.Copy(prospectiveCredentials, input.Credentials)
-			if err := validateCustomAccountCredentials(acc.Platform, acc.Type, prospectiveCredentials); err != nil {
-				return nil, err
 			}
 		}
 	}
@@ -1087,16 +1042,6 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		for _, account := range cachedTargets {
 			if account != nil {
 				platformByID[account.ID] = account.Platform
-			}
-		}
-	}
-	if needCustomGroupCheck {
-		for _, account := range cachedTargets {
-			if account == nil {
-				continue
-			}
-			if err := validateCustomAccountGroupBindings(ctx, s.groupRepo, account.Platform, *input.GroupIDs); err != nil {
-				return nil, err
 			}
 		}
 	}
@@ -1179,8 +1124,8 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		repoUpdates.RateMultiplier = input.RateMultiplier
 	}
 	if input.LoadFactor != nil {
-		if *input.LoadFactor < 0 {
-			return nil, errors.New("load_factor must be >= 0")
+		if *input.LoadFactor <= 0 {
+			repoUpdates.LoadFactor = nil // 0 或负数表示清除
 		} else if *input.LoadFactor > 10000 {
 			return nil, errors.New("load_factor must be <= 10000")
 		} else {
@@ -1441,9 +1386,15 @@ func (s *adminServiceImpl) CreateShadow(ctx context.Context, parentID int64, opt
 	// 显式指定 GroupIDs 时,与 UpdateAccount 对齐先校验存在性(创建前),避免建出影子后再因无效组
 	// 失败而留下孤儿影子(一母一影唯一索引会挡住重试)——外审 C/P1。
 	groupIDs := opts.GroupIDs
-	if len(groupIDs) == 0 && len(parent.GroupIDs) > 0 {
+	if len(groupIDs) > 0 {
+		if s.groupRepo != nil {
+			if err := s.validateGroupIDsExist(ctx, groupIDs); err != nil {
+				return nil, err
+			}
+		}
+	} else if len(parent.GroupIDs) > 0 {
 		groupIDs = append([]int64(nil), parent.GroupIDs...)
-	} else if len(groupIDs) == 0 && s.groupRepo != nil {
+	} else if s.groupRepo != nil {
 		defaultGroupName := PlatformOpenAI + "-default"
 		if groups, gerr := s.groupRepo.ListActiveByPlatform(ctx, PlatformOpenAI); gerr == nil {
 			for _, g := range groups {
@@ -1452,14 +1403,6 @@ func (s *adminServiceImpl) CreateShadow(ctx context.Context, parentID int64, opt
 					break
 				}
 			}
-		}
-	}
-	if len(groupIDs) > 0 && s.groupRepo != nil {
-		if err := s.validateGroupIDsExist(ctx, groupIDs); err != nil {
-			return nil, err
-		}
-		if err := validateCustomAccountGroupBindings(ctx, s.groupRepo, PlatformOpenAI, groupIDs); err != nil {
-			return nil, err
 		}
 	}
 

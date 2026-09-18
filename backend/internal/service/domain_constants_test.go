@@ -21,9 +21,3 @@ func TestSettingKeyAuthSourcePlatformQuotas(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, "auth_source_default_dingtalk_platform_quotas")
 	}
 }
-
-func TestCustomIsAllowedQuotaPlatform(t *testing.T) {
-	if !IsAllowedQuotaPlatform(PlatformCustom) {
-		t.Fatal("custom must be accepted anywhere user platform quotas are configured")
-	}
-}

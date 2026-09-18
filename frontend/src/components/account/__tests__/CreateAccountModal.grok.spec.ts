@@ -4,18 +4,28 @@ import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(
   resolve(process.cwd(), 'src/components/account/CreateAccountModal.vue'),
-  'utf8',
+  'utf8'
 )
 
-describe('CreateAccountModal unified API Key flow', () => {
-  it('keeps the official Grok defaults in the shared API Key form', () => {
+describe('CreateAccountModal Grok account types', () => {
+  it('offers API-key setup alongside OAuth with the official xAI default', () => {
+    expect(source).toContain('data-testid="grok-account-type-api-key"')
+    expect(source).toContain("@click=\"accountCategory = 'apikey'\"")
+    expect(source).toContain("newPlatform === 'grok'")
     expect(source).toContain("? 'https://api.x.ai/v1'")
+    expect(source).toContain("form.platform === 'grok'")
     expect(source).toContain("? 'xai-...'")
-    expect(source).toContain('v-if="form.type === \'apikey\'"')
   })
 
-  it('submits rate sync and omits expiry auto-pause', () => {
-    expect(source).toContain('upstream_billing_rate_sync_enabled: upstreamBillingRateSyncEnabled.value')
-    expect(source).not.toContain('auto_pause_on_expired:')
+  it('exposes custom upstream URL and header override for the OAuth create flow', () => {
+    expect(source).toContain('data-testid="grok-custom-base-url-toggle"')
+    expect(source).toContain('data-testid="grok-custom-base-url-input"')
+    expect(source).toContain('form.platform === \'grok\' && isOAuthFlow')
+  })
+
+  it('validates and applies upstream config on all three Grok OAuth create paths', () => {
+    // 授权码兑换 / RT 批量 / SSO 批量 3 处调用（定义为箭头函数，不计入）
+    expect(source.match(/validateGrokOAuthUpstreamConfig\(\)/g)?.length).toBe(3)
+    expect(source.match(/applyGrokOAuthUpstreamConfig\(credentials\)/g)?.length).toBe(3)
   })
 })
