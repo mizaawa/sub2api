@@ -407,7 +407,9 @@ onBeforeUnmount(() => {
 .app-header {
   border: 1px solid transparent;
   border-radius: 1.375rem;
-  background: transparent;
+  background: color-mix(in srgb, var(--md-sys-color-surface) 88%, transparent);
+  box-shadow: 0 0.625rem 1.75rem rgb(15 23 42 / 0.08);
+  backdrop-filter: blur(18px) saturate(1.08);
 }
 
 .user-menu-backdrop {
@@ -454,6 +456,11 @@ onBeforeUnmount(() => {
   border: 1px solid transparent;
   border-radius: 1rem;
   background: transparent;
+}
+
+:global(.dark) .app-header {
+  background: color-mix(in srgb, var(--md-sys-color-surface) 90%, transparent);
+  box-shadow: 0 0.625rem 1.75rem rgb(0 0 0 / 0.22);
 }
 
 .dropdown-enter-active,
