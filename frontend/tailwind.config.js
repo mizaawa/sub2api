@@ -5,47 +5,47 @@ export default {
   theme: {
     extend: {
       colors: {
-        // 主色调 - Teal/Cyan 青色系
+        // 主色调 - 柔和鹅黄色
         primary: {
-          50: '#effcfb',
-          100: '#d8f7f4',
-          200: '#b5eee9',
-          300: '#82dfd8',
-          400: '#39c5bb',
-          500: '#168f87',
-          600: '#177f79',
-          700: '#146b66',
-          800: '#145854',
-          900: '#134a47',
-          950: '#082f2d'
+          50: '#fffdf1',
+          100: '#fff8d9',
+          200: '#f8eab0',
+          300: '#edd889',
+          400: '#dfc45f',
+          500: '#d2b455',
+          600: '#b99938',
+          700: '#9a7d2d',
+          800: '#7b6428',
+          900: '#655322',
+          950: '#443818'
         },
-        // 辅助色 - 深蓝灰
+        // 辅助色 - 莫奈式鼠尾草绿
         accent: {
-          50: '#fff1f7',
-          100: '#ffe3ef',
-          200: '#ffc6df',
-          300: '#ff98c5',
-          400: '#f861a3',
-          500: '#e12885',
-          600: '#c31d6f',
-          700: '#a3155b',
-          800: '#88154d',
-          900: '#721643',
-          950: '#460522'
+          50: '#f1f4ed',
+          100: '#e2e9dc',
+          200: '#c7d4bd',
+          300: '#a9bda0',
+          400: '#8ea98a',
+          500: '#78927a',
+          600: '#657b67',
+          700: '#526454',
+          800: '#424f43',
+          900: '#37413a',
+          950: '#252c28'
         },
-        // 深色模式背景
+        // 兼容旧有 dark-* 工具类，但仍保持浅色画布
         dark: {
-          50: '#edf8f7',
-          100: '#d8efec',
-          200: '#b5d7d2',
-          300: '#91b9b5',
-          400: '#6f9995',
-          500: '#557a77',
-          600: '#426260',
-          700: '#304b4b',
-          800: '#253637',
-          900: '#1b2728',
-          950: '#131c1d'
+          50: '#fffdf1',
+          100: '#fff8d9',
+          200: '#f8eab0',
+          300: '#edd889',
+          400: '#dfc45f',
+          500: '#d2b455',
+          600: '#b99938',
+          700: '#9a7d2d',
+          800: '#f3eed7',
+          900: '#fffdf5',
+          950: '#fcf8e8'
         }
       },
       fontFamily: {
@@ -75,12 +75,12 @@ export default {
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
-        'gradient-primary': '#39c5bb',
-        'gradient-dark': '#182223',
+        'gradient-primary': '#d2b455',
+        'gradient-dark': '#f3eed7',
         'gradient-glass':
           'linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%)',
         'mesh-gradient':
-          'radial-gradient(at 40% 20%, rgba(20, 184, 166, 0.12) 0px, transparent 50%), radial-gradient(at 80% 0%, rgba(6, 182, 212, 0.08) 0px, transparent 50%), radial-gradient(at 0% 50%, rgba(20, 184, 166, 0.08) 0px, transparent 50%)'
+          'radial-gradient(at 40% 20%, rgba(210, 180, 85, 0.16) 0px, transparent 50%), radial-gradient(at 80% 0%, rgba(142, 169, 138, 0.12) 0px, transparent 50%), radial-gradient(at 0% 50%, rgba(201, 167, 160, 0.1) 0px, transparent 50%)'
       },
       animation: {
         'fade-in': 'fadeIn 0.3s ease-out',
@@ -118,8 +118,8 @@ export default {
           '100%': { backgroundPosition: '200% 0' }
         },
         glow: {
-          '0%': { boxShadow: '0 0 20px rgba(20, 184, 166, 0.25)' },
-          '100%': { boxShadow: '0 0 30px rgba(20, 184, 166, 0.4)' }
+          '0%': { boxShadow: '0 0 20px rgba(210, 180, 85, 0.25)' },
+          '100%': { boxShadow: '0 0 30px rgba(210, 180, 85, 0.4)' }
         }
       },
       backdropBlur: {

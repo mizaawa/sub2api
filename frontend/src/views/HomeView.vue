@@ -36,14 +36,6 @@
           >
             <Icon name="book" size="md" />
           </a>
-          <button
-            class="compact-icon-button"
-            :title="isDark ? t('home.switchToLight') : t('home.switchToDark')"
-            @click="toggleTheme"
-          >
-            <Icon v-if="isDark" name="sun" size="md" />
-            <Icon v-else name="moon" size="md" />
-          </button>
           <router-link
             :to="isAuthenticated ? dashboardPath : '/login'"
             class="compact-primary-button"
@@ -99,19 +91,6 @@
           >
             <Icon name="book" size="md" />
           </a>
-          <button
-            class="landing-theme-toggle"
-            :title="isDark ? t('home.switchToLight') : t('home.switchToDark')"
-            :aria-label="isDark ? t('home.switchToLight') : t('home.switchToDark')"
-            @click="toggleTheme"
-          >
-            <span :class="{ active: !isDark }" aria-hidden="true">
-              <Icon name="sun" size="sm" />
-            </span>
-            <span :class="{ active: isDark }" aria-hidden="true">
-              <Icon name="moon" size="sm" />
-            </span>
-          </button>
           <router-link
             :to="isAuthenticated ? dashboardPath : '/login'"
             class="landing-login"
@@ -335,7 +314,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore, useAuthStore } from '@/stores'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
@@ -361,7 +340,6 @@ const isHomeContentUrl = computed(() => {
   return content.startsWith('http://') || content.startsWith('https://')
 })
 
-const isDark = ref(document.documentElement.classList.contains('dark'))
 const githubUrl = 'https://github.com/Wei-Shaw/sub2api'
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const isAdmin = computed(() => authStore.isAdmin)
@@ -369,21 +347,8 @@ const dashboardPath = computed(() => isAdmin.value ? '/admin/dashboard' : '/dash
 const userInitial = computed(() => authStore.user?.email?.charAt(0).toUpperCase() || '')
 const currentYear = computed(() => new Date().getFullYear())
 
-function toggleTheme() {
-  isDark.value = !isDark.value
-  document.documentElement.classList.toggle('dark', isDark.value)
-  localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
-}
-
-function initTheme() {
-  const savedTheme = localStorage.getItem('theme')
-  isDark.value = savedTheme === 'dark'
-    || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)
-  document.documentElement.classList.toggle('dark', isDark.value)
-}
-
 onMounted(() => {
-  initTheme()
+  document.documentElement.classList.remove('dark')
   authStore.checkAuth()
   if (!appStore.publicSettingsLoaded) {
     appStore.fetchPublicSettings()
@@ -400,22 +365,22 @@ onMounted(() => {
 }
 
 .landing-page {
-  --landing-hero-bg: #f2f9f8;
-  --landing-hero-text: #172321;
-  --landing-hero-muted: #526663;
-  --landing-hero-line: #b8d3d0;
-  --landing-hero-panel: #ffffff;
-  --landing-hero-panel-muted: #e2f1ef;
-  --landing-hero-control: #d8e9e7;
+  --landing-hero-bg: #fcf8e8;
+  --landing-hero-text: #3f3b2e;
+  --landing-hero-muted: #726d58;
+  --landing-hero-line: #ded5ad;
+  --landing-hero-panel: #fffdf5;
+  --landing-hero-panel-muted: #f3eed7;
+  --landing-hero-control: #ebe3c3;
   --landing-hero-control-active: #ffffff;
-  --landing-accent: #177f79;
-  --landing-accent-soft: #b5eee9;
-  --landing-accent-band: #39c5bb;
-  --landing-accent-band-text: #082f2d;
-  --landing-success-bg: #d9f3ed;
-  --landing-success-text: #17635c;
-  --landing-console-bg: #182223;
-  --landing-console-border: #415957;
+  --landing-accent: #b99938;
+  --landing-accent-soft: #f8eab0;
+  --landing-accent-band: #d2b455;
+  --landing-accent-band-text: #443818;
+  --landing-success-bg: #e2e9dc;
+  --landing-success-text: #526454;
+  --landing-console-bg: #4d5145;
+  --landing-console-border: #77765f;
   font-weight: 500;
 }
 
@@ -487,22 +452,6 @@ onMounted(() => {
 .landing-actions :deep(button) { color: var(--landing-hero-muted); }
 .landing-icon-button { color: var(--landing-hero-muted); }
 .landing-icon-button:hover { background: var(--landing-hero-panel-muted); color: var(--landing-hero-text); }
-.landing-theme-toggle {
-  display: inline-grid;
-  grid-template-columns: repeat(2, 2rem);
-  width: 4.75rem;
-  min-width: 4.75rem;
-  height: 2.5rem;
-  align-items: center;
-  justify-content: center;
-  padding: 0.25rem;
-  border: 1px solid var(--landing-hero-line);
-  border-radius: 999px;
-  background: var(--landing-hero-control);
-  color: var(--landing-hero-muted);
-}
-.landing-theme-toggle span { display: grid; width: 2rem; height: 2rem; place-items: center; border-radius: 50%; }
-.landing-theme-toggle span.active { background: var(--landing-hero-control-active); color: var(--landing-hero-text); box-shadow: 0 1px 3px rgb(13 73 69 / 0.14); }
 .landing-login { gap: 0.5rem; margin-left: 0.375rem; padding: 0.625rem 1.125rem; background: var(--landing-hero-text); color: var(--landing-hero-bg); font-weight: 700; }
 .landing-avatar { display: grid; width: 1.5rem; height: 1.5rem; place-items: center; border-radius: 50%; background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); font-size: 0.6875rem; }
 
@@ -556,7 +505,7 @@ onMounted(() => {
   border: 1px solid var(--landing-hero-line);
   border-radius: 1.75rem;
   background: var(--landing-hero-panel);
-  box-shadow: 0 1.5rem 4rem rgb(13 73 69 / 0.1);
+  box-shadow: 0 1.5rem 4rem rgb(116 96 42 / 0.12);
   text-align: left;
   animation: stage-enter 700ms 120ms cubic-bezier(0.2, 0, 0, 1) both;
 }
@@ -587,30 +536,30 @@ onMounted(() => {
 .product-stage-heading p { color: var(--landing-accent-band-text); opacity: 0.72; }
 .product-stage-heading h2 { margin: 0; color: var(--landing-accent-band-text); font-size: 2.75rem; line-height: 1.18; font-weight: 750; letter-spacing: 0; }
 
-.api-console { position: relative; overflow: hidden; border: 1px solid var(--landing-console-border); border-radius: 2rem; background: var(--landing-console-bg); box-shadow: 0 2rem 5rem rgb(8 47 45 / 0.2); animation: stage-enter 700ms 140ms cubic-bezier(0.2, 0, 0, 1) both; }
-.api-console::after { position: absolute; top: 4rem; right: 0; left: 0; height: 1px; background: rgb(57 197 187 / 0.42); content: ''; animation: console-scan 5s ease-in-out infinite; }
-.api-console-bar { display: grid; grid-template-columns: 1fr auto 1fr; min-height: 4rem; align-items: center; padding: 0 1.5rem; border-bottom: 1px solid var(--landing-console-border); color: #9bb1ae; font-size: 0.8125rem; font-weight: 650; }
+.api-console { position: relative; overflow: hidden; border: 1px solid var(--landing-console-border); border-radius: 2rem; background: var(--landing-console-bg); box-shadow: 0 2rem 5rem rgb(75 71 46 / 0.2); animation: stage-enter 700ms 140ms cubic-bezier(0.2, 0, 0, 1) both; }
+.api-console::after { position: absolute; top: 4rem; right: 0; left: 0; height: 1px; background: rgb(210 180 85 / 0.42); content: ''; animation: console-scan 5s ease-in-out infinite; }
+.api-console-bar { display: grid; grid-template-columns: 1fr auto 1fr; min-height: 4rem; align-items: center; padding: 0 1.5rem; border-bottom: 1px solid var(--landing-console-border); color: #d6cfb7; font-size: 0.8125rem; font-weight: 650; }
 .api-console-dots { display: flex; gap: 0.5rem; }
 .api-console-dots span { width: 0.75rem; height: 0.75rem; border-radius: 50%; }
-.api-console-dots span:nth-child(1) { background: #e56b61; }
-.api-console-dots span:nth-child(2) { background: #e1ae4b; }
-.api-console-dots span:nth-child(3) { background: #5ca970; }
-.api-console-status { justify-self: end; color: #8fd09f; }
-.api-console-status::before { display: inline-block; width: 0.5rem; height: 0.5rem; margin-right: 0.5rem; border-radius: 50%; background: #5ca970; content: ''; }
+.api-console-dots span:nth-child(1) { background: #c98f84; }
+.api-console-dots span:nth-child(2) { background: #d2b455; }
+.api-console-dots span:nth-child(3) { background: #92ad8c; }
+.api-console-status { justify-self: end; color: #c9d8b7; }
+.api-console-status::before { display: inline-block; width: 0.5rem; height: 0.5rem; margin-right: 0.5rem; border-radius: 50%; background: #92ad8c; content: ''; }
 .api-console-body { min-height: 23rem; padding: 4rem clamp(1.5rem, 8%, 6rem); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 1.125rem; line-height: 2.4; }
 .console-line { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; opacity: 0; animation: line-enter 420ms ease forwards; }
 .console-line-1 { animation-delay: 500ms; }
 .console-line-2 { animation-delay: 850ms; }
 .console-line-3 { animation-delay: 1200ms; }
 .console-line-4 { animation-delay: 1550ms; }
-.console-prompt { color: #8fd09f; font-weight: 700; }
-.console-command { color: #f06aa9; }
-.console-option { color: #9eb8e4; }
-.console-path { color: #f4d35e; }
-.console-note { color: #718f8b; font-style: italic; }
-.console-success { padding: 0 0.625rem; border-radius: 0.625rem; background: #22482c; color: #9ddeab; font-weight: 700; }
-.console-response { color: #e5c07b; }
-.console-cursor { width: 0.625rem; height: 1.25rem; background: #8fd09f; animation: cursor-blink 1s step-end infinite; }
+.console-prompt { color: #c9d8b7; font-weight: 700; }
+.console-command { color: #e0b8ad; }
+.console-option { color: #c3cdb7; }
+.console-path { color: #f0d98a; }
+.console-note { color: #b9b89a; font-style: italic; }
+.console-success { padding: 0 0.625rem; border-radius: 0.625rem; background: #5c694f; color: #e6efcf; font-weight: 700; }
+.console-response { color: #e8d2a0; }
+.console-cursor { width: 0.625rem; height: 1.25rem; background: #c9d8b7; animation: cursor-blink 1s step-end infinite; }
 
 .capabilities-section { padding: 7rem 1.5rem; background: var(--md-sys-color-surface); }
 .section-heading { width: min(100%, 46rem); margin: 0 auto 4rem; text-align: center; }
@@ -619,9 +568,9 @@ onMounted(() => {
 .capabilities-grid article { padding: 0 2.5rem; }
 .capabilities-grid article + article { border-left: 1px solid var(--md-sys-color-outline); }
 .capability-icon { display: grid; width: 3.5rem; height: 3.5rem; margin-bottom: 1.75rem; place-items: center; border-radius: 1.25rem; }
-.capability-icon-coral { background: #ffe3ef; color: #a3155b; }
-.capability-icon-green { background: #d8f7f4; color: #177f79; }
-.capability-icon-blue { background: #e8eef9; color: #365d9d; }
+.capability-icon-coral { background: #f0ded7; color: #986f66; }
+.capability-icon-green { background: #e2e9dc; color: #526454; }
+.capability-icon-blue { background: #e4e7e0; color: #68766b; }
 .capabilities-grid h3 { margin-bottom: 0.75rem; font-size: 1.25rem; font-weight: 750; }
 .capabilities-grid p { color: var(--md-sys-color-on-surface-variant); line-height: 1.75; }
 
@@ -630,13 +579,13 @@ onMounted(() => {
 .providers-heading { margin-bottom: 3rem; }
 .provider-list { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.75rem; }
 .provider-item { display: grid; min-height: 11rem; place-items: center; align-content: center; gap: 0.75rem; padding: 1.25rem; border: 1px solid var(--md-sys-color-outline); border-radius: 1.75rem; background: var(--md-sys-color-surface); font-weight: 750; transition: border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease; }
-.provider-item:hover { border-color: var(--landing-accent); box-shadow: 0 1rem 2.5rem rgb(13 73 69 / 0.1); transform: translateY(-3px); }
+.provider-item:hover { border-color: var(--landing-accent); box-shadow: 0 1rem 2.5rem rgb(116 96 42 / 0.12); transform: translateY(-3px); }
 .provider-mark { display: grid; width: 3rem; height: 3rem; place-items: center; border-radius: 1rem; background: var(--md-sys-color-surface-container); font-weight: 750; }
-.provider-mark-coral { background: #ffe3ef; color: #a3155b; }
-.provider-mark-green { background: #d8f7f4; color: #177f79; }
-.provider-mark-blue { background: #e8eef9; color: #365d9d; }
-.provider-mark-violet { background: #eee8f7; color: #6b4d8f; }
-.provider-item small { color: #177f79; font-size: 0.6875rem; font-weight: 700; }
+.provider-mark-coral { background: #f0ded7; color: #986f66; }
+.provider-mark-green { background: #e2e9dc; color: #526454; }
+.provider-mark-blue { background: #e4e7e0; color: #68766b; }
+.provider-mark-violet { background: #e9e3d5; color: #817052; }
+.provider-item small { color: #9a7d2d; font-size: 0.6875rem; font-weight: 700; }
 .provider-item-muted { opacity: 0.62; }
 
 .landing-footer { padding: 2.5rem 1.5rem; border-top: 1px solid var(--md-sys-color-outline); background: var(--md-sys-color-background); color: var(--md-sys-color-on-surface-variant); }
@@ -676,8 +625,6 @@ onMounted(() => {
   .landing-actions :deep(.relative button) { padding-inline: 0.5rem; }
   .landing-login { min-height: 2.5rem; padding: 0.5rem 0.875rem; }
   .landing-icon-button { width: 2.5rem; height: 2.5rem; }
-  .landing-theme-toggle { grid-template-columns: repeat(2, 1.75rem); width: 4.25rem; min-width: 4.25rem; height: 2.25rem; }
-  .landing-theme-toggle span { width: 1.75rem; height: 1.75rem; }
   .landing-hero { min-height: 39rem; padding: 4.5rem 1rem 5rem; }
   .signal-line-one,
   .signal-line-three,
@@ -725,33 +672,7 @@ onMounted(() => {
 </style>
 
 <style>
-/* Theme selectors live outside the scoped block so the root `.dark` class
-   remains an ancestor selector in both development and production builds. */
-.dark .landing-page {
-  --landing-hero-bg: #131c1d;
-  --landing-hero-text: #edf8f7;
-  --landing-hero-muted: #abc2bf;
-  --landing-hero-line: #486365;
-  --landing-hero-panel: #1b2728;
-  --landing-hero-panel-muted: #253637;
-  --landing-hero-control: #233233;
-  --landing-hero-control-active: #385052;
-  --landing-accent: #62d8d0;
-  --landing-accent-soft: #1b5552;
-  --landing-accent-band: #237f79;
-  --landing-accent-band-text: #effcfb;
-  --landing-success-bg: #204a45;
-  --landing-success-text: #9ce4dc;
-  --landing-console-bg: #101718;
-  --landing-console-border: #415957;
-}
-.dark .landing-page .capability-icon-coral { background: #4b1831; color: #f48abb; }
-.dark .landing-page .capability-icon-green { background: #17413f; color: #82dfd8; }
-.dark .landing-page .capability-icon-blue { background: #24334c; color: #9eb8e4; }
-.dark .landing-page .provider-mark-coral { background: #4b1831; color: #f48abb; }
-.dark .landing-page .provider-mark-green { background: #17413f; color: #82dfd8; }
-.dark .landing-page .provider-mark-blue { background: #24334c; color: #9eb8e4; }
-.dark .landing-page .provider-mark-violet { background: #352b43; color: #c8b2e3; }
-.dark .landing-page .provider-item:hover { border-color: #62d8d0; box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 0.22); }
-.dark .landing-page .provider-item small { color: #82dfd8; }
+/* Keep legacy dark-class mounts on the same light-only palette. */
+.dark .landing-page { color-scheme: light; }
+.dark .landing-page .provider-item:hover { border-color: #b99938; }
 </style>

@@ -5,30 +5,32 @@
 @layer base {
   :root {
     color-scheme: light;
-    --md-sys-color-background: #f2f9f8;
-    --md-sys-color-surface: #ffffff;
-    --md-sys-color-surface-container: #e7f2f1;
-    --md-sys-color-surface-container-high: #d8e9e7;
-    --md-sys-color-outline: #b8d3d0;
-    --md-sys-color-on-surface: #172321;
-    --md-sys-color-on-surface-variant: #526663;
-    --md-sys-color-primary: #177f79;
-    --md-sys-color-on-primary: #ffffff;
-    --md-sys-color-secondary: #c31d6f;
+    --md-sys-color-background: #fcf8e8;
+    --md-sys-color-surface: #fffdf5;
+    --md-sys-color-surface-container: #f3eed7;
+    --md-sys-color-surface-container-high: #ebe3c3;
+    --md-sys-color-outline: #ded5ad;
+    --md-sys-color-on-surface: #3f3b2e;
+    --md-sys-color-on-surface-variant: #726d58;
+    --md-sys-color-primary: #d2b455;
+    --md-sys-color-on-primary: #413617;
+    --md-sys-color-secondary: #8ea98a;
   }
 
+  /* Night mode is intentionally disabled. Keep this fallback light so a
+   * stale preference or an embedded page cannot reintroduce dark surfaces. */
   :root.dark {
-    color-scheme: dark;
-    --md-sys-color-background: #131c1d;
-    --md-sys-color-surface: #1b2728;
-    --md-sys-color-surface-container: #253637;
-    --md-sys-color-surface-container-high: #2f4748;
-    --md-sys-color-outline: #416062;
-    --md-sys-color-on-surface: #edf8f7;
-    --md-sys-color-on-surface-variant: #abc2bf;
-    --md-sys-color-primary: #62d8d0;
-    --md-sys-color-on-primary: #073b38;
-    --md-sys-color-secondary: #9be7df;
+    color-scheme: light;
+    --md-sys-color-background: #fcf8e8;
+    --md-sys-color-surface: #fffdf5;
+    --md-sys-color-surface-container: #f3eed7;
+    --md-sys-color-surface-container-high: #ebe3c3;
+    --md-sys-color-outline: #ded5ad;
+    --md-sys-color-on-surface: #3f3b2e;
+    --md-sys-color-on-surface-variant: #726d58;
+    --md-sys-color-primary: #d2b455;
+    --md-sys-color-on-primary: #413617;
+    --md-sys-color-secondary: #8ea98a;
   }
 
   /* Balance states are shared by the header and profile overview. */
@@ -42,7 +44,7 @@
 
   .balance-tone-premium {
     color: transparent !important;
-    background: linear-gradient(110deg, #39c5bb, #62d8d0 38%, #e12885 68%, #39c5bb);
+    background: linear-gradient(110deg, #9cae8e, #d2b455 38%, #c9a7a0 68%, #9cae8e);
     background-size: 240% 100%;
     -webkit-background-clip: text;
     background-clip: text;
@@ -59,8 +61,8 @@
     .balance-tone-premium { animation: none; }
   }
 
-  :root.dark .balance-tone-low { color: #f4cf69 !important; }
-  :root.dark .balance-tone-negative { color: #ff7f8c !important; }
+  :root.dark .balance-tone-low { color: #a96700 !important; }
+  :root.dark .balance-tone-negative { color: #c73545 !important; }
 
   html {
     @apply scroll-smooth antialiased;
