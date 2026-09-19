@@ -27,7 +27,8 @@ vi.mock('@/api/channelMonitor', () => ({
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    cachedPublicSettings: { channel_monitor_enabled: true },
+    cachedPublicSettings: { channel_monitor_enabled: true, site_name: 'Monitor Test Site' },
+    siteName: 'Fallback Site',
     showError,
   }),
 }))
@@ -53,7 +54,7 @@ vi.mock('@/composables/useAutoRefresh', async () => {
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   const translations: Record<string, string> = {
-    'channelStatus.systemStatus': 'System status',
+    'channelStatus.title': 'Channel Status',
     'channelStatus.poweredBy': 'Powered by',
     'channelStatus.metricsDisclaimer': 'Availability metrics are aggregated from channel monitoring checks.',
     'channelStatus.emptyProvider': 'No monitored channels configured',
@@ -138,6 +139,8 @@ describe('ChannelStatusView', () => {
     listMonitors.mockResolvedValue({
       items: [
         makeMonitor({ id: 5, name: 'Custom Gateway', provider: 'custom' as UserMonitorView['provider'], availability_7d: 99.95 }),
+        makeMonitor({ id: 6, name: 'Custom Backup', provider: 'custom' as UserMonitorView['provider'] }),
+        makeMonitor({ id: 7, name: 'Custom Third', provider: 'custom' as UserMonitorView['provider'] }),
         makeMonitor({ id: 2, name: 'Responses', provider: 'openai', availability_7d: 99.5 }),
         makeMonitor({ id: 4, name: 'Grok Chat', provider: 'grok' }),
         makeMonitor({ id: 1, name: 'Chat Completions', provider: 'openai' }),
@@ -161,8 +164,12 @@ describe('ChannelStatusView', () => {
       'Anthropic0 components',
       'Gemini0 components',
       'Grok1 components',
-      'Custom1 components',
+      'Custom3 components',
     ])
+
+    const providerGrid = wrapper.get('[data-testid="monitor-provider-grid"]')
+    expect(providerGrid.classes()).toContain('lg:grid-cols-2')
+    expect(wrapper.get('[data-testid="monitor-provider-custom"]').classes()).toContain('lg:col-span-2')
 
     const openAISection = wrapper.get('[data-testid="monitor-provider-openai"]')
     expect(openAISection.text()).toContain('Chat Completions')
@@ -173,13 +180,26 @@ describe('ChannelStatusView', () => {
         expect.stringContaining('Responses'),
         expect.stringContaining('Chat Completions'),
       ])
-    expect(wrapper.get('[data-testid="monitor-provider-custom"]').text()).toContain('Custom Gateway')
+    const customItems = wrapper.get('[data-testid="monitor-provider-items-custom"]')
+    expect(customItems.classes()).toContain('monitor-items--custom')
+    expect(customItems.findAll('.monitor-item').map(item => item.text())).toEqual([
+      expect.stringContaining('Custom Gateway'),
+      expect.stringContaining('Custom Backup'),
+      expect.stringContaining('Custom Third'),
+    ])
     expect(wrapper.get('[data-testid="monitor-status-row-1"]').text()).toContain('100% uptime')
     expect(wrapper.get('[data-testid="monitor-status-row-5"]').text()).toContain('99.95% uptime')
 
     expect(wrapper.text()).not.toContain('View history')
     expect(wrapper.text()).not.toContain('7 days')
-    expect(wrapper.text()).toContain('Availability metrics are aggregated from channel monitoring checks.')
+    expect(wrapper.text()).not.toContain('System status')
+    const notice = wrapper.get('[data-testid="channel-status-notice"]')
+    expect(notice.get('h1').text()).toBe('Monitor Test Site')
+    expect(notice.text()).toContain('Availability metrics are aggregated from channel monitoring checks.')
+    expect(wrapper.get('[data-testid="channel-status-grid"]').text()).not.toContain(
+      'Availability metrics are aggregated from channel monitoring checks.'
+    )
+    expect(wrapper.get('[data-testid="monitor-status-row-1"]').findAll('.monitor-status-bar__segment')).toHaveLength(120)
     const poweredBy = wrapper.get('a[href="https://mizaawa.com"]')
     expect(poweredBy.text()).toBe('mizaawa.com')
     expect(poweredBy.attributes('target')).toBe('_blank')

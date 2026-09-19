@@ -20,6 +20,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { MonitorTimelinePoint } from '@/api/channelMonitor'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
+import { MONITOR_TIMELINE_POINTS } from '@/constants/channelMonitor'
 
 type TimelineStatus = 'operational' | 'degraded' | 'failed' | 'error' | 'empty'
 type ReportedTimelineStatus = Exclude<TimelineStatus, 'empty'>
@@ -36,7 +37,7 @@ const props = withDefaults(defineProps<{
   maintenance?: boolean
 }>(), {
   buckets: () => [],
-  length: 60,
+  length: MONITOR_TIMELINE_POINTS,
   countdownSeconds: 0,
   maintenance: false,
 })
@@ -106,15 +107,15 @@ function normalizeStatus(status: string): TimelineStatus {
 <style scoped>
 .monitor-status-bar {
   display: grid;
-  grid-template-columns: repeat(v-bind(safeLength), minmax(2px, 1fr));
-  gap: 3px;
+  grid-template-columns: repeat(v-bind(safeLength), minmax(1px, 1fr));
+  gap: 1px;
   width: 100%;
   height: 20px;
 }
 
 .monitor-status-bar__segment {
   width: 100%;
-  min-width: 2px;
+  min-width: 1px;
   height: 20px;
   border-radius: 1px;
   background: #e5e7eb;
@@ -144,7 +145,7 @@ function normalizeStatus(status: string): TimelineStatus {
 
 @media (max-width: 639px) {
   .monitor-status-bar {
-    gap: 2px;
+    gap: 1px;
     height: 18px;
   }
 

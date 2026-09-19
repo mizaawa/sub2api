@@ -24,6 +24,30 @@ var monitorHTTPClient = newSSRFSafeHTTPClient(monitorRequestTimeout)
 // monitorPingHTTPClient 用于 endpoint origin 的 HEAD ping，超时更短。
 var monitorPingHTTPClient = newSSRFSafeHTTPClient(monitorPingTimeout)
 
+// Managed checks target the backend listener on loopback/private interfaces.
+// They use a separate client because the public endpoint client intentionally
+// blocks those addresses. Redirects are refused so credentials stay local.
+var monitorInternalHTTPClient = newInternalMonitorHTTPClient(monitorRequestTimeout)
+var monitorInternalPingHTTPClient = newInternalMonitorHTTPClient(monitorPingTimeout)
+
+func newInternalMonitorHTTPClient(timeout time.Duration) *http.Client {
+	tr := &http.Transport{
+		DialContext:           monitorDialer.DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          16,
+		IdleConnTimeout:       monitorIdleConnTimeout,
+		TLSHandshakeTimeout:   monitorTLSHandshakeTimeout,
+		ResponseHeaderTimeout: monitorResponseHeaderTimeout,
+	}
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: servertiming.WrapRoundTripper(tr),
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
 // newSSRFSafeHTTPClient 返回一个使用 safeDialContext 的 http.Client。
 // 仅供监控模块对外发起请求使用——所有目标都应是公网 endpoint。
 func newSSRFSafeHTTPClient(timeout time.Duration) *http.Client {
@@ -50,6 +74,12 @@ type CheckOptions struct {
 	// BodyOverride 在 merge 模式下做浅合并（key 命中黑名单时静默丢弃），
 	// 在 replace 模式下直接当作完整 body。
 	BodyOverride map[string]any
+	// ManagedGateway selects the trusted internal HTTP client. Only the
+	// channel-monitor service sets this for group-bound monitors.
+	ManagedGateway bool
+	// ManagedAttestor signs managed requests so their generated API keys cannot
+	// be replayed by external callers.
+	ManagedAttestor *ChannelMonitorAttestor
 }
 
 // runCheckForModel 对单个 (provider, model) 做一次完整检测。
@@ -129,7 +159,7 @@ func bodyOverrideMode(opts *CheckOptions) string {
 
 // pingEndpointOrigin 对 endpoint 的 origin (scheme://host) 发起 HEAD 请求，返回耗时。
 // 失败时返回 nil（不影响主状态判定）。
-func pingEndpointOrigin(ctx context.Context, endpoint string) *int {
+func pingEndpointOrigin(ctx context.Context, endpoint string, managedGateway bool) *int {
 	origin, err := extractOrigin(endpoint)
 	if err != nil || origin == "" {
 		return nil
@@ -139,7 +169,11 @@ func pingEndpointOrigin(ctx context.Context, endpoint string) *int {
 		return nil
 	}
 	start := time.Now()
-	resp, err := monitorPingHTTPClient.Do(req)
+	client := monitorPingHTTPClient
+	if managedGateway {
+		client = monitorInternalPingHTTPClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil
 	}
@@ -291,7 +325,12 @@ func callProvider(ctx context.Context, provider, endpoint, apiKey, model, prompt
 	}
 	headers := mergeHeaders(adapter.buildHeaders(apiKey), opts)
 	full := joinURL(endpoint, adapter.buildPath(model))
-	respBytes, status, err := postRawJSON(ctx, full, body, headers)
+	managedGateway := opts != nil && opts.ManagedGateway
+	var attestor *ChannelMonitorAttestor
+	if opts != nil {
+		attestor = opts.ManagedAttestor
+	}
+	respBytes, status, err := postRawJSON(ctx, full, body, headers, managedGateway, attestor, apiKey)
 	if err != nil {
 		return "", "", status, err
 	}
@@ -509,7 +548,15 @@ func hasNonEmptyBodyValue(v any) bool {
 
 // postRawJSON 发送 POST + 已序列化好的 JSON 字节，限制响应体大小，返回响应字节、HTTP status、错误。
 // adapter 自行 marshal 是为了精确控制字段顺序与类型，所以这里直接收 []byte 而不是 any。
-func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers map[string]string) ([]byte, int, error) {
+func postRawJSON(
+	ctx context.Context,
+	fullURL string,
+	payload []byte,
+	headers map[string]string,
+	managedGateway bool,
+	attestor *ChannelMonitorAttestor,
+	apiKey string,
+) ([]byte, int, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil, 0, fmt.Errorf("build request: %w", err)
@@ -519,8 +566,17 @@ func postRawJSON(ctx context.Context, fullURL string, payload []byte, headers ma
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+	if managedGateway {
+		if err := attestor.SignRequest(req, apiKey, payload); err != nil {
+			return nil, 0, fmt.Errorf("sign managed request: %w", err)
+		}
+	}
 
-	resp, err := monitorHTTPClient.Do(req)
+	client := monitorHTTPClient
+	if managedGateway {
+		client = monitorInternalHTTPClient
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, 0, fmt.Errorf("do request: %w", err)
 	}

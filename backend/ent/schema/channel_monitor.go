@@ -54,6 +54,9 @@ func (ChannelMonitor) Fields() []ent.Field {
 		field.JSON("extra_models", []string{}).
 			Default([]string{}).
 			Comment("Additional model names to test alongside primary_model"),
+		field.Int64("group_id").
+			Optional().
+			Nillable(),
 		field.String("group_name").
 			Optional().
 			Default("").
@@ -108,6 +111,11 @@ func (ChannelMonitor) Edges() []ent.Edge {
 			Field("template_id").
 			Unique().
 			Annotations(entsql.OnDelete(entsql.SetNull)),
+		edge.From("group", Group.Type).
+			Ref("channel_monitors").
+			Field("group_id").
+			Unique().
+			Annotations(entsql.OnDelete(entsql.SetNull)),
 	}
 }
 
@@ -116,6 +124,7 @@ func (ChannelMonitor) Indexes() []ent.Index {
 		index.Fields("enabled", "last_checked_at"),
 		index.Fields("provider"),
 		index.Fields("provider", "api_mode"),
+		index.Fields("group_id"),
 		index.Fields("group_name"),
 		index.Fields("sort_order"),
 		index.Fields("template_id"),

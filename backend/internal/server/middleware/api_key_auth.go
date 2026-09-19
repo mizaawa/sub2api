@@ -32,6 +32,7 @@ func NewAPIKeyAuthMiddleware(apiKeyService *service.APIKeyService, subscriptionS
 // usage 允许过期/配额耗尽的 Key 查询自身用量，billing 用于读取当前 Key 的倍率配置，
 // 异步生图查询允许已耗尽额度的 Key 拉取自身任务结果。
 func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) gin.HandlerFunc {
+	monitorAttestor := channelMonitorAttestorFromConfig(cfg)
 	return func(c *gin.Context) {
 		// ── 1. 提取 API Key ──────────────────────────────────────────
 		if rejectInvalidAuthAbuse(c, apiKeyService) {
@@ -117,13 +118,19 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		// apiKey 已加载（含 User/Group）。即便后续因分组停用/Key 停用/用户停用/
 		// IP 限制等早退中断，也让 Ops 错误日志能回退取到 user/group/platform。
 		SetOpsFallbackAPIKey(c, apiKey)
+		if !managedAPIKeyRequestIsValid(c, apiKey, apiKeyString, monitorAttestor) {
+			recordInvalidAuthFailure(c, apiKeyService)
+			MarkIngressRejected(c, IngressRejectInvalidAPIKey)
+			AbortWithError(c, http.StatusUnauthorized, "INVALID_API_KEY", "Invalid API key")
+			return
+		}
 
 		// ── 3. 基础鉴权（始终执行） ─────────────────────────────────
 
 		// disabled / 未知状态 → 无条件拦截（expired 和 quota_exhausted 留给计费阶段）
-		if !apiKey.IsActive() &&
+		if managedAPIKeyMustBeActive(apiKey) || (!apiKey.IsManaged() && !apiKey.IsActive() &&
 			apiKey.Status != service.StatusAPIKeyExpired &&
-			apiKey.Status != service.StatusAPIKeyQuotaExhausted {
+			apiKey.Status != service.StatusAPIKeyQuotaExhausted) {
 			MarkIngressRejected(c, IngressRejectAPIKeyDisabled)
 			AbortWithError(c, 401, "API_KEY_DISABLED", "API key is disabled")
 			return
@@ -160,7 +167,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		if abortIfAPIKeyGroupUnavailable(c, apiKey) {
 			return
 		}
-		if abortIfAPIKeyGroupNotAllowed(c, apiKey) {
+		if !apiKey.IsManaged() && abortIfAPIKeyGroupNotAllowed(c, apiKey) {
 			return
 		}
 		ctx := context.WithValue(c.Request.Context(), ctxkey.UserID, apiKey.User.ID)
@@ -169,16 +176,13 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		// Async image task polling only reads data that already belongs to the
 		// authenticated key and must remain available after the completed
 		// generation consumes the key's remaining balance.
-		skipBilling := c.Request.URL.Path == "/v1/usage" || billingInfoRequest || isAsyncImageTaskRead(c.Request.Method, c.Request.URL.Path)
+		skipBilling := apiKey.IsManaged() || c.Request.URL.Path == "/v1/usage" || billingInfoRequest || isAsyncImageTaskRead(c.Request.Method, c.Request.URL.Path)
 
 		// ── 4. SimpleMode → early return ─────────────────────────────
 
 		if cfg.RunMode == config.RunModeSimple {
 			c.Set(string(ContextKeyAPIKey), apiKey)
-			c.Set(string(ContextKeyUser), AuthSubject{
-				UserID:      apiKey.User.ID,
-				Concurrency: apiKey.User.Concurrency,
-			})
+			c.Set(string(ContextKeyUser), authSubjectForAPIKey(apiKey))
 			c.Set(string(ContextKeyUserRole), apiKey.User.Role)
 			setGroupContext(c, apiKey.Group)
 			if !billingInfoRequest {
@@ -191,7 +195,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		// ── 5. 按端点需要加载订阅 ───────────────────────────────────
 
 		var subscription *service.UserSubscription
-		isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
+		isSubscriptionType := !apiKey.IsManaged() && apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
 
 		// 倍率自省不需要订阅数据；/v1/usage 仍保留原有订阅读取行为。
 		if isSubscriptionType && subscriptionService != nil && !billingInfoRequest {
@@ -273,10 +277,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			c.Set(string(ContextKeySubscription), subscription)
 		}
 		c.Set(string(ContextKeyAPIKey), apiKey)
-		c.Set(string(ContextKeyUser), AuthSubject{
-			UserID:      apiKey.User.ID,
-			Concurrency: apiKey.User.Concurrency,
-		})
+		c.Set(string(ContextKeyUser), authSubjectForAPIKey(apiKey))
 		c.Set(string(ContextKeyUserRole), apiKey.User.Role)
 		setGroupContext(c, apiKey.Group)
 		if !billingInfoRequest {
@@ -285,6 +286,44 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 
 		c.Next()
 	}
+}
+
+func channelMonitorAttestorFromConfig(cfg *config.Config) *service.ChannelMonitorAttestor {
+	if cfg == nil {
+		return nil
+	}
+	attestor, err := service.NewChannelMonitorAttestor(cfg.Totp.EncryptionKey)
+	if err != nil {
+		return nil
+	}
+	return attestor
+}
+
+func managedAPIKeyRequestIsValid(c *gin.Context, apiKey *service.APIKey, rawKey string, attestor *service.ChannelMonitorAttestor) bool {
+	if apiKey == nil || !apiKey.IsManaged() {
+		return true
+	}
+	if apiKey.Purpose != service.APIKeyPurposeChannelMonitor || c == nil || c.Request == nil || attestor == nil {
+		return false
+	}
+	return attestor.ValidateRequest(c.Request, rawKey)
+}
+
+func managedAPIKeyMustBeActive(apiKey *service.APIKey) bool {
+	return apiKey != nil && apiKey.IsManaged() && !apiKey.IsActive()
+}
+
+func authSubjectForAPIKey(apiKey *service.APIKey) AuthSubject {
+	if apiKey == nil || apiKey.User == nil {
+		return AuthSubject{}
+	}
+	concurrency := apiKey.User.Concurrency
+	if apiKey.IsManaged() {
+		// Managed probes retain upstream account concurrency but must not consume
+		// or wait on the administrator's user-level concurrency slots.
+		concurrency = 0
+	}
+	return AuthSubject{UserID: apiKey.User.ID, Concurrency: concurrency}
 }
 
 func apiKeyHeadersTooLarge(c *gin.Context) bool {

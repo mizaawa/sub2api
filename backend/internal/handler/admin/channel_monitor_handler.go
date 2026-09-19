@@ -19,10 +19,6 @@ import (
 const (
 	// monitorMaxPageSize 列表分页上限。
 	monitorMaxPageSize = 100
-	// monitorAPIKeyMaskPrefix 脱敏时保留的明文前缀长度。
-	monitorAPIKeyMaskPrefix = 4
-	// monitorAPIKeyMaskSuffix 脱敏后追加的占位字符串。
-	monitorAPIKeyMaskSuffix = "***"
 )
 
 // ChannelMonitorHandler 渠道监控管理后台 handler。
@@ -38,14 +34,13 @@ func NewChannelMonitorHandler(monitorService *service.ChannelMonitorService) *Ch
 // --- Request / Response ---
 
 type channelMonitorCreateRequest struct {
-	Name             string            `json:"name" binding:"required,max=100"`
+	Name             string            `json:"name" binding:"omitempty,max=100"`
 	Provider         string            `json:"provider" binding:"required,oneof=openai anthropic gemini grok custom"`
+	GroupID          int64             `json:"group_id" binding:"required,gt=0"`
 	APIMode          string            `json:"api_mode" binding:"omitempty,oneof=chat_completions responses"`
-	Endpoint         string            `json:"endpoint" binding:"required,max=500"`
-	APIKey           string            `json:"api_key" binding:"required,max=2000"`
+	Endpoint         string            `json:"endpoint" binding:"omitempty,max=500"`
 	PrimaryModel     string            `json:"primary_model" binding:"max=200"`
 	ExtraModels      []string          `json:"extra_models"`
-	GroupName        string            `json:"group_name" binding:"max=100"`
 	Enabled          *bool             `json:"enabled"`
 	IntervalSeconds  int               `json:"interval_seconds" binding:"required,min=15,max=3600"`
 	JitterSeconds    int               `json:"jitter_seconds" binding:"omitempty,min=0,max=3585"`
@@ -58,12 +53,11 @@ type channelMonitorCreateRequest struct {
 type channelMonitorUpdateRequest struct {
 	Name             *string            `json:"name" binding:"omitempty,max=100"`
 	Provider         *string            `json:"provider" binding:"omitempty,oneof=openai anthropic gemini grok custom"`
+	GroupID          *int64             `json:"group_id" binding:"omitempty,gt=0"`
 	APIMode          *string            `json:"api_mode" binding:"omitempty,oneof=chat_completions responses"`
 	Endpoint         *string            `json:"endpoint" binding:"omitempty,max=500"`
-	APIKey           *string            `json:"api_key" binding:"omitempty,max=2000"`
 	PrimaryModel     *string            `json:"primary_model" binding:"omitempty,max=200"`
 	ExtraModels      *[]string          `json:"extra_models"`
-	GroupName        *string            `json:"group_name" binding:"omitempty,max=100"`
 	Enabled          *bool              `json:"enabled"`
 	IntervalSeconds  *int               `json:"interval_seconds" binding:"omitempty,min=15,max=3600"`
 	JitterSeconds    *int               `json:"jitter_seconds" binding:"omitempty,min=0,max=3585"`
@@ -87,11 +81,12 @@ type channelMonitorResponse struct {
 	Provider            string                               `json:"provider"`
 	APIMode             string                               `json:"api_mode"`
 	Endpoint            string                               `json:"endpoint"`
-	APIKeyMasked        string                               `json:"api_key_masked"`
 	APIKeyDecryptFailed bool                                 `json:"api_key_decrypt_failed"`
 	PrimaryModel        string                               `json:"primary_model"`
 	ExtraModels         []string                             `json:"extra_models"`
+	GroupID             *int64                               `json:"group_id"`
 	GroupName           string                               `json:"group_name"`
+	GroupRateMultiplier *float64                             `json:"group_rate_multiplier"`
 	SortOrder           int                                  `json:"sort_order"`
 	Enabled             bool                                 `json:"enabled"`
 	IntervalSeconds     int                                  `json:"interval_seconds"`
@@ -130,14 +125,6 @@ type channelMonitorHistoryItemResponse struct {
 	CheckedAt     string `json:"checked_at"`
 }
 
-// maskAPIKey 对 API Key 明文做脱敏：前 4 字符 + "***"，长度 ≤ 4 时只显示 "***"。
-func maskAPIKey(plain string) string {
-	if len(plain) <= monitorAPIKeyMaskPrefix {
-		return monitorAPIKeyMaskSuffix
-	}
-	return plain[:monitorAPIKeyMaskPrefix] + monitorAPIKeyMaskSuffix
-}
-
 func channelMonitorToResponse(m *service.ChannelMonitor) *channelMonitorResponse {
 	if m == nil {
 		return nil
@@ -156,10 +143,10 @@ func channelMonitorToResponse(m *service.ChannelMonitor) *channelMonitorResponse
 		Provider:            m.Provider,
 		APIMode:             m.APIMode,
 		Endpoint:            m.Endpoint,
-		APIKeyMasked:        maskAPIKey(m.APIKey),
 		APIKeyDecryptFailed: m.APIKeyDecryptFailed,
 		PrimaryModel:        m.PrimaryModel,
 		ExtraModels:         extras,
+		GroupID:             m.GroupID,
 		GroupName:           m.GroupName,
 		SortOrder:           m.SortOrder,
 		Enabled:             m.Enabled,
@@ -173,6 +160,10 @@ func channelMonitorToResponse(m *service.ChannelMonitor) *channelMonitorResponse
 		BodyOverrideMode:    m.BodyOverrideMode,
 		BodyOverride:        m.BodyOverride,
 		// PrimaryStatus / PrimaryLatencyMs / Availability7d 由 List handler 在批量聚合后填充。
+	}
+	if m.GroupID != nil {
+		rate := m.GroupRateMultiplier
+		resp.GroupRateMultiplier = &rate
 	}
 	if m.LastCheckedAt != nil {
 		s := m.LastCheckedAt.UTC().Format(time.RFC3339)
@@ -348,12 +339,11 @@ func (h *ChannelMonitorHandler) Create(c *gin.Context) {
 	m, err := h.monitorService.Create(c.Request.Context(), service.ChannelMonitorCreateParams{
 		Name:             req.Name,
 		Provider:         req.Provider,
+		GroupID:          req.GroupID,
 		APIMode:          req.APIMode,
 		Endpoint:         req.Endpoint,
-		APIKey:           req.APIKey,
 		PrimaryModel:     req.PrimaryModel,
 		ExtraModels:      req.ExtraModels,
-		GroupName:        req.GroupName,
 		Enabled:          enabled,
 		IntervalSeconds:  req.IntervalSeconds,
 		JitterSeconds:    req.JitterSeconds,
@@ -442,12 +432,11 @@ func (h *ChannelMonitorHandler) Update(c *gin.Context) {
 	m, err := h.monitorService.Update(c.Request.Context(), id, service.ChannelMonitorUpdateParams{
 		Name:             req.Name,
 		Provider:         req.Provider,
+		GroupID:          req.GroupID,
 		APIMode:          req.APIMode,
 		Endpoint:         req.Endpoint,
-		APIKey:           req.APIKey,
 		PrimaryModel:     req.PrimaryModel,
 		ExtraModels:      req.ExtraModels,
-		GroupName:        req.GroupName,
 		Enabled:          req.Enabled,
 		IntervalSeconds:  req.IntervalSeconds,
 		JitterSeconds:    req.JitterSeconds,

@@ -41,6 +41,11 @@ func (APIKey) Fields() []ent.Field {
 		field.String("name").
 			MaxLen(100).
 			NotEmpty(),
+		field.String("purpose").
+			Default("").
+			MaxLen(32).
+			Immutable().
+			Comment("Internal key purpose; empty for ordinary user-managed keys"),
 		field.Int64("group_id").
 			Optional().
 			Nillable(),

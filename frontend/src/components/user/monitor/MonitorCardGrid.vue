@@ -1,8 +1,13 @@
 <template>
-  <div class="divide-y divide-gray-200">
+  <div
+    class="grid grid-cols-1 items-stretch gap-4 lg:grid-cols-2"
+    data-testid="monitor-provider-grid"
+  >
     <section
       v-for="provider in providerSections"
       :key="provider.value"
+      class="flex min-w-0 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm"
+      :class="provider.value === 'custom' ? 'lg:col-span-2' : ''"
       :data-testid="`monitor-provider-${provider.value}`"
     >
       <button
@@ -33,7 +38,7 @@
       <div
         v-show="expanded[provider.value]"
         :id="`monitor-provider-content-${provider.value}`"
-        class="border-t border-gray-100"
+        class="flex-1 border-t border-gray-100"
       >
         <div
           v-if="loading"
@@ -57,12 +62,18 @@
           {{ t('channelStatus.emptyProvider') }}
         </p>
 
-        <div v-else class="divide-y divide-gray-100">
-          <MonitorStatusRow
+        <div
+          v-else
+          :class="provider.value === 'custom' ? 'monitor-items--custom' : 'divide-y divide-gray-100'"
+          :data-testid="`monitor-provider-items-${provider.value}`"
+        >
+          <div
             v-for="item in provider.items"
             :key="item.id"
-            :item="item"
-          />
+            class="monitor-item min-w-0"
+          >
+            <MonitorStatusRow :item="item" />
+          </div>
         </div>
       </div>
     </section>
@@ -111,3 +122,32 @@ function toggleProvider(provider: ProviderKey) {
   expanded[provider] = !expanded[provider]
 }
 </script>
+
+<style scoped>
+.monitor-items--custom {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.monitor-items--custom > .monitor-item + .monitor-item {
+  border-top: 1px solid #f3f4f6;
+}
+
+@media (min-width: 1024px) {
+  .monitor-items--custom {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .monitor-items--custom > .monitor-item + .monitor-item {
+    border-top: 0;
+  }
+
+  .monitor-items--custom > .monitor-item:nth-child(n + 3) {
+    border-top: 1px solid #f3f4f6;
+  }
+
+  .monitor-items--custom > .monitor-item:nth-child(even) {
+    border-left: 1px solid #f3f4f6;
+  }
+}
+</style>

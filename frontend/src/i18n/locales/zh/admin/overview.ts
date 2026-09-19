@@ -889,6 +889,7 @@ export default {
         antigravity: 'Antigravity',
         grok: 'Grok',
         composite: 'Composite',
+        custom: '自定义',
       },
       saving: '保存中...',
       noGroups: '暂无分组',

@@ -59,3 +59,35 @@ func TestAPIKeyService_RejectsV15AuthSnapshotWithoutReasoningEffortPolicy(t *tes
 		t.Fatalf("expected no API key from stale snapshot, got %#v", apiKey)
 	}
 }
+
+func TestAPIKeyService_AuthSnapshotPreservesManagedPurpose(t *testing.T) {
+	svc := &APIKeyService{}
+	source := &APIKey{
+		ID:      1,
+		UserID:  2,
+		Key:     "sk-managed",
+		Name:    "monitor",
+		Purpose: APIKeyPurposeChannelMonitor,
+		Status:  StatusActive,
+		User: &User{
+			ID:     2,
+			Status: StatusActive,
+		},
+	}
+
+	snapshot := svc.snapshotFromAPIKey(t.Context(), source)
+	if snapshot == nil {
+		t.Fatal("expected auth snapshot")
+	}
+	if snapshot.Version != apiKeyAuthSnapshotVersion {
+		t.Fatalf("expected snapshot version %d, got %d", apiKeyAuthSnapshotVersion, snapshot.Version)
+	}
+	if snapshot.Purpose != APIKeyPurposeChannelMonitor {
+		t.Fatalf("expected managed purpose in snapshot, got %q", snapshot.Purpose)
+	}
+
+	roundTrip := svc.snapshotToAPIKey(source.Key, snapshot)
+	if roundTrip == nil || roundTrip.Purpose != APIKeyPurposeChannelMonitor {
+		t.Fatalf("expected managed purpose after snapshot round trip, got %#v", roundTrip)
+	}
+}

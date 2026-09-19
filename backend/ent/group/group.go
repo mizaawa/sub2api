@@ -128,6 +128,8 @@ const (
 	FieldProfitSafetyBuffer = "profit_safety_buffer"
 	// EdgeAPIKeys holds the string denoting the api_keys edge name in mutations.
 	EdgeAPIKeys = "api_keys"
+	// EdgeChannelMonitors holds the string denoting the channel_monitors edge name in mutations.
+	EdgeChannelMonitors = "channel_monitors"
 	// EdgeRedeemCodes holds the string denoting the redeem_codes edge name in mutations.
 	EdgeRedeemCodes = "redeem_codes"
 	// EdgeSubscriptions holds the string denoting the subscriptions edge name in mutations.
@@ -151,6 +153,13 @@ const (
 	APIKeysInverseTable = "api_keys"
 	// APIKeysColumn is the table column denoting the api_keys relation/edge.
 	APIKeysColumn = "group_id"
+	// ChannelMonitorsTable is the table that holds the channel_monitors relation/edge.
+	ChannelMonitorsTable = "channel_monitors"
+	// ChannelMonitorsInverseTable is the table name for the ChannelMonitor entity.
+	// It exists in this package in order to avoid circular dependency with the "channelmonitor" package.
+	ChannelMonitorsInverseTable = "channel_monitors"
+	// ChannelMonitorsColumn is the table column denoting the channel_monitors relation/edge.
+	ChannelMonitorsColumn = "group_id"
 	// RedeemCodesTable is the table that holds the redeem_codes relation/edge.
 	RedeemCodesTable = "redeem_codes"
 	// RedeemCodesInverseTable is the table name for the RedeemCode entity.
@@ -655,6 +664,20 @@ func ByAPIKeys(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByChannelMonitorsCount orders the results by channel_monitors count.
+func ByChannelMonitorsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newChannelMonitorsStep(), opts...)
+	}
+}
+
+// ByChannelMonitors orders the results by channel_monitors terms.
+func ByChannelMonitors(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newChannelMonitorsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByRedeemCodesCount orders the results by redeem_codes count.
 func ByRedeemCodesCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -757,6 +780,13 @@ func newAPIKeysStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(APIKeysInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, APIKeysTable, APIKeysColumn),
+	)
+}
+func newChannelMonitorsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ChannelMonitorsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, ChannelMonitorsTable, ChannelMonitorsColumn),
 	)
 }
 func newRedeemCodesStep() *sqlgraph.Step {

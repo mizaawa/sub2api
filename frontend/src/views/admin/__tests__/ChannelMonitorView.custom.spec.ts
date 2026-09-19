@@ -4,25 +4,28 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import MonitorFiltersBar from '@/components/admin/monitor/MonitorFiltersBar.vue'
 import MonitorFormDialog from '@/components/admin/monitor/MonitorFormDialog.vue'
-import MonitorKeyPickerDialog from '@/components/admin/monitor/MonitorKeyPickerDialog.vue'
 import Select from '@/components/common/Select.vue'
-import type { ApiKey, GroupPlatform } from '@/types'
+import type { AdminGroup, GroupPlatform } from '@/types'
 import {
   PROVIDERS,
   PROVIDER_CUSTOM,
 } from '@/constants/channelMonitor'
 
-const { listTemplates, listKeys, getUserGroupRates } = vi.hoisted(() => ({
+const { listTemplates, getAllGroups, createMonitor, showError } = vi.hoisted(() => ({
   listTemplates: vi.fn(),
-  listKeys: vi.fn(),
-  getUserGroupRates: vi.fn(),
+  getAllGroups: vi.fn(),
+  createMonitor: vi.fn(),
+  showError: vi.fn(),
 }))
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     channelMonitor: {
-      create: vi.fn(),
+      create: createMonitor,
       update: vi.fn(),
+    },
+    groups: {
+      getAll: getAllGroups,
     },
     channelMonitorTemplate: {
       list: listTemplates,
@@ -30,18 +33,10 @@ vi.mock('@/api/admin', () => ({
   },
 }))
 
-vi.mock('@/api/keys', () => ({
-  keysAPI: { list: listKeys },
-}))
-
-vi.mock('@/api/groups', () => ({
-  userGroupsAPI: { getUserGroupRates },
-}))
-
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
     cachedPublicSettings: null,
-    showError: vi.fn(),
+    showError,
     showSuccess: vi.fn(),
   }),
 }))
@@ -59,17 +54,6 @@ const BaseDialogStub = defineComponent({
   template: '<div v-if="show"><slot /><slot name="footer" /></div>',
 })
 
-const MonitorKeyPickerDialogStub = defineComponent({
-  name: 'MonitorKeyPickerDialog',
-  props: {
-    show: Boolean,
-    loading: Boolean,
-    keys: { type: Array, default: () => [] },
-    provider: String,
-  },
-  template: '<div data-testid="key-picker-stub" />',
-})
-
 function mountDialog() {
   return mount(MonitorFormDialog, {
     props: { show: true, monitor: null },
@@ -77,37 +61,37 @@ function mountDialog() {
       stubs: {
         BaseDialog: BaseDialogStub,
         Toggle: true,
-        Select: true,
         ModelTagInput: true,
-        MonitorKeyPickerDialog: MonitorKeyPickerDialogStub,
         MonitorAdvancedRequestConfig: true,
       },
     },
   })
 }
 
-function key(id: number, platform: GroupPlatform): ApiKey {
+function group(id: number, platform: GroupPlatform, rateMultiplier = 1): AdminGroup {
   return {
     id,
-    name: `${platform} key`,
-    key: `sk-${platform}`,
+    name: `${platform} group`,
+    platform,
+    rate_multiplier: rateMultiplier,
     status: 'active',
-    expires_at: null,
-    group: {
-      id,
-      name: `${platform} group`,
-      platform,
-      subscription_type: 'standard',
-      rate_multiplier: 1,
-    },
-  } as ApiKey
+  } as AdminGroup
+}
+
+function groupSelect(wrapper: ReturnType<typeof mountDialog>) {
+  const select = wrapper.findAllComponents(Select).find(item => (
+    item.props('id') === 'channel-monitor-group'
+  ))
+  if (!select) throw new Error('group select not found')
+  return select
 }
 
 describe('channel monitor Custom provider', () => {
   beforeEach(() => {
     listTemplates.mockReset().mockResolvedValue({ items: [] })
-    listKeys.mockReset().mockResolvedValue({ items: [], page: 1, page_size: 100, pages: 1, total: 0 })
-    getUserGroupRates.mockReset().mockResolvedValue({})
+    getAllGroups.mockReset().mockResolvedValue([])
+    createMonitor.mockReset().mockResolvedValue({})
+    showError.mockReset()
   })
 
   it('offers Custom as the fifth provider with the supplied seven-node icon', async () => {
@@ -149,64 +133,103 @@ describe('channel monitor Custom provider', () => {
     })
   })
 
-  it('shows keys from every group platform when Custom is selected', () => {
-    const keys = [
-      key(1, 'openai'),
-      key(2, 'anthropic'),
-      key(3, 'gemini'),
-      key(4, 'grok'),
-      key(5, 'antigravity'),
-      key(6, 'composite'),
+  it('shows groups from every platform with their default rate when Custom is selected', async () => {
+    const groups = [
+      group(1, 'openai', 0.1),
+      group(2, 'anthropic'),
+      group(3, 'gemini'),
+      group(4, 'grok'),
+      group(5, 'antigravity'),
+      group(6, 'composite'),
     ]
-    const wrapper = mount(MonitorKeyPickerDialog, {
-      props: {
-        show: true,
-        loading: false,
-        keys,
-        provider: PROVIDER_CUSTOM,
-      },
-      global: {
-        stubs: {
-          BaseDialog: BaseDialogStub,
-          GroupBadge: { template: '<span />' },
-        },
-      },
-    })
-
-    expect(wrapper.findAll('tbody tr')).toHaveLength(keys.length)
-  })
-
-  it('loads every active-key page before opening the Custom key picker', async () => {
-    listKeys
-      .mockResolvedValueOnce({
-        items: [key(1, 'openai')],
-        page: 1,
-        page_size: 100,
-        pages: 2,
-        total: 2,
-      })
-      .mockResolvedValueOnce({
-        items: [key(2, 'composite')],
-        page: 2,
-        page_size: 100,
-        pages: 2,
-        total: 2,
-      })
-
+    getAllGroups.mockResolvedValue(groups)
     const wrapper = mountDialog()
     await flushPromises()
+
     await wrapper.get('[data-testid="monitor-provider-custom"]').trigger('click')
-    const useKeyButton = wrapper.findAll('button').find(button =>
-      button.text().includes('admin.channelMonitor.form.useMyKey'),
-    )
-    expect(useKeyButton).toBeDefined()
-    await useKeyButton!.trigger('click')
+    const select = groupSelect(wrapper)
+    const options = select.props('options') as Array<{
+      value: number
+      platform: GroupPlatform
+      rate_multiplier: number
+    }>
+
+    expect(getAllGroups).toHaveBeenCalledTimes(1)
+    expect(options.map(option => option.platform)).toEqual(groups.map(item => item.platform))
+    expect(options.find(option => option.value === 1)?.rate_multiplier).toBe(0.1)
+
+    select.vm.$emit('update:modelValue', 1)
+    await wrapper.vm.$nextTick()
+    const rate = wrapper.get('[data-testid="monitor-group-rate"]')
+    expect(rate.text()).toBe('0.1x')
+    expect(rate.classes()).toContain('rounded-md')
+    expect(rate.classes()).toContain('bg-gray-100')
+    wrapper.unmount()
+  })
+
+  it('filters fixed platforms and clears a selection when the platform changes', async () => {
+    getAllGroups.mockResolvedValue([
+      group(1, 'openai', 0.1),
+      group(2, 'anthropic', 0.2),
+      group(3, 'composite', 0.3),
+    ])
+    const wrapper = mountDialog()
     await flushPromises()
 
-    expect(listKeys).toHaveBeenNthCalledWith(1, 1, 100, { status: 'active' })
-    expect(listKeys).toHaveBeenNthCalledWith(2, 2, 100, { status: 'active' })
-    const picker = wrapper.getComponent(MonitorKeyPickerDialogStub)
-    expect(picker.props('provider')).toBe(PROVIDER_CUSTOM)
-    expect((picker.props('keys') as ApiKey[]).map(item => item.id)).toEqual([1, 2])
+    const select = groupSelect(wrapper)
+    expect((select.props('options') as Array<{ value: number }>).map(option => option.value))
+      .toEqual([2])
+
+    select.vm.$emit('update:modelValue', 2)
+    await wrapper.vm.$nextTick()
+    expect(select.props('modelValue')).toBe(2)
+
+    await wrapper.get('[data-testid="monitor-provider-openai"]').trigger('click')
+    expect(select.props('modelValue')).toBeNull()
+    expect((select.props('options') as Array<{ value: number }>).map(option => option.value))
+      .toEqual([1])
+
+    await wrapper.get('[data-testid="monitor-provider-custom"]').trigger('click')
+    expect((select.props('options') as Array<{ value: number }>).map(option => option.value))
+      .toEqual([1, 2, 3])
+    wrapper.unmount()
+  })
+
+  it('keeps the name optional and submits the selected group without API-key fields', async () => {
+    getAllGroups.mockResolvedValue([group(2, 'anthropic', 0.1)])
+    const wrapper = mountDialog()
+    await flushPromises()
+
+    const name = wrapper.get('input[aria-describedby="channel-monitor-name-hint"]')
+    expect(name.attributes('required')).toBeUndefined()
+    expect(wrapper.text()).toContain('admin.channelMonitor.form.nameHint')
+    expect(wrapper.text()).not.toContain('admin.channelMonitor.form.apiKey')
+    expect(wrapper.find('[data-testid="monitor-endpoint"]').exists()).toBe(false)
+
+    groupSelect(wrapper).vm.$emit('update:modelValue', 2)
+    await wrapper.get('[data-testid="monitor-primary-model"]').setValue('claude-sonnet-4-5')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(showError).not.toHaveBeenCalled()
+    expect(createMonitor).toHaveBeenCalledTimes(1)
+    const payload = createMonitor.mock.calls[0][0]
+    expect(payload).toMatchObject({ name: '', group_id: 2, provider: 'anthropic' })
+    expect(payload).not.toHaveProperty('api_key')
+    expect(payload).not.toHaveProperty('endpoint')
+    expect(payload).not.toHaveProperty('group_name')
+    wrapper.unmount()
+  })
+
+  it('requires a group before creating a monitor', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="monitor-primary-model"]').setValue('claude-sonnet-4-5')
+    await wrapper.get('form').trigger('submit')
+
+    expect(createMonitor).not.toHaveBeenCalled()
+    expect(showError).toHaveBeenCalledWith('admin.channelMonitor.groupRequired')
+    wrapper.unmount()
   })
 })

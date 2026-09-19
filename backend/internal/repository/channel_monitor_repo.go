@@ -56,6 +56,9 @@ func (r *channelMonitorRepository) Create(ctx context.Context, m *service.Channe
 	if m.TemplateID != nil {
 		builder = builder.SetTemplateID(*m.TemplateID)
 	}
+	if m.GroupID != nil {
+		builder = builder.SetGroupID(*m.GroupID)
+	}
 	if m.BodyOverride != nil {
 		builder = builder.SetBodyOverride(m.BodyOverride)
 	}
@@ -83,6 +86,7 @@ func (r *channelMonitorRepository) FindByDuplicateOperationID(ctx context.Contex
 				sqljson.Path(service.ChannelMonitorDuplicateOperationIDMetadataKey),
 			))
 		}).
+		WithGroup().
 		Order(dbent.Asc(channelmonitor.FieldID)).
 		First(ctx)
 	if dbent.IsNotFound(err) {
@@ -97,6 +101,7 @@ func (r *channelMonitorRepository) FindByDuplicateOperationID(ctx context.Contex
 func (r *channelMonitorRepository) GetByID(ctx context.Context, id int64) (*service.ChannelMonitor, error) {
 	row, err := r.client.ChannelMonitor.Query().
 		Where(channelmonitor.IDEQ(id)).
+		WithGroup().
 		Only(ctx)
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrChannelMonitorNotFound, nil)
@@ -125,6 +130,11 @@ func (r *channelMonitorRepository) Update(ctx context.Context, m *service.Channe
 	} else {
 		updater = updater.ClearTemplateID()
 	}
+	if m.GroupID != nil {
+		updater = updater.SetGroupID(*m.GroupID)
+	} else {
+		updater = updater.ClearGroupID()
+	}
 	if m.BodyOverride != nil {
 		updater = updater.SetBodyOverride(m.BodyOverride)
 	} else {
@@ -148,7 +158,7 @@ func (r *channelMonitorRepository) Delete(ctx context.Context, id int64) error {
 }
 
 func (r *channelMonitorRepository) List(ctx context.Context, params service.ChannelMonitorListParams) ([]*service.ChannelMonitor, int64, error) {
-	q := r.client.ChannelMonitor.Query()
+	q := r.client.ChannelMonitor.Query().WithGroup()
 	if params.Provider != "" {
 		q = q.Where(channelmonitor.ProviderEQ(channelmonitor.Provider(params.Provider)))
 	}
@@ -273,6 +283,7 @@ func updateChannelMonitorSortOrders(
 func (r *channelMonitorRepository) ListEnabled(ctx context.Context) ([]*service.ChannelMonitor, error) {
 	rows, err := r.client.ChannelMonitor.Query().
 		Where(channelmonitor.EnabledEQ(true)).
+		WithGroup().
 		Order(
 			dbent.Asc(channelmonitor.FieldSortOrder),
 			dbent.Asc(channelmonitor.FieldID),
@@ -839,6 +850,15 @@ func entToServiceMonitor(row *dbent.ChannelMonitor) *service.ChannelMonitor {
 		BodyOverrideMode:     row.BodyOverrideMode,
 		BodyOverride:         row.BodyOverride,
 		DuplicateOperationID: duplicateOperationID,
+	}
+	if row.GroupID != nil {
+		id := *row.GroupID
+		out.GroupID = &id
+	}
+	if row.Edges.Group != nil {
+		out.GroupName = row.Edges.Group.Name
+		out.GroupRateMultiplier = row.Edges.Group.RateMultiplier
+		out.GroupPlatform = row.Edges.Group.Platform
 	}
 	if row.TemplateID != nil {
 		id := *row.TemplateID

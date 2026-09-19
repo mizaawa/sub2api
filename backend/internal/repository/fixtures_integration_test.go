@@ -272,6 +272,9 @@ func mustCreateApiKey(t *testing.T, client *dbent.Client, k *service.APIKey) *se
 		SetKey(k.Key).
 		SetName(k.Name).
 		SetStatus(k.Status)
+	if k.Purpose != "" {
+		create.SetPurpose(k.Purpose)
+	}
 	if k.Quota != 0 {
 		create.SetQuota(k.Quota)
 	}

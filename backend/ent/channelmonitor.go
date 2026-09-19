@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
+	"github.com/Wei-Shaw/sub2api/ent/group"
 )
 
 // ChannelMonitor is the model entity for the ChannelMonitor schema.
@@ -37,6 +38,8 @@ type ChannelMonitor struct {
 	PrimaryModel string `json:"primary_model,omitempty"`
 	// Additional model names to test alongside primary_model
 	ExtraModels []string `json:"extra_models,omitempty"`
+	// GroupID holds the value of the "group_id" field.
+	GroupID *int64 `json:"group_id,omitempty"`
 	// GroupName holds the value of the "group_name" field.
 	GroupName string `json:"group_name,omitempty"`
 	// 渠道监控显示排序，数值越小越靠前
@@ -73,9 +76,11 @@ type ChannelMonitorEdges struct {
 	DailyRollups []*ChannelMonitorDailyRollup `json:"daily_rollups,omitempty"`
 	// RequestTemplate holds the value of the request_template edge.
 	RequestTemplate *ChannelMonitorRequestTemplate `json:"request_template,omitempty"`
+	// Group holds the value of the group edge.
+	Group *Group `json:"group,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [4]bool
 }
 
 // HistoryOrErr returns the History value or an error if the edge
@@ -107,6 +112,17 @@ func (e ChannelMonitorEdges) RequestTemplateOrErr() (*ChannelMonitorRequestTempl
 	return nil, &NotLoadedError{edge: "request_template"}
 }
 
+// GroupOrErr returns the Group value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e ChannelMonitorEdges) GroupOrErr() (*Group, error) {
+	if e.Group != nil {
+		return e.Group, nil
+	} else if e.loadedTypes[3] {
+		return nil, &NotFoundError{label: group.Label}
+	}
+	return nil, &NotLoadedError{edge: "group"}
+}
+
 // scanValues returns the types for scanning values from sql.Rows.
 func (*ChannelMonitor) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
@@ -116,7 +132,7 @@ func (*ChannelMonitor) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case channelmonitor.FieldEnabled:
 			values[i] = new(sql.NullBool)
-		case channelmonitor.FieldID, channelmonitor.FieldSortOrder, channelmonitor.FieldIntervalSeconds, channelmonitor.FieldJitterSeconds, channelmonitor.FieldCreatedBy, channelmonitor.FieldTemplateID:
+		case channelmonitor.FieldID, channelmonitor.FieldGroupID, channelmonitor.FieldSortOrder, channelmonitor.FieldIntervalSeconds, channelmonitor.FieldJitterSeconds, channelmonitor.FieldCreatedBy, channelmonitor.FieldTemplateID:
 			values[i] = new(sql.NullInt64)
 		case channelmonitor.FieldName, channelmonitor.FieldProvider, channelmonitor.FieldAPIMode, channelmonitor.FieldEndpoint, channelmonitor.FieldAPIKeyEncrypted, channelmonitor.FieldPrimaryModel, channelmonitor.FieldGroupName, channelmonitor.FieldBodyOverrideMode:
 			values[i] = new(sql.NullString)
@@ -198,6 +214,13 @@ func (_m *ChannelMonitor) assignValues(columns []string, values []any) error {
 				if err := json.Unmarshal(*value, &_m.ExtraModels); err != nil {
 					return fmt.Errorf("unmarshal field extra_models: %w", err)
 				}
+			}
+		case channelmonitor.FieldGroupID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field group_id", values[i])
+			} else if value.Valid {
+				_m.GroupID = new(int64)
+				*_m.GroupID = value.Int64
 			}
 		case channelmonitor.FieldGroupName:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -299,6 +322,11 @@ func (_m *ChannelMonitor) QueryRequestTemplate() *ChannelMonitorRequestTemplateQ
 	return NewChannelMonitorClient(_m.config).QueryRequestTemplate(_m)
 }
 
+// QueryGroup queries the "group" edge of the ChannelMonitor entity.
+func (_m *ChannelMonitor) QueryGroup() *GroupQuery {
+	return NewChannelMonitorClient(_m.config).QueryGroup(_m)
+}
+
 // Update returns a builder for updating this ChannelMonitor.
 // Note that you need to call ChannelMonitor.Unwrap() before calling this method if this ChannelMonitor
 // was returned from a transaction, and the transaction was committed or rolled back.
@@ -347,6 +375,11 @@ func (_m *ChannelMonitor) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("extra_models=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ExtraModels))
+	builder.WriteString(", ")
+	if v := _m.GroupID; v != nil {
+		builder.WriteString("group_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteString(", ")
 	builder.WriteString("group_name=")
 	builder.WriteString(_m.GroupName)

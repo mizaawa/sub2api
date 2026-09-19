@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 19 // v19: include per-user blocked public groups
+const apiKeyAuthSnapshotVersion = 20 // v20: include durable internal API-key purpose
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -341,6 +341,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		UserID:      apiKey.UserID,
 		GroupID:     apiKey.GroupID,
 		Name:        apiKey.Name,
+		Purpose:     apiKey.Purpose,
 		Status:      apiKey.Status,
 		IPWhitelist: apiKey.IPWhitelist,
 		IPBlacklist: apiKey.IPBlacklist,
@@ -439,6 +440,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		GroupID:     snapshot.GroupID,
 		Key:         key,
 		Name:        snapshot.Name,
+		Purpose:     snapshot.Purpose,
 		Status:      snapshot.Status,
 		IPWhitelist: snapshot.IPWhitelist,
 		IPBlacklist: snapshot.IPBlacklist,

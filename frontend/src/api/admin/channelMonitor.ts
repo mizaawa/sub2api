@@ -17,16 +17,17 @@ export interface ChannelMonitor {
   provider: Provider
   api_mode: APIMode
   endpoint: string
-  api_key_masked: string
   /**
    * True when the stored encrypted API key cannot be decrypted (e.g. the
-   * encryption key has changed). Admin must re-edit the monitor to provide
-   * a fresh key. Backend skips checks for these monitors.
+   * encryption key has changed). Admin must re-edit the legacy monitor and
+   * bind it to a group. Backend skips checks for these monitors.
    */
   api_key_decrypt_failed?: boolean
   primary_model: string
   extra_models: string[]
+  group_id: number | null
   group_name: string
+  group_rate_multiplier: number | null
   enabled: boolean
   interval_seconds: number
   /** 每次调度在 interval 基础上 ± [0, jitter] 的随机偏移（秒），0 = 固定间隔 */
@@ -78,14 +79,13 @@ export interface SortOrderUpdate {
 }
 
 export interface CreateParams {
-  name: string
+  /** Empty or omitted names are resolved to the selected group name by the server. */
+  name?: string
   provider: Provider
+  group_id: number
   api_mode?: APIMode
-  endpoint: string
-  api_key: string
   primary_model: string
   extra_models?: string[]
-  group_name?: string
   enabled?: boolean
   interval_seconds: number
   jitter_seconds?: number
@@ -95,7 +95,7 @@ export interface CreateParams {
   body_override?: Record<string, unknown> | null
 }
 
-// Update request: api_key 空串 = 不修改；clear_template=true 时把 template_id 置空
+// Update request: clear_template=true 时把 template_id 置空
 export type UpdateParams = Partial<CreateParams> & {
   clear_template?: boolean
 }
@@ -163,7 +163,7 @@ export async function create(params: CreateParams): Promise<ChannelMonitor> {
 }
 
 /**
- * Duplicate a monitor without exposing its stored API key to the browser.
+ * Duplicate a monitor without exposing server-side credentials to the browser.
  * Keep the operation key after ambiguous failures so a retry replays the
  * original server-side operation instead of creating another monitor.
  */
@@ -246,7 +246,6 @@ export async function duplicate(id: number): Promise<ChannelMonitor> {
 
 /**
  * Update an existing channel monitor.
- * api_key field: empty string means "do not modify".
  */
 export async function update(id: number, params: UpdateParams): Promise<ChannelMonitor> {
   const { data } = await apiClient.put<ChannelMonitor>(`/admin/channel-monitors/${id}`, params)

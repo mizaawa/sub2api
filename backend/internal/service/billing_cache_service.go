@@ -733,6 +733,12 @@ func (s *BillingCacheService) IncrementUserPlatformQuotaUsage(userID int64, plat
 // 订阅模式：检查缓存用量未超过限额（Group限额从参数传入）
 // platform 为请求的目标平台（如 "anthropic"），传空串 "" 时跳过 user × platform quota 检查。
 func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription, platform string) error {
+	// A channel-monitor key has already passed internal attestation in auth
+	// middleware. Probes are operational traffic: they must not depend on or
+	// mutate the creating administrator's balance, subscription, quota, or RPM.
+	if apiKey != nil && apiKey.Purpose == APIKeyPurposeChannelMonitor {
+		return nil
+	}
 	// 简易模式：跳过所有计费检查
 	if s.cfg.RunMode == config.RunModeSimple {
 		return nil

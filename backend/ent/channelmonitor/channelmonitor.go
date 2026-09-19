@@ -33,6 +33,8 @@ const (
 	FieldPrimaryModel = "primary_model"
 	// FieldExtraModels holds the string denoting the extra_models field in the database.
 	FieldExtraModels = "extra_models"
+	// FieldGroupID holds the string denoting the group_id field in the database.
+	FieldGroupID = "group_id"
 	// FieldGroupName holds the string denoting the group_name field in the database.
 	FieldGroupName = "group_name"
 	// FieldSortOrder holds the string denoting the sort_order field in the database.
@@ -61,6 +63,8 @@ const (
 	EdgeDailyRollups = "daily_rollups"
 	// EdgeRequestTemplate holds the string denoting the request_template edge name in mutations.
 	EdgeRequestTemplate = "request_template"
+	// EdgeGroup holds the string denoting the group edge name in mutations.
+	EdgeGroup = "group"
 	// Table holds the table name of the channelmonitor in the database.
 	Table = "channel_monitors"
 	// HistoryTable is the table that holds the history relation/edge.
@@ -84,6 +88,13 @@ const (
 	RequestTemplateInverseTable = "channel_monitor_request_templates"
 	// RequestTemplateColumn is the table column denoting the request_template relation/edge.
 	RequestTemplateColumn = "template_id"
+	// GroupTable is the table that holds the group relation/edge.
+	GroupTable = "channel_monitors"
+	// GroupInverseTable is the table name for the Group entity.
+	// It exists in this package in order to avoid circular dependency with the "group" package.
+	GroupInverseTable = "groups"
+	// GroupColumn is the table column denoting the group relation/edge.
+	GroupColumn = "group_id"
 )
 
 // Columns holds all SQL columns for channelmonitor fields.
@@ -98,6 +109,7 @@ var Columns = []string{
 	FieldAPIKeyEncrypted,
 	FieldPrimaryModel,
 	FieldExtraModels,
+	FieldGroupID,
 	FieldGroupName,
 	FieldSortOrder,
 	FieldEnabled,
@@ -238,6 +250,11 @@ func ByPrimaryModel(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldPrimaryModel, opts...).ToFunc()
 }
 
+// ByGroupID orders the results by the group_id field.
+func ByGroupID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldGroupID, opts...).ToFunc()
+}
+
 // ByGroupName orders the results by the group_name field.
 func ByGroupName(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldGroupName, opts...).ToFunc()
@@ -317,6 +334,13 @@ func ByRequestTemplateField(field string, opts ...sql.OrderTermOption) OrderOpti
 		sqlgraph.OrderByNeighborTerms(s, newRequestTemplateStep(), sql.OrderByField(field, opts...))
 	}
 }
+
+// ByGroupField orders the results by group field.
+func ByGroupField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newGroupStep(), sql.OrderByField(field, opts...))
+	}
+}
 func newHistoryStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -336,5 +360,12 @@ func newRequestTemplateStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(RequestTemplateInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.M2O, false, RequestTemplateTable, RequestTemplateColumn),
+	)
+}
+func newGroupStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(GroupInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, true, GroupTable, GroupColumn),
 	)
 }

@@ -109,7 +109,7 @@ func TestDuplicateChannelMonitorHandlerRedactsKeyAndReplaysRetry(t *testing.T) {
 	require.Equal(t, http.StatusOK, first.Code)
 	require.Equal(t, 1, repo.createCalls)
 	require.Contains(t, first.Body.String(), `"name":"primary (Copy)"`)
-	require.Contains(t, first.Body.String(), `"api_key_masked":"top-***"`)
+	require.NotContains(t, first.Body.String(), `api_key_masked`)
 	require.Contains(t, first.Body.String(), `"created_by":77`)
 	require.Contains(t, first.Body.String(), `"enabled":false`)
 	require.NotContains(t, first.Body.String(), "top-secret")
@@ -165,6 +165,6 @@ func TestDuplicateChannelMonitorHandlerRecoversAfterMarkSucceededFailure(t *test
 	require.Equal(t, "true", second.Header().Get("X-Idempotency-Recovered"))
 	require.Equal(t, 1, repo.createCalls, "ambiguous retries must not repeat the create side effect")
 	require.Contains(t, second.Body.String(), `"id":101`)
-	require.Contains(t, second.Body.String(), `"api_key_masked":"top-***"`)
+	require.NotContains(t, second.Body.String(), `api_key_masked`)
 	require.NotContains(t, second.Body.String(), "top-secret")
 }

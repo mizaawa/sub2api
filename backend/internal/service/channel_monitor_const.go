@@ -85,7 +85,7 @@ const (
 	MonitorHistoryMaxLimit = 1000
 
 	// monitorTimelineMaxPoints 用户视图 timeline 每个监控最多返回的历史点数。
-	monitorTimelineMaxPoints = 60
+	monitorTimelineMaxPoints = 120
 
 	// monitorEndpointResolveTimeout validateEndpoint 解析 hostname 的最长耗时。
 	monitorEndpointResolveTimeout = 5 * time.Second
@@ -123,6 +123,9 @@ var (
 	ErrChannelMonitorInvalidProvider = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_PROVIDER", "provider must be one of openai/anthropic/gemini/grok/custom",
 	)
+	ErrChannelMonitorInvalidName = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_INVALID_NAME", "name must not exceed 100 characters",
+	)
 	ErrChannelMonitorInvalidAPIMode = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_INVALID_API_MODE", "api_mode must be chat_completions or responses; responses is only supported for openai",
 	)
@@ -153,10 +156,22 @@ var (
 	ErrChannelMonitorMissingAPIKey = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_MISSING_API_KEY", "api_key is required when creating a monitor",
 	)
+	ErrChannelMonitorMissingGroup = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_MISSING_GROUP", "group_id is required when creating a monitor",
+	)
+	ErrChannelMonitorGroupInactive = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_GROUP_INACTIVE", "the selected group is not active",
+	)
+	ErrChannelMonitorGroupPlatformMismatch = infraerrors.BadRequest(
+		"CHANNEL_MONITOR_GROUP_PLATFORM_MISMATCH", "the selected group platform does not match the monitor platform",
+	)
 	ErrChannelMonitorMissingPrimaryModel = infraerrors.BadRequest(
 		"CHANNEL_MONITOR_MISSING_PRIMARY_MODEL", "primary_model is required",
 	)
 	ErrChannelMonitorAPIKeyDecryptFailed = infraerrors.InternalServer(
 		"CHANNEL_MONITOR_KEY_DECRYPT_FAILED", "api key decryption failed; please re-edit the monitor with a fresh key",
+	)
+	ErrChannelMonitorManagedGatewayUnavailable = infraerrors.InternalServer(
+		"CHANNEL_MONITOR_MANAGED_GATEWAY_UNAVAILABLE", "managed channel monitor gateway is unavailable",
 	)
 )

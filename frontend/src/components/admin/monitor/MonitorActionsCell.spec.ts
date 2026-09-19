@@ -16,10 +16,11 @@ function makeMonitor(overrides: Partial<ChannelMonitor> = {}): ChannelMonitor {
     provider: 'openai',
     api_mode: 'chat_completions',
     endpoint: 'https://api.example.com',
-    api_key_masked: 'sk-t***',
     primary_model: 'gpt-4o-mini',
     extra_models: [],
+    group_id: null,
     group_name: '',
+    group_rate_multiplier: null,
     enabled: true,
     interval_seconds: 60,
     jitter_seconds: 0,
@@ -74,5 +75,17 @@ describe('MonitorActionsCell duplicate action', () => {
 
     expect(button.attributes('disabled')).toBeDefined()
     expect(button.attributes('title')).toBe('admin.channelMonitor.duplicateKeyUnavailable')
+  })
+
+  it('does not apply the legacy key failure guard to a group monitor', () => {
+    const wrapper = mount(MonitorActionsCell, {
+      props: {
+        row: makeMonitor({ group_id: 7, api_key_decrypt_failed: true }),
+        running: false,
+        duplicating: false,
+      },
+    })
+
+    expect(wrapper.get('[data-testid="monitor-duplicate"]').attributes('disabled')).toBeUndefined()
   })
 })

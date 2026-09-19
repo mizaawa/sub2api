@@ -245,6 +245,12 @@ var headerNameRegex = regexp.MustCompile(`^[A-Za-z0-9!#$%&'*+\-.^_` + "`" + `|~]
 // forbiddenHeaderNames hop-by-hop + HTTP 客户端自管的 header；禁止用户覆盖，
 // 否则会让 Go http.Client 行为异常（双重 Content-Length、连接复用错乱等）。
 var forbiddenHeaderNames = map[string]bool{
+	"authorization":       true,
+	"proxy-authorization": true,
+	"x-api-key":           true,
+	"x-goog-api-key":      true,
+	strings.ToLower(ChannelMonitorTimestampHeader): true,
+	strings.ToLower(ChannelMonitorSignatureHeader): true,
 	"host":              true,
 	"content-length":    true,
 	"content-encoding":  true,

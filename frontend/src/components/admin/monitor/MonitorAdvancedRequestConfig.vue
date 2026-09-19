@@ -137,6 +137,20 @@ interface HeaderRow {
   value: string
 }
 
+const FORBIDDEN_HEADER_NAMES = new Set([
+  'authorization',
+  'proxy-authorization',
+  'x-api-key',
+  'x-goog-api-key',
+  'x-sub2api-monitor-timestamp',
+  'x-sub2api-monitor-signature',
+  'host',
+  'content-length',
+  'content-encoding',
+  'transfer-encoding',
+  'connection',
+])
+
 const headerRows = ref<HeaderRow[]>(toRows(props.extraHeaders))
 const headersError = ref('')
 
@@ -187,6 +201,10 @@ function commitHeaders() {
     if (name === '') continue
     if (name.includes(':') || /\s/.test(name)) {
       headersError.value = t('admin.channelMonitor.advanced.headerNameInvalid', { name })
+      return
+    }
+    if (FORBIDDEN_HEADER_NAMES.has(name.toLowerCase())) {
+      headersError.value = t('admin.channelMonitor.advanced.headerNameForbidden', { name })
       return
     }
   }

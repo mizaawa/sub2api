@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitordailyrollup"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
+	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 )
 
@@ -131,6 +132,26 @@ func (_u *ChannelMonitorUpdate) SetExtraModels(v []string) *ChannelMonitorUpdate
 // AppendExtraModels appends value to the "extra_models" field.
 func (_u *ChannelMonitorUpdate) AppendExtraModels(v []string) *ChannelMonitorUpdate {
 	_u.mutation.AppendExtraModels(v)
+	return _u
+}
+
+// SetGroupID sets the "group_id" field.
+func (_u *ChannelMonitorUpdate) SetGroupID(v int64) *ChannelMonitorUpdate {
+	_u.mutation.SetGroupID(v)
+	return _u
+}
+
+// SetNillableGroupID sets the "group_id" field if the given value is not nil.
+func (_u *ChannelMonitorUpdate) SetNillableGroupID(v *int64) *ChannelMonitorUpdate {
+	if v != nil {
+		_u.SetGroupID(*v)
+	}
+	return _u
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (_u *ChannelMonitorUpdate) ClearGroupID() *ChannelMonitorUpdate {
+	_u.mutation.ClearGroupID()
 	return _u
 }
 
@@ -373,6 +394,11 @@ func (_u *ChannelMonitorUpdate) SetRequestTemplate(v *ChannelMonitorRequestTempl
 	return _u.SetRequestTemplateID(v.ID)
 }
 
+// SetGroup sets the "group" edge to the Group entity.
+func (_u *ChannelMonitorUpdate) SetGroup(v *Group) *ChannelMonitorUpdate {
+	return _u.SetGroupID(v.ID)
+}
+
 // Mutation returns the ChannelMonitorMutation object of the builder.
 func (_u *ChannelMonitorUpdate) Mutation() *ChannelMonitorMutation {
 	return _u.mutation
@@ -423,6 +449,12 @@ func (_u *ChannelMonitorUpdate) RemoveDailyRollups(v ...*ChannelMonitorDailyRoll
 // ClearRequestTemplate clears the "request_template" edge to the ChannelMonitorRequestTemplate entity.
 func (_u *ChannelMonitorUpdate) ClearRequestTemplate() *ChannelMonitorUpdate {
 	_u.mutation.ClearRequestTemplate()
+	return _u
+}
+
+// ClearGroup clears the "group" edge to the Group entity.
+func (_u *ChannelMonitorUpdate) ClearGroup() *ChannelMonitorUpdate {
+	_u.mutation.ClearGroup()
 	return _u
 }
 
@@ -728,6 +760,35 @@ func (_u *ChannelMonitorUpdate) sqlSave(ctx context.Context) (_node int, err err
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.GroupCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.GroupTable,
+			Columns: []string{channelmonitor.GroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.GroupIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.GroupTable,
+			Columns: []string{channelmonitor.GroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{channelmonitor.Label}
@@ -847,6 +908,26 @@ func (_u *ChannelMonitorUpdateOne) SetExtraModels(v []string) *ChannelMonitorUpd
 // AppendExtraModels appends value to the "extra_models" field.
 func (_u *ChannelMonitorUpdateOne) AppendExtraModels(v []string) *ChannelMonitorUpdateOne {
 	_u.mutation.AppendExtraModels(v)
+	return _u
+}
+
+// SetGroupID sets the "group_id" field.
+func (_u *ChannelMonitorUpdateOne) SetGroupID(v int64) *ChannelMonitorUpdateOne {
+	_u.mutation.SetGroupID(v)
+	return _u
+}
+
+// SetNillableGroupID sets the "group_id" field if the given value is not nil.
+func (_u *ChannelMonitorUpdateOne) SetNillableGroupID(v *int64) *ChannelMonitorUpdateOne {
+	if v != nil {
+		_u.SetGroupID(*v)
+	}
+	return _u
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (_u *ChannelMonitorUpdateOne) ClearGroupID() *ChannelMonitorUpdateOne {
+	_u.mutation.ClearGroupID()
 	return _u
 }
 
@@ -1089,6 +1170,11 @@ func (_u *ChannelMonitorUpdateOne) SetRequestTemplate(v *ChannelMonitorRequestTe
 	return _u.SetRequestTemplateID(v.ID)
 }
 
+// SetGroup sets the "group" edge to the Group entity.
+func (_u *ChannelMonitorUpdateOne) SetGroup(v *Group) *ChannelMonitorUpdateOne {
+	return _u.SetGroupID(v.ID)
+}
+
 // Mutation returns the ChannelMonitorMutation object of the builder.
 func (_u *ChannelMonitorUpdateOne) Mutation() *ChannelMonitorMutation {
 	return _u.mutation
@@ -1139,6 +1225,12 @@ func (_u *ChannelMonitorUpdateOne) RemoveDailyRollups(v ...*ChannelMonitorDailyR
 // ClearRequestTemplate clears the "request_template" edge to the ChannelMonitorRequestTemplate entity.
 func (_u *ChannelMonitorUpdateOne) ClearRequestTemplate() *ChannelMonitorUpdateOne {
 	_u.mutation.ClearRequestTemplate()
+	return _u
+}
+
+// ClearGroup clears the "group" edge to the Group entity.
+func (_u *ChannelMonitorUpdateOne) ClearGroup() *ChannelMonitorUpdateOne {
+	_u.mutation.ClearGroup()
 	return _u
 }
 
@@ -1467,6 +1559,35 @@ func (_u *ChannelMonitorUpdateOne) sqlSave(ctx context.Context) (_node *ChannelM
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(channelmonitorrequesttemplate.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.GroupCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.GroupTable,
+			Columns: []string{channelmonitor.GroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.GroupIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: true,
+			Table:   channelmonitor.GroupTable,
+			Columns: []string{channelmonitor.GroupColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(group.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

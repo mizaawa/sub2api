@@ -710,6 +710,12 @@ func (s *UsageLogRepoSuite) TestDashboardStats_TodayTotalsAndPerformance() {
 	group := mustCreateGroup(s.T(), s.client, &service.Group{Name: "g-ul"})
 	apiKey1 := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: userToday.ID, Key: "sk-ul-1", Name: "ul1"})
 	mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: userOld.ID, Key: "sk-ul-2", Name: "ul2", Status: service.StatusDisabled})
+	mustCreateApiKey(s.T(), s.client, &service.APIKey{
+		UserID:  userToday.ID,
+		Key:     "sk-ul-managed-monitor",
+		Name:    "hidden monitor key",
+		Purpose: service.APIKeyPurposeChannelMonitor,
+	})
 
 	resetAt := now.Add(10 * time.Minute)
 	accNormal := mustCreateAccount(s.T(), s.client, &service.Account{Name: "a-normal", Schedulable: true})
@@ -885,6 +891,12 @@ func (s *UsageLogRepoSuite) TestDashboardStatsWithRange_Fallback() {
 func (s *UsageLogRepoSuite) TestGetUserDashboardStats() {
 	user := mustCreateUser(s.T(), s.client, &service.User{Email: "userdash@test.com"})
 	apiKey := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-userdash", Name: "k"})
+	mustCreateApiKey(s.T(), s.client, &service.APIKey{
+		UserID:  user.ID,
+		Key:     "sk-userdash-managed-monitor",
+		Name:    "hidden monitor key",
+		Purpose: service.APIKeyPurposeChannelMonitor,
+	})
 	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-userdash"})
 
 	s.createUsageLog(user, apiKey, account, 10, 20, 0.5, time.Now())

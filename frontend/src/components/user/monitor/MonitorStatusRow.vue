@@ -24,7 +24,11 @@
       </span>
     </div>
 
-    <MonitorTimeline class="mt-3" :buckets="item.timeline" :length="60" />
+    <MonitorTimeline
+      class="mt-3"
+      :buckets="item.timeline"
+      :length="MONITOR_TIMELINE_POINTS"
+    />
   </article>
 </template>
 
@@ -34,6 +38,7 @@ import { useI18n } from 'vue-i18n'
 import type { UserMonitorView } from '@/api/channelMonitor'
 import Icon from '@/components/icons/Icon.vue'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
+import { MONITOR_TIMELINE_POINTS } from '@/constants/channelMonitor'
 import MonitorTimeline from './MonitorTimeline.vue'
 
 const props = defineProps<{

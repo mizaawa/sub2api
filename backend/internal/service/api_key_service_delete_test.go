@@ -353,6 +353,51 @@ func TestApiKeyService_Delete_NotFound(t *testing.T) {
 	require.Empty(t, cache.deleteAuthKeys)
 }
 
+func TestAPIKeyService_DeleteRejectsManagedKey(t *testing.T) {
+	repo := &apiKeyRepoStub{apiKey: &APIKey{
+		ID:      42,
+		UserID:  7,
+		Key:     "sk-managed",
+		Purpose: APIKeyPurposeChannelMonitor,
+	}}
+	svc := &APIKeyService{apiKeyRepo: repo}
+
+	err := svc.Delete(context.Background(), 42, 7)
+
+	require.ErrorIs(t, err, ErrManagedAPIKey)
+	require.Empty(t, repo.deletedIDs)
+}
+
+func TestAPIKeyService_UpdateRejectsManagedKey(t *testing.T) {
+	repo := &apiKeyRepoStub{apiKey: &APIKey{
+		ID:      42,
+		UserID:  7,
+		Key:     "sk-managed",
+		Purpose: APIKeyPurposeChannelMonitor,
+	}}
+	svc := &APIKeyService{apiKeyRepo: repo}
+	name := "renamed"
+
+	_, err := svc.Update(context.Background(), 42, 7, UpdateAPIKeyRequest{Name: &name})
+
+	require.ErrorIs(t, err, ErrManagedAPIKey)
+	require.Empty(t, repo.updatedKeys)
+}
+
+func TestAPIKeyService_GetByIDHidesManagedKey(t *testing.T) {
+	repo := &apiKeyRepoStub{apiKey: &APIKey{
+		ID:      42,
+		UserID:  7,
+		Key:     "sk-managed",
+		Purpose: APIKeyPurposeChannelMonitor,
+	}}
+	svc := &APIKeyService{apiKeyRepo: repo}
+
+	_, err := svc.GetByID(context.Background(), 42)
+
+	require.ErrorIs(t, err, ErrAPIKeyNotFound)
+}
+
 func TestAPIKeyService_List_FillsCurrentConcurrency(t *testing.T) {
 	repo := &apiKeyRepoStub{
 		allowListByUserID: true,

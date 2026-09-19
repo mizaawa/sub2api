@@ -56,7 +56,7 @@ const DataTableStub = defineComponent({
     columns: { type: Array, default: () => [] },
     loading: { type: Boolean, default: false },
   },
-  template: '<div><div v-for="row in data" :key="row.id"><slot name="cell-actions" :row="row" /></div></div>',
+  template: '<div><div v-for="row in data" :key="row.id"><slot name="cell-group_name" :row="row" /><slot name="cell-actions" :row="row" /></div></div>',
 })
 
 function makeMonitor(overrides: Partial<ChannelMonitor> = {}): ChannelMonitor {
@@ -67,10 +67,11 @@ function makeMonitor(overrides: Partial<ChannelMonitor> = {}): ChannelMonitor {
     provider: 'openai',
     api_mode: 'chat_completions',
     endpoint: 'https://api.example.com',
-    api_key_masked: 'sk-t***',
     primary_model: 'gpt-4o-mini',
     extra_models: [],
-    group_name: '',
+    group_id: 7,
+    group_name: 'OpenAI group',
+    group_rate_multiplier: 0.1,
     enabled: true,
     interval_seconds: 60,
     jitter_seconds: 0,
@@ -131,6 +132,11 @@ describe('ChannelMonitorView duplicate action', () => {
   it('duplicates the selected monitor, reports success, and refreshes the list', async () => {
     const wrapper = mountView()
     await flushPromises()
+
+    const rate = wrapper.get('[data-testid="monitor-group-rate"]')
+    expect(wrapper.text()).toContain('OpenAI group')
+    expect(rate.text()).toBe('0.1x')
+    expect(rate.classes()).toContain('bg-gray-100')
 
     wrapper.findComponent(MonitorActionsCell).vm.$emit('duplicate', monitor)
     await flushPromises()
@@ -197,7 +203,7 @@ describe('ChannelMonitorView duplicate action', () => {
   })
 
   it('rejects a defensive duplicate event when the API key is unavailable', async () => {
-    const unavailable = makeMonitor({ id: 99, api_key_decrypt_failed: true })
+    const unavailable = makeMonitor({ id: 99, group_id: null, api_key_decrypt_failed: true })
     listMonitors.mockResolvedValueOnce({
       items: [unavailable],
       total: 1,

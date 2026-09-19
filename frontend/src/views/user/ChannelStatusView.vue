@@ -1,25 +1,28 @@
 <template>
   <AppLayout>
-    <div class="mx-auto w-full max-w-5xl pb-8">
-      <section
-        class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm"
-        aria-labelledby="channel-system-status-title"
+    <div class="mx-auto w-full max-w-7xl pb-8">
+      <aside
+        class="mb-4 rounded-lg border border-gray-200 border-l-4 border-l-amber-400 bg-white px-4 py-3 shadow-sm sm:px-5"
+        aria-labelledby="channel-status-notice-title"
+        data-testid="channel-status-notice"
       >
-        <header class="border-b border-gray-200 px-4 py-5 sm:px-6">
-          <h1
-            id="channel-system-status-title"
-            class="text-xl font-semibold text-gray-950"
-          >
-            {{ t('channelStatus.systemStatus') }}
-          </h1>
-        </header>
+        <h1
+          id="channel-status-notice-title"
+          class="text-sm font-semibold text-gray-950"
+        >
+          {{ siteName }}
+        </h1>
+        <p class="mt-1 text-sm leading-6 text-gray-600">
+          {{ t('channelStatus.metricsDisclaimer') }}
+        </p>
+      </aside>
 
+      <section
+        :aria-label="t('channelStatus.title')"
+        data-testid="channel-status-grid"
+      >
         <MonitorCardGrid :items="items" :loading="loading" />
       </section>
-
-      <p class="mt-4 px-1 text-xs leading-5 text-gray-500">
-        {{ t('channelStatus.metricsDisclaimer') }}
-      </p>
 
       <footer class="mt-5 border-t border-gray-200 pt-4 text-center text-xs text-gray-500">
         <span>{{ t('channelStatus.poweredBy') }}</span>
@@ -37,7 +40,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
@@ -52,6 +55,9 @@ import { useAutoRefresh } from '@/composables/useAutoRefresh'
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const siteName = computed(() =>
+  appStore.cachedPublicSettings?.site_name?.trim() || appStore.siteName?.trim() || 'Sub2API'
+)
 
 const items = ref<UserMonitorView[]>([])
 const loading = ref(false)

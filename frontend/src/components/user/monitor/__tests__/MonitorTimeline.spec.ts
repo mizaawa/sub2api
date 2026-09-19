@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { MonitorTimelinePoint } from '@/api/channelMonitor'
 import MonitorTimeline from '@/components/user/monitor/MonitorTimeline.vue'
+import { MONITOR_TIMELINE_POINTS } from '@/constants/channelMonitor'
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -61,5 +62,12 @@ describe('MonitorTimeline', () => {
     const segments = wrapper.findAll('.monitor-status-bar__segment--empty')
     expect(segments).toHaveLength(6)
     expect(wrapper.get('[role="img"]').attributes('aria-label')).toBe('0 recent status checks')
+  })
+
+  it('shows 120 checks by default', () => {
+    const wrapper = mount(MonitorTimeline, { props: { buckets: [] } })
+
+    expect(MONITOR_TIMELINE_POINTS).toBe(120)
+    expect(wrapper.findAll('.monitor-status-bar__segment')).toHaveLength(120)
   })
 })

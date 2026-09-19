@@ -7,8 +7,17 @@
   >
     <form id="channel-monitor-form" @submit.prevent="handleSubmit" class="space-y-5">
       <div>
-        <label class="input-label">{{ t('admin.channelMonitor.form.name') }} <span class="text-red-500">*</span></label>
-        <input v-model="form.name" type="text" required class="input" :placeholder="t('admin.channelMonitor.form.namePlaceholder')" />
+        <label class="input-label">{{ t('admin.channelMonitor.form.name') }}</label>
+        <input
+          v-model="form.name"
+          type="text"
+          class="input"
+          :placeholder="t('admin.channelMonitor.form.namePlaceholder')"
+          aria-describedby="channel-monitor-name-hint"
+        />
+        <p id="channel-monitor-name-hint" class="mt-1 text-xs text-gray-400">
+          {{ t('admin.channelMonitor.form.nameHint') }}
+        </p>
       </div>
 
       <div>
@@ -30,6 +39,41 @@
         </div>
       </div>
 
+      <div>
+        <label class="input-label">
+          {{ t('admin.channelMonitor.form.group') }} <span class="text-red-500">*</span>
+        </label>
+        <Select
+          id="channel-monitor-group"
+          data-testid="monitor-group-select"
+          v-model="form.group_id"
+          :options="groupOptions"
+          :disabled="groupsLoading"
+          :placeholder="groupSelectPlaceholder"
+          :empty-text="t('admin.channelMonitor.form.noGroupsAvailable')"
+          searchable
+        >
+          <template #selected="{ option }">
+            <MonitorGroupLabel
+              v-if="option"
+              :name="String(option.label)"
+              :rate-multiplier="optionRateMultiplier(option.rate_multiplier)"
+              :platform-label="form.provider === PROVIDER_CUSTOM ? String(option.platform_label || '') : ''"
+            />
+            <span v-else class="text-gray-400 dark:text-gray-500">
+              {{ groupSelectPlaceholder }}
+            </span>
+          </template>
+          <template #option="{ option }">
+            <MonitorGroupLabel
+              :name="String(option.label)"
+              :rate-multiplier="optionRateMultiplier(option.rate_multiplier)"
+              :platform-label="form.provider === PROVIDER_CUSTOM ? String(option.platform_label || '') : ''"
+            />
+          </template>
+        </Select>
+      </div>
+
       <div v-if="form.provider === PROVIDER_OPENAI" class="rounded-lg border border-blue-100 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/10">
         <label class="input-label">{{ t('admin.channelMonitor.form.apiMode') }}</label>
         <div class="grid gap-3 sm:grid-cols-2">
@@ -46,35 +90,6 @@
             <span class="mt-0.5 block text-xs opacity-80">{{ opt.hint }}</span>
           </button>
         </div>
-      </div>
-
-      <div>
-        <label class="input-label">{{ t('admin.channelMonitor.form.endpoint') }} <span class="text-red-500">*</span></label>
-        <div class="flex gap-2">
-          <input v-model="form.endpoint" data-testid="monitor-endpoint" type="text" required class="input flex-1" :placeholder="t('admin.channelMonitor.form.endpointPlaceholder')" />
-          <button type="button" @click="useCurrentDomain" class="btn btn-secondary whitespace-nowrap">
-            {{ t('admin.channelMonitor.form.useCurrentDomain') }}
-          </button>
-        </div>
-      </div>
-
-      <div>
-        <label class="input-label">
-          {{ t('admin.channelMonitor.form.apiKey') }}<span v-if="!editing" class="text-red-500"> *</span>
-        </label>
-        <div class="flex gap-2">
-          <input
-            v-model="form.api_key"
-            type="password"
-            :required="!editing"
-            class="input flex-1"
-            :placeholder="editing ? t('admin.channelMonitor.form.apiKeyEditPlaceholder') : t('admin.channelMonitor.form.apiKeyPlaceholder')"
-          />
-          <button type="button" @click="openMyKeyPicker" class="btn btn-secondary whitespace-nowrap">
-            {{ t('admin.channelMonitor.form.useMyKey') }}
-          </button>
-        </div>
-        <p v-if="editing && editing.api_key_masked" class="mt-1 text-xs text-gray-400">{{ editing.api_key_masked }}</p>
       </div>
 
       <div>
@@ -98,11 +113,6 @@
           :placeholder="t('admin.channelMonitor.form.extraModelsPlaceholder')"
           @update:models="form.extra_models = $event"
         />
-      </div>
-
-      <div>
-        <label class="input-label">{{ t('admin.channelMonitor.form.groupName') }}</label>
-        <input v-model="form.group_name" type="text" class="input" :placeholder="t('admin.channelMonitor.form.groupNamePlaceholder')" />
       </div>
 
       <div>
@@ -172,16 +182,6 @@
       </div>
     </template>
   </BaseDialog>
-
-  <MonitorKeyPickerDialog
-    :show="showKeyPicker"
-    :loading="myKeysLoading"
-    :keys="myActiveKeys"
-    :provider="form.provider"
-    :user-group-rates="userGroupRates"
-    @close="showKeyPicker = false"
-    @pick="pickMyKey"
-  />
 </template>
 
 <script setup lang="ts">
@@ -190,8 +190,6 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
-import { keysAPI } from '@/api/keys'
-import { userGroupsAPI } from '@/api/groups'
 import type {
   BodyOverrideMode,
   ChannelMonitor,
@@ -201,13 +199,13 @@ import type {
   UpdateParams,
 } from '@/api/admin/channelMonitor'
 import type { ChannelMonitorTemplate } from '@/api/admin/channelMonitorTemplate'
-import type { ApiKey } from '@/types'
+import type { AdminGroup, GroupPlatform } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import Select from '@/components/common/Select.vue'
 import ModelTagInput from '@/components/admin/channel/ModelTagInput.vue'
 import { getPlatformTextClass } from '@/components/admin/channel/types'
-import MonitorKeyPickerDialog from '@/components/admin/monitor/MonitorKeyPickerDialog.vue'
+import MonitorGroupLabel from '@/components/admin/monitor/MonitorGroupLabel.vue'
 import MonitorAdvancedRequestConfig from '@/components/admin/monitor/MonitorAdvancedRequestConfig.vue'
 import ProviderIcon from '@/components/user/monitor/ProviderIcon.vue'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
@@ -219,7 +217,6 @@ import {
   PROVIDER_CUSTOM,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
-  DEFAULT_GROK_ENDPOINT,
   DEFAULT_GROK_MODEL,
   DEFAULT_INTERVAL_SECONDS,
 } from '@/constants/channelMonitor'
@@ -250,21 +247,13 @@ const editing = computed<ChannelMonitor | null>(() => props.monitor)
 
 const submitting = ref(false)
 
-// API key picker
-const showKeyPicker = ref(false)
-const myKeysLoading = ref(false)
-const myActiveKeys = ref<ApiKey[]>([])
-const userGroupRates = ref<Record<number, number>>({})
-
 interface MonitorForm {
   name: string
   provider: Provider
+  group_id: number | null
   api_mode: APIMode
-  endpoint: string
-  api_key: string
   primary_model: string
   extra_models: string[]
-  group_name: string
   interval_seconds: number
   jitter_seconds: number
   enabled: boolean
@@ -278,12 +267,10 @@ interface MonitorForm {
 const form = reactive<MonitorForm>({
   name: '',
   provider: PROVIDER_ANTHROPIC,
+  group_id: null,
   api_mode: API_MODE_CHAT_COMPLETIONS,
-  endpoint: '',
-  api_key: '',
   primary_model: '',
   extra_models: [],
-  group_name: '',
   interval_seconds: systemDefaultInterval.value,
   jitter_seconds: 0,
   enabled: true,
@@ -297,6 +284,76 @@ const form = reactive<MonitorForm>({
 const maxJitterSeconds = computed<number>(() => Math.max(0, (form.interval_seconds || 0) - 15))
 
 let suppressFormWatchers = false
+
+interface GroupSelectOption extends Record<string, unknown> {
+  value: number
+  label: string
+  platform: GroupPlatform | null
+  platform_label: string
+  rate_multiplier: number | null
+  disabled?: boolean
+}
+
+const groupsCache = ref<AdminGroup[]>([])
+const groupsLoading = ref(false)
+let groupsLoaded = false
+
+const groupSelectPlaceholder = computed(() => (
+  groupsLoading.value
+    ? t('common.loading')
+    : t('admin.channelMonitor.form.groupPlaceholder')
+))
+
+function groupMatchesProvider(group: AdminGroup): boolean {
+  return form.provider === PROVIDER_CUSTOM || group.platform === form.provider
+}
+
+const groupOptions = computed<GroupSelectOption[]>(() => {
+  const options: GroupSelectOption[] = groupsCache.value
+    .filter(groupMatchesProvider)
+    .map(group => ({
+      value: group.id,
+      label: group.name,
+      platform: group.platform,
+      platform_label: t(`admin.groups.platforms.${group.platform}`),
+      rate_multiplier: group.rate_multiplier,
+    }))
+
+  const monitor = props.monitor
+  if (
+    monitor?.group_id != null
+    && !options.some(option => option.value === monitor.group_id)
+    && monitor.group_name
+  ) {
+    options.push({
+      value: monitor.group_id,
+      label: monitor.group_name,
+      platform: null,
+      platform_label: '',
+      rate_multiplier: monitor.group_rate_multiplier,
+      disabled: true,
+    })
+  }
+
+  return options
+})
+
+function optionRateMultiplier(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+async function loadGroups() {
+  if (groupsLoaded || groupsLoading.value) return
+  groupsLoading.value = true
+  try {
+    groupsCache.value = await adminAPI.groups.getAll()
+    groupsLoaded = true
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('admin.channelMonitor.form.groupLoadError')))
+  } finally {
+    groupsLoading.value = false
+  }
+}
 
 // 可用模板列表（进入 dialog 时一次性拉取 cache；按 provider / api mode 过滤）。
 const templatesCache = ref<ChannelMonitorTemplate[]>([])
@@ -409,28 +466,21 @@ const providerOptions = computed<ProviderOption[]>(() => [
 function selectProvider(provider: Provider) {
   if (form.provider === provider) return
   const previousProvider = form.provider
-  const clearGrokEndpoint =
-    previousProvider === PROVIDER_GROK && form.endpoint === DEFAULT_GROK_ENDPOINT
   const clearGrokModel =
     previousProvider === PROVIDER_GROK && form.primary_model === DEFAULT_GROK_MODEL
   form.provider = provider
   if (provider === PROVIDER_GROK) {
-    if (!form.endpoint.trim()) form.endpoint = DEFAULT_GROK_ENDPOINT
     if (!form.primary_model.trim()) form.primary_model = DEFAULT_GROK_MODEL
     return
   }
-  if (clearGrokEndpoint) form.endpoint = ''
   if (clearGrokModel) form.primary_model = ''
 }
 
-// Clear api_key whenever provider changes to avoid cross-provider key mismatch.
-// Editing mode loads api_key='' via loadFromMonitor and only sets it on user
-// typing, so clearing on provider change is always a safe no-op until the user
-// picks a new key.
-// 同时清空 template_id（模板有 provider 归属，跨平台不通用）。
+// A selected group belongs to the previous platform, so require an explicit
+// choice after switching platform. Request templates are provider-specific too.
 watch(() => form.provider, () => {
   if (suppressFormWatchers) return
-  form.api_key = ''
+  form.group_id = null
   if (form.provider !== PROVIDER_OPENAI) {
     form.api_mode = API_MODE_CHAT_COMPLETIONS
   }
@@ -448,12 +498,10 @@ function resetForm() {
   suppressFormWatchers = true
   form.name = ''
   form.provider = PROVIDER_ANTHROPIC
+  form.group_id = null
   form.api_mode = API_MODE_CHAT_COMPLETIONS
-  form.endpoint = ''
-  form.api_key = ''
   form.primary_model = ''
   form.extra_models = []
-  form.group_name = ''
   form.interval_seconds = systemDefaultInterval.value
   form.jitter_seconds = 0
   form.enabled = true
@@ -468,12 +516,10 @@ function loadFromMonitor(m: ChannelMonitor) {
   suppressFormWatchers = true
   form.name = m.name
   form.provider = m.provider
+  form.group_id = m.group_id
   form.api_mode = normalizeAPIMode(m.api_mode)
-  form.endpoint = m.endpoint
-  form.api_key = ''
   form.primary_model = m.primary_model
   form.extra_models = [...(m.extra_models || [])]
-  form.group_name = m.group_name || ''
   form.interval_seconds = m.interval_seconds || systemDefaultInterval.value
   form.jitter_seconds = m.jitter_seconds || 0
   form.enabled = m.enabled
@@ -485,11 +531,12 @@ function loadFromMonitor(m: ChannelMonitor) {
 }
 
 // Re-sync form whenever the dialog is opened or the target monitor changes.
-// 同时拉取模板列表（cache 过的话一次性返回）。
+// Group and template lists are cached after the first successful load.
 watch(
   () => [props.show, props.monitor] as const,
   ([show, m]) => {
     if (!show) return
+    void loadGroups()
     void loadTemplates()
     if (m) loadFromMonitor(m)
     else resetForm()
@@ -497,64 +544,14 @@ watch(
   { immediate: true },
 )
 
-function useCurrentDomain() {
-  form.endpoint = window.location.origin
-}
-
-async function openMyKeyPicker() {
-  showKeyPicker.value = true
-  if (myActiveKeys.value.length > 0) return
-  myKeysLoading.value = true
-  try {
-    const [keys, rates] = await Promise.all([
-      loadAllActiveKeys(),
-      userGroupsAPI.getUserGroupRates(),
-    ])
-    const now = Date.now()
-    myActiveKeys.value = keys.filter(k => {
-      if (k.status !== 'active') return false
-      if (!k.expires_at) return true
-      return new Date(k.expires_at).getTime() > now
-    })
-    userGroupRates.value = rates
-  } catch (err: unknown) {
-    appStore.showError(extractApiErrorMessage(err, t('admin.channelMonitor.form.noActiveKey')))
-  } finally {
-    myKeysLoading.value = false
-  }
-}
-
-async function loadAllActiveKeys(): Promise<ApiKey[]> {
-  const pageSize = 100
-  const keysByID = new Map<number, ApiKey>()
-  let page = 1
-  let pages = 1
-
-  do {
-    const response = await keysAPI.list(page, pageSize, { status: 'active' })
-    for (const key of response.items || []) keysByID.set(key.id, key)
-    pages = Math.max(1, response.pages || 1)
-    page += 1
-  } while (page <= pages)
-
-  return [...keysByID.values()]
-}
-
-function pickMyKey(k: ApiKey) {
-  form.api_key = k.key
-  showKeyPicker.value = false
-}
-
 function buildPayload(): CreateParams {
   return {
     name: form.name.trim(),
     provider: form.provider,
+    group_id: form.group_id as number,
     api_mode: form.provider === PROVIDER_OPENAI ? form.api_mode : API_MODE_CHAT_COMPLETIONS,
-    endpoint: form.endpoint.trim(),
-    api_key: form.api_key.trim(),
     primary_model: form.primary_model.trim(),
     extra_models: form.extra_models,
-    group_name: form.group_name.trim(),
     enabled: form.enabled,
     interval_seconds: form.interval_seconds,
     jitter_seconds: form.jitter_seconds || 0,
@@ -567,8 +564,8 @@ function buildPayload(): CreateParams {
 
 async function handleSubmit() {
   if (submitting.value) return
-  if (!form.name.trim()) {
-    appStore.showError(t('admin.channelMonitor.nameRequired'))
+  if (form.group_id == null) {
+    appStore.showError(t('admin.channelMonitor.groupRequired'))
     return
   }
   if (!form.primary_model.trim()) {
@@ -580,10 +577,7 @@ async function handleSubmit() {
   try {
     const target = editing.value
     if (target) {
-      const { api_key, ...rest } = buildPayload()
-      const req: UpdateParams = { ...rest }
-      // Only send api_key if user typed a new value
-      if (api_key) req.api_key = api_key
+      const req: UpdateParams = { ...buildPayload() }
       // template_id=null 用 clear_template=true 明确告诉后端清空（pointer 语义）
       if (form.template_id == null) {
         req.clear_template = true

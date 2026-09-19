@@ -4,14 +4,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import MonitorFormDialog from '@/components/admin/monitor/MonitorFormDialog.vue'
 import {
-  DEFAULT_GROK_ENDPOINT,
   DEFAULT_GROK_MODEL,
   PROVIDERS,
   PROVIDER_GROK,
 } from '@/constants/channelMonitor'
 
-const { listTemplates } = vi.hoisted(() => ({
+const { listTemplates, getAllGroups } = vi.hoisted(() => ({
   listTemplates: vi.fn(),
+  getAllGroups: vi.fn(),
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -22,6 +22,9 @@ vi.mock('@/api/admin', () => ({
     },
     channelMonitorTemplate: {
       list: listTemplates,
+    },
+    groups: {
+      getAll: getAllGroups,
     },
   },
 }))
@@ -64,7 +67,6 @@ function mountDialog() {
         Toggle: true,
         Select: true,
         ModelTagInput: true,
-        MonitorKeyPickerDialog: true,
         MonitorAdvancedRequestConfig: true,
       },
     },
@@ -74,9 +76,10 @@ function mountDialog() {
 describe('channel monitor Grok provider', () => {
   beforeEach(() => {
     listTemplates.mockReset().mockResolvedValue({ items: [] })
+    getAllGroups.mockReset().mockResolvedValue([])
   })
 
-  it('offers Grok in the responsive provider grid and prefills its official defaults', async () => {
+  it('offers Grok in the responsive provider grid and prefills its default model', async () => {
     const wrapper = mountDialog()
     await flushPromises()
 
@@ -93,45 +96,36 @@ describe('channel monitor Grok provider', () => {
     await grokButton.trigger('click')
     expect(grokButton.classes().join(' ')).toContain('border-primary-500')
 
-    const endpoint = wrapper.get('[data-testid="monitor-endpoint"]')
     const model = wrapper.get('[data-testid="monitor-primary-model"]')
-    expect((endpoint.element as HTMLInputElement).value).toBe(DEFAULT_GROK_ENDPOINT)
+    expect(wrapper.find('[data-testid="monitor-endpoint"]').exists()).toBe(false)
     expect((model.element as HTMLInputElement).value).toBe(DEFAULT_GROK_MODEL)
 
     await wrapper.get('[data-testid="monitor-provider-anthropic"]').trigger('click')
-    expect((endpoint.element as HTMLInputElement).value).toBe('')
     expect((model.element as HTMLInputElement).value).toBe('')
 
     await grokButton.trigger('click')
-    await endpoint.setValue('https://gateway.example.com')
     await model.setValue('grok-custom')
     await wrapper.get('[data-testid="monitor-provider-openai"]').trigger('click')
-    expect((endpoint.element as HTMLInputElement).value).toBe('https://gateway.example.com')
     expect((model.element as HTMLInputElement).value).toBe('grok-custom')
   })
 
-  it('prefills only empty Grok fields and preserves existing provider values', async () => {
+  it('prefills only an empty Grok model and preserves an existing model', async () => {
     const wrapper = mountDialog()
     await flushPromises()
 
-    const endpoint = wrapper.get('[data-testid="monitor-endpoint"]')
     const model = wrapper.get('[data-testid="monitor-primary-model"]')
     const grokButton = wrapper.get('[data-testid="monitor-provider-grok"]')
     const anthropicButton = wrapper.get('[data-testid="monitor-provider-anthropic"]')
 
-    await endpoint.setValue('https://gateway.example.com')
+    await model.setValue('claude-sonnet-4-5')
     await grokButton.trigger('click')
-    expect((endpoint.element as HTMLInputElement).value).toBe('https://gateway.example.com')
-    expect((model.element as HTMLInputElement).value).toBe(DEFAULT_GROK_MODEL)
+    expect((model.element as HTMLInputElement).value).toBe('claude-sonnet-4-5')
 
     await anthropicButton.trigger('click')
-    expect((endpoint.element as HTMLInputElement).value).toBe('https://gateway.example.com')
-    expect((model.element as HTMLInputElement).value).toBe('')
+    expect((model.element as HTMLInputElement).value).toBe('claude-sonnet-4-5')
 
-    await endpoint.setValue('')
-    await model.setValue('grok-custom')
+    await model.setValue('')
     await grokButton.trigger('click')
-    expect((endpoint.element as HTMLInputElement).value).toBe(DEFAULT_GROK_ENDPOINT)
-    expect((model.element as HTMLInputElement).value).toBe('grok-custom')
+    expect((model.element as HTMLInputElement).value).toBe(DEFAULT_GROK_MODEL)
   })
 })

@@ -14,6 +14,8 @@ const (
 	StatusAPIKeyExpired        = "expired"
 )
 
+const APIKeyPurposeChannelMonitor = "channel_monitor"
+
 // Rate limit window durations
 const (
 	RateLimitWindow5h = 5 * time.Hour
@@ -32,6 +34,7 @@ type APIKey struct {
 	UserID      int64
 	Key         string
 	Name        string
+	Purpose     string
 	GroupID     *int64
 	Status      string
 	IPWhitelist []string
@@ -62,6 +65,12 @@ type APIKey struct {
 	Window5hStart *time.Time // Start of current 5h window
 	Window1dStart *time.Time // Start of current 1d window
 	Window7dStart *time.Time // Start of current 7d window
+}
+
+// IsManaged reports whether this key is owned by an internal subsystem rather
+// than by the ordinary user/admin API-key management surface.
+func (k *APIKey) IsManaged() bool {
+	return k != nil && k.Purpose == APIKeyPurposeChannelMonitor
 }
 
 func (k *APIKey) IsActive() bool {

@@ -472,7 +472,6 @@ export default {
   channelStatus: {
     title: 'Channel Status',
     description: 'Inspect channel availability, latency and recent status',
-    systemStatus: 'System status',
     poweredBy: 'Powered by',
     componentCount: '{n} components',
     loadingProvider: 'Loading {provider} channel status',

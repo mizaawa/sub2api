@@ -15,7 +15,6 @@ export const PROVIDER_GEMINI: Provider = 'gemini'
 export const PROVIDER_GROK: Provider = 'grok'
 export const PROVIDER_CUSTOM: Provider = 'custom'
 
-export const DEFAULT_GROK_ENDPOINT = 'https://api.x.ai'
 export const DEFAULT_GROK_MODEL = 'grok-4.5'
 
 export const API_MODE_CHAT_COMPLETIONS: APIMode = 'chat_completions'
@@ -48,3 +47,6 @@ export const MONITOR_STATUSES: readonly MonitorStatus[] = [
 
 /** Default polling interval (seconds) for new monitors. */
 export const DEFAULT_INTERVAL_SECONDS = 60
+
+/** Number of recent checks shown in each user-facing status timeline. */
+export const MONITOR_TIMELINE_POINTS = 120

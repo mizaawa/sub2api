@@ -26,7 +26,7 @@
           <template #cell-name="{ row, value }">
             <div class="flex items-center gap-1.5">
               <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
-              <HelpTooltip v-if="row.api_key_decrypt_failed" :content="t('admin.channelMonitor.apiKeyDecryptFailed')">
+              <HelpTooltip v-if="!row.group_id && row.api_key_decrypt_failed" :content="t('admin.channelMonitor.apiKeyDecryptFailed')">
                 <Icon name="exclamationTriangle" size="sm" class="text-red-500" />
               </HelpTooltip>
             </div>
@@ -36,6 +36,15 @@
             <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium" :class="providerBadgeClass(row.provider)">
               {{ providerLabel(row.provider) }}
             </span>
+          </template>
+
+          <template #cell-group_name="{ row }">
+            <MonitorGroupLabel
+              v-if="row.group_name"
+              :name="row.group_name"
+              :rate-multiplier="row.group_rate_multiplier"
+            />
+            <span v-else class="text-sm text-gray-400">-</span>
           </template>
 
           <template #cell-primary_model="{ row }">
@@ -128,51 +137,45 @@
           {{ t('common.loading') }}
         </div>
 
-        <div v-else class="max-h-[65vh] space-y-5 overflow-y-auto pr-1">
-          <section v-for="provider in PROVIDERS" :key="provider" class="space-y-2">
-            <div class="flex items-center justify-between gap-3">
-              <div class="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
-                <ProviderIcon :provider="provider" :size="18" />
-                {{ providerLabel(provider) }}
-              </div>
-              <span class="text-xs text-gray-400 dark:text-gray-500">
-                {{ t('admin.channelMonitor.sortOrderCount', { count: sortableMonitors[provider].length }) }}
-              </span>
-            </div>
-
-            <VueDraggable
-              v-if="sortableMonitors[provider].length > 0"
-              v-model="sortableMonitors[provider]"
-              :animation="200"
-              class="space-y-2"
-              :data-testid="`channel-monitor-sort-list-${provider}`"
+        <div v-else class="max-h-[65vh] space-y-2 overflow-y-auto pr-1">
+          <VueDraggable
+            v-if="sortableMonitors.length > 0"
+            v-model="sortableMonitors"
+            :animation="200"
+            class="space-y-2"
+            data-testid="channel-monitor-sort-list"
+          >
+            <div
+              v-for="monitor in sortableMonitors"
+              :key="monitor.id"
+              :data-monitor-id="monitor.id"
+              class="flex cursor-grab items-center gap-3 rounded-lg border border-gray-200 bg-white p-3 transition-shadow hover:shadow-md active:cursor-grabbing dark:border-dark-600 dark:bg-dark-700"
             >
-              <div
-                v-for="monitor in sortableMonitors[provider]"
-                :key="monitor.id"
-                :data-monitor-id="monitor.id"
-                class="flex cursor-grab items-center gap-3 rounded-lg border border-gray-200 bg-white p-3 transition-shadow hover:shadow-md active:cursor-grabbing dark:border-dark-600 dark:bg-dark-700"
-              >
-                <Icon name="menu" size="md" class="flex-none text-gray-400" />
-                <div class="min-w-0 flex-1">
+              <Icon name="menu" size="md" class="flex-none text-gray-400" />
+              <ProviderIcon :provider="monitor.provider" :size="18" class="flex-none" />
+              <div class="min-w-0 flex-1">
+                <div class="flex min-w-0 items-center gap-2">
                   <div class="truncate font-medium text-gray-900 dark:text-white">
                     {{ monitor.name }}
                   </div>
-                  <div class="truncate text-xs text-gray-500 dark:text-gray-400">
-                    {{ monitor.primary_model }}
-                  </div>
+                  <span class="flex-none text-xs text-gray-400 dark:text-gray-500">
+                    {{ providerLabel(monitor.provider) }}
+                  </span>
                 </div>
-                <span class="flex-none text-sm text-gray-400">#{{ monitor.id }}</span>
+                <div class="truncate text-xs text-gray-500 dark:text-gray-400">
+                  {{ monitor.primary_model }}
+                </div>
               </div>
-            </VueDraggable>
-
-            <div
-              v-else
-              class="rounded-lg border border-dashed border-gray-200 px-3 py-2 text-sm text-gray-400 dark:border-dark-600 dark:text-gray-500"
-            >
-              {{ t('admin.channelMonitor.sortOrderEmptyProvider') }}
+              <span class="flex-none text-sm text-gray-400">#{{ monitor.id }}</span>
             </div>
-          </section>
+          </VueDraggable>
+
+          <div
+            v-else
+            class="rounded-lg border border-dashed border-gray-200 px-3 py-2 text-sm text-gray-400 dark:border-dark-600 dark:text-gray-500"
+          >
+            {{ t('admin.channelMonitor.noMonitorsYet') }}
+          </div>
         </div>
       </div>
 
@@ -236,6 +239,7 @@ import MonitorTemplateManagerDialog from '@/components/admin/monitor/MonitorTemp
 import MonitorRunResultDialog from '@/components/admin/monitor/MonitorRunResultDialog.vue'
 import MonitorPrimaryModelCell from '@/components/admin/monitor/MonitorPrimaryModelCell.vue'
 import MonitorActionsCell from '@/components/admin/monitor/MonitorActionsCell.vue'
+import MonitorGroupLabel from '@/components/admin/monitor/MonitorGroupLabel.vue'
 import ProviderIcon from '@/components/user/monitor/ProviderIcon.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
@@ -271,20 +275,8 @@ const showSortDialog = ref(false)
 const sortLoading = ref(false)
 const sortSubmitting = ref(false)
 
-function emptySortableMonitors(): Record<Provider, ChannelMonitor[]> {
-  return {
-    openai: [],
-    anthropic: [],
-    gemini: [],
-    grok: [],
-    custom: [],
-  }
-}
-
-const sortableMonitors = ref<Record<Provider, ChannelMonitor[]>>(emptySortableMonitors())
-const sortableCount = computed(() =>
-  PROVIDERS.reduce((count, provider) => count + sortableMonitors.value[provider].length, 0)
-)
+const sortableMonitors = ref<ChannelMonitor[]>([])
+const sortableCount = computed(() => sortableMonitors.value.length)
 
 let abortController: AbortController | null = null
 let searchTimeout: ReturnType<typeof setTimeout> | null = null
@@ -295,6 +287,7 @@ const SORT_PAGE_SIZE = 100
 const columns = computed<Column[]>(() => [
   { key: 'name', label: t('admin.channelMonitor.columns.name'), sortable: false },
   { key: 'provider', label: t('admin.channelMonitor.columns.provider'), sortable: false },
+  { key: 'group_name', label: t('admin.channelMonitor.columns.group'), sortable: false },
   { key: 'primary_model', label: t('admin.channelMonitor.columns.primaryModel'), sortable: false },
   { key: 'availability_7d', label: t('admin.channelMonitor.columns.availability7d'), sortable: false },
   { key: 'latency', label: t('admin.channelMonitor.columns.latency'), sortable: false },
@@ -408,17 +401,13 @@ async function openSortDialog() {
   const generation = ++sortLoadGeneration
   showSortDialog.value = true
   sortLoading.value = true
-  sortableMonitors.value = emptySortableMonitors()
+  sortableMonitors.value = []
 
   try {
     const allMonitors = await loadAllMonitorsForSort()
     if (generation !== sortLoadGeneration) return
 
-    const grouped = emptySortableMonitors()
-    for (const monitor of allMonitors) {
-      if (PROVIDERS.includes(monitor.provider)) grouped[monitor.provider].push(monitor)
-    }
-    sortableMonitors.value = grouped
+    sortableMonitors.value = allMonitors.filter(monitor => PROVIDERS.includes(monitor.provider))
   } catch (err: unknown) {
     if (generation !== sortLoadGeneration) return
     appStore.showError(extractApiErrorMessage(err, t('admin.channelMonitor.sortOrderLoadError')))
@@ -432,14 +421,13 @@ function closeSortDialog() {
   sortLoadGeneration += 1
   showSortDialog.value = false
   sortLoading.value = false
-  sortableMonitors.value = emptySortableMonitors()
+  sortableMonitors.value = []
 }
 
 async function saveSortOrder() {
   if (sortSubmitting.value || sortableCount.value === 0) return
 
-  const orderedMonitors = PROVIDERS.flatMap(provider => sortableMonitors.value[provider])
-  const updates = orderedMonitors.map((monitor, index) => ({
+  const updates = sortableMonitors.value.map((monitor, index) => ({
     id: monitor.id,
     sort_order: index * 10,
   }))
@@ -485,7 +473,7 @@ async function handleRunNow(row: ChannelMonitor) {
 }
 
 async function handleDuplicate(row: ChannelMonitor) {
-  if (row.api_key_decrypt_failed) {
+  if (!row.group_id && row.api_key_decrypt_failed) {
     appStore.showError(t('admin.channelMonitor.duplicateKeyUnavailable'))
     return
   }

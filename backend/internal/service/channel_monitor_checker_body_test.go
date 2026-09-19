@@ -320,6 +320,52 @@ func TestRunCheckForModel_Custom_DefaultChatRequest(t *testing.T) {
 	}
 }
 
+func TestRunCheckForModel_CustomManagedGatewaySignsLocalChatRequest(t *testing.T) {
+	attestor, err := NewChannelMonitorAttestor(strings.Repeat("42", 32))
+	if err != nil {
+		t.Fatalf("create monitor attestor: %v", err)
+	}
+
+	var gotPath string
+	var gotAuthorization string
+	var signatureValid bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuthorization = r.Header.Get("Authorization")
+		signatureValid = attestor.ValidateRequest(r, "custom-key")
+
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"message": map[string]any{"content": answerFromOpenAIRequest(body)}}},
+		})
+	}))
+	t.Cleanup(server.Close)
+
+	originalClient := monitorInternalHTTPClient
+	monitorInternalHTTPClient = server.Client()
+	t.Cleanup(func() { monitorInternalHTTPClient = originalClient })
+
+	result := runCheckForModel(context.Background(), MonitorProviderCustom, server.URL, "custom-key", "custom-model", &CheckOptions{
+		ManagedGateway:  true,
+		ManagedAttestor: attestor,
+	})
+
+	if result.Status != MonitorStatusOperational {
+		t.Fatalf("managed custom request should pass challenge, got status=%s message=%q", result.Status, result.Message)
+	}
+	if gotPath != providerCustomPath {
+		t.Fatalf("managed custom request path = %q, want %q", gotPath, providerCustomPath)
+	}
+	if gotAuthorization != "Bearer custom-key" {
+		t.Fatalf("managed custom authorization = %q", gotAuthorization)
+	}
+	if !signatureValid {
+		t.Fatal("managed custom request did not carry a valid monitor attestation")
+	}
+}
+
 func TestRunCheckForModel_OpenAIResponses_DefaultRequest(t *testing.T) {
 	h := &openAICaptureHandler{}
 	endpoint := setupFakeOpenAI(t, h)
@@ -411,6 +457,9 @@ func TestRunCheckForModel_MergeMode_UserFieldsWinButDenyListProtects(t *testing.
 		ExtraHeaders: map[string]string{
 			"User-Agent":     "claude-cli/1.0",
 			"Content-Length": "999", // 黑名单
+			"AUTHORIZATION":  "Bearer attacker-controlled",
+			"X-API-KEY":      "attacker-controlled",
+			"x-goog-api-key": "attacker-controlled",
 			"x-custom":       "ok",
 		},
 	}
@@ -438,6 +487,15 @@ func TestRunCheckForModel_MergeMode_UserFieldsWinButDenyListProtects(t *testing.
 	}
 	if h.lastHeaders.Get("x-custom") != "ok" {
 		t.Errorf("extra custom header should be present, got %q", h.lastHeaders.Get("x-custom"))
+	}
+	if h.lastHeaders.Get("x-api-key") != "sk-fake" {
+		t.Errorf("managed x-api-key must not be overridden, got %q", h.lastHeaders.Get("x-api-key"))
+	}
+	if got := h.lastHeaders.Get("Authorization"); got != "" {
+		t.Errorf("unexpected authorization override reached upstream: %q", got)
+	}
+	if got := h.lastHeaders.Get("x-goog-api-key"); got != "" {
+		t.Errorf("unexpected Google auth override reached upstream: %q", got)
 	}
 	// Content-Length 黑名单：会被 net/http 自动重算，但不应由用户的 "999" 决定。
 	// 我们无法直接断言丢弃（http.Client 总会填上），只断言请求成功即可。

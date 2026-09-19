@@ -63,6 +63,22 @@ func TestCheckBillingEligibility_AllowsBalanceAtMinimumReserve(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestCheckBillingEligibility_ManagedMonitorSkipsAllBillingDependencies(t *testing.T) {
+	// A nil-config, nil-cache service would panic or dereference dependencies on
+	// every ordinary path. Returning successfully proves the managed preflight
+	// exits before balance, subscription, platform quota, key limits, and RPM.
+	svc := &BillingCacheService{}
+	err := svc.CheckBillingEligibility(
+		context.Background(),
+		nil,
+		&APIKey{Purpose: APIKeyPurposeChannelMonitor},
+		&Group{SubscriptionType: SubscriptionTypeSubscription},
+		nil,
+		PlatformOpenAI,
+	)
+	require.NoError(t, err)
+}
+
 func TestSyncBalanceCacheAfterDeduction_InvalidatesExhaustedBalance(t *testing.T) {
 	cache := &balanceEligibilityCacheStub{
 		balance:                  0.50,

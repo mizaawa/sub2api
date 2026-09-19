@@ -86,10 +86,11 @@ function makeMonitor(overrides: Partial<ChannelMonitor> = {}): ChannelMonitor {
     provider: 'openai',
     api_mode: 'chat_completions',
     endpoint: 'https://api.example.com',
-    api_key_masked: 'sk-t***',
     primary_model: 'gpt-4o-mini',
     extra_models: [],
+    group_id: 1,
     group_name: '',
+    group_rate_multiplier: 1,
     enabled: true,
     interval_seconds: 60,
     jitter_seconds: 0,
@@ -173,7 +174,7 @@ describe('ChannelMonitorView sorting', () => {
     })
   })
 
-  it('loads every page, keeps providers separate, and persists deterministic increments', async () => {
+  it('loads every page and persists a global deterministic order', async () => {
     const wrapper = mountView()
     await flushPromises()
 
@@ -183,22 +184,19 @@ describe('ChannelMonitorView sorting', () => {
     expect(listMonitors).toHaveBeenCalledWith({ page: 1, page_size: 100 })
     expect(listMonitors).toHaveBeenCalledWith({ page: 2, page_size: 100 })
 
-    const openAIList = wrapper.get('[data-testid="channel-monitor-sort-list-openai"]')
-    expect(openAIList.findAll('[data-monitor-id]').map(row => row.attributes('data-monitor-id')))
-      .toEqual(['3', '1'])
-    expect(wrapper.get('[data-testid="channel-monitor-sort-list-anthropic"]')
-      .findAll('[data-monitor-id]').map(row => row.attributes('data-monitor-id')))
-      .toEqual(['2'])
+    const sortList = wrapper.get('[data-testid="channel-monitor-sort-list"]')
+    expect(sortList.findAll('[data-monitor-id]').map(row => row.attributes('data-monitor-id')))
+      .toEqual(['2', '3', '1', '4'])
 
-    await openAIList.get('[data-testid="reverse-list"]').trigger('click')
+    await sortList.get('[data-testid="reverse-list"]').trigger('click')
     await wrapper.get('[data-testid="channel-monitor-sort-save"]').trigger('click')
     await flushPromises()
 
     expect(updateSortOrder).toHaveBeenCalledWith([
-      { id: 1, sort_order: 0 },
-      { id: 3, sort_order: 10 },
-      { id: 2, sort_order: 20 },
-      { id: 4, sort_order: 30 },
+      { id: 4, sort_order: 0 },
+      { id: 1, sort_order: 10 },
+      { id: 3, sort_order: 20 },
+      { id: 2, sort_order: 30 },
     ])
     expect(showSuccess).toHaveBeenCalledWith('admin.channelMonitor.sortOrderUpdated')
     wrapper.unmount()

@@ -114,6 +114,28 @@ func (s *UserRepoAPIKeyGroupFilterSuite) TestSoftDeletedAPIKeyExcluded() {
 	s.Require().Empty(s.listByAPIKeyGroup(g.ID), "user with only a soft-deleted key must not match")
 }
 
+func (s *UserRepoAPIKeyGroupFilterSuite) TestManagedAPIKeyExcludedFromGroupAndSearch() {
+	g := s.mustCreateGroup("grp-managed")
+	u := s.mustCreateUser("managed-owner@test.com")
+	_, err := s.client.APIKey.Create().
+		SetUserID(u.ID).
+		SetKey("sk-internal-monitor-only").
+		SetName("hidden monitor key").
+		SetPurpose(service.APIKeyPurposeChannelMonitor).
+		SetGroupID(g.ID).
+		Save(s.ctx)
+	s.Require().NoError(err, "create managed api key")
+
+	s.Require().Empty(s.listByAPIKeyGroup(g.ID), "managed key must not match the admin group filter")
+	users, _, err := s.repo.ListWithFilters(
+		s.ctx,
+		pagination.PaginationParams{Page: 1, PageSize: 50},
+		service.UserListFilters{Search: "sk-internal-monitor-only"},
+	)
+	s.Require().NoError(err, "search users by managed key")
+	s.Require().Empty(users, "managed key must not expose its owner through admin search")
+}
+
 // 多 Key：用户有多个 key，仅一个绑该分组 → 命中且只返回一条（EXISTS/去重）。
 func (s *UserRepoAPIKeyGroupFilterSuite) TestMultipleKeysAnyMatchDedup() {
 	g := s.mustCreateGroup("grp-multi")

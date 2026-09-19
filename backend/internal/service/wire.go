@@ -897,8 +897,18 @@ func ProvidePaymentOrderExpiryService(paymentSvc *PaymentService, lockCache Lead
 func ProvideChannelMonitorService(
 	repo ChannelMonitorRepository,
 	encryptor SecretEncryptor,
+	groupRepo GroupRepository,
+	apiKeyService *APIKeyService,
+	cfg *config.Config,
 ) *ChannelMonitorService {
-	return NewChannelMonitorService(repo, encryptor)
+	svc := NewChannelMonitorService(repo, encryptor)
+	svc.SetGroupDependencies(groupRepo, apiKeyService)
+	svc.SetManagedGatewayEndpoint(channelMonitorInternalGatewayEndpoint(cfg))
+	if cfg != nil {
+		attestor, _ := NewChannelMonitorAttestor(cfg.Totp.EncryptionKey)
+		svc.SetManagedGatewayAttestor(attestor)
+	}
+	return svc
 }
 
 // ProvideChannelMonitorRunner 创建并启动渠道监控调度器。

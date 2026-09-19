@@ -237,3 +237,9 @@ func TestChannelMonitorDuplicateOperationMetadataKeyCannotBeSubmittedAsHeader(t 
 
 	require.Error(t, err)
 }
+
+func TestChannelMonitorAuthenticationHeadersCannotBeOverridden(t *testing.T) {
+	for _, header := range []string{"Authorization", "authorization", "X-API-Key", "x-goog-api-key", "Proxy-Authorization"} {
+		require.Error(t, validateExtraHeaders(map[string]string{header: "forged"}), header)
+	}
+}

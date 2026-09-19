@@ -31,6 +31,7 @@ var (
 	ErrAPIKeyInvalidChars   = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
 	ErrAPIKeyRateLimited    = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
 	ErrAPIKeyAuthOverloaded = infraerrors.ServiceUnavailable("API_KEY_AUTH_OVERLOADED", "api key authentication is temporarily overloaded")
+	ErrManagedAPIKey        = infraerrors.Forbidden("MANAGED_API_KEY", "managed api keys cannot be changed through ordinary api key management")
 	ErrInvalidIPPattern     = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
 	// ErrAPIKeyExpired        = infraerrors.Forbidden("API_KEY_EXPIRED", "api key has expired")
 	ErrAPIKeyExpired = infraerrors.Forbidden("API_KEY_EXPIRED", "api key 已过期")
@@ -356,9 +357,9 @@ func (s *APIKeyService) GenerateKey() (string, error) {
 	}
 
 	// 转换为十六进制字符串并添加前缀
-	prefix := s.cfg.Default.APIKeyPrefix
-	if prefix == "" {
-		prefix = "sk-"
+	prefix := "sk-"
+	if s.cfg != nil && strings.TrimSpace(s.cfg.Default.APIKeyPrefix) != "" {
+		prefix = strings.TrimSpace(s.cfg.Default.APIKeyPrefix)
 	}
 
 	key := prefix + hex.EncodeToString(bytes)
@@ -708,6 +709,9 @@ func (s *APIKeyService) GetByID(ctx context.Context, id int64) (*APIKey, error) 
 	if err != nil {
 		return nil, fmt.Errorf("get api key: %w", err)
 	}
+	if apiKey.IsManaged() {
+		return nil, fmt.Errorf("get api key: %w", ErrAPIKeyNotFound)
+	}
 	s.compileAPIKeyIPRules(apiKey)
 	if apiKey != nil {
 		s.markBlockedGroupForKey(ctx, apiKey.UserID, apiKey)
@@ -781,6 +785,9 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 	// 验证所有权
 	if apiKey.UserID != userID {
 		return nil, ErrInsufficientPerms
+	}
+	if apiKey.IsManaged() {
+		return nil, ErrManagedAPIKey
 	}
 
 	// 验证 IP 白名单格式
@@ -931,14 +938,17 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 
 // Delete 删除API Key
 func (s *APIKeyService) Delete(ctx context.Context, id int64, userID int64) error {
-	key, ownerID, err := s.apiKeyRepo.GetKeyAndOwnerID(ctx, id)
+	apiKey, err := s.apiKeyRepo.GetByID(ctx, id)
 	if err != nil {
 		return fmt.Errorf("get api key: %w", err)
 	}
 
 	// 验证当前用户是否为该 API Key 的所有者
-	if ownerID != userID {
+	if apiKey.UserID != userID {
 		return ErrInsufficientPerms
+	}
+	if apiKey.IsManaged() {
+		return ErrManagedAPIKey
 	}
 
 	// 事务内:写审计 + 软删除(tombstone)。
@@ -950,7 +960,7 @@ func (s *APIKeyService) Delete(ctx context.Context, id int64, userID int64) erro
 	if s.cache != nil {
 		_ = s.cache.DeleteCreateAttemptCount(ctx, userID)
 	}
-	s.InvalidateAuthCacheByKey(ctx, key)
+	s.InvalidateAuthCacheByKey(ctx, apiKey.Key)
 	s.lastUsedTouchL1.Delete(id)
 
 	return nil

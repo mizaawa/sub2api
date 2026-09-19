@@ -116,6 +116,7 @@ type APIKeyMutation struct {
 	deleted_at         *time.Time
 	key                *string
 	name               *string
+	purpose            *string
 	status             *string
 	last_used_at       *time.Time
 	ip_whitelist       *[]string
@@ -480,6 +481,42 @@ func (m *APIKeyMutation) OldName(ctx context.Context) (v string, err error) {
 // ResetName resets all changes to the "name" field.
 func (m *APIKeyMutation) ResetName() {
 	m.name = nil
+}
+
+// SetPurpose sets the "purpose" field.
+func (m *APIKeyMutation) SetPurpose(s string) {
+	m.purpose = &s
+}
+
+// Purpose returns the value of the "purpose" field in the mutation.
+func (m *APIKeyMutation) Purpose() (r string, exists bool) {
+	v := m.purpose
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPurpose returns the old "purpose" field's value of the APIKey entity.
+// If the APIKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *APIKeyMutation) OldPurpose(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPurpose is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPurpose requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPurpose: %w", err)
+	}
+	return oldValue.Purpose, nil
+}
+
+// ResetPurpose resets all changes to the "purpose" field.
+func (m *APIKeyMutation) ResetPurpose() {
+	m.purpose = nil
 }
 
 // SetGroupID sets the "group_id" field.
@@ -1532,7 +1569,7 @@ func (m *APIKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *APIKeyMutation) Fields() []string {
-	fields := make([]string, 0, 23)
+	fields := make([]string, 0, 24)
 	if m.created_at != nil {
 		fields = append(fields, apikey.FieldCreatedAt)
 	}
@@ -1550,6 +1587,9 @@ func (m *APIKeyMutation) Fields() []string {
 	}
 	if m.name != nil {
 		fields = append(fields, apikey.FieldName)
+	}
+	if m.purpose != nil {
+		fields = append(fields, apikey.FieldPurpose)
 	}
 	if m.group != nil {
 		fields = append(fields, apikey.FieldGroupID)
@@ -1622,6 +1662,8 @@ func (m *APIKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.Key()
 	case apikey.FieldName:
 		return m.Name()
+	case apikey.FieldPurpose:
+		return m.Purpose()
 	case apikey.FieldGroupID:
 		return m.GroupID()
 	case apikey.FieldStatus:
@@ -1677,6 +1719,8 @@ func (m *APIKeyMutation) OldField(ctx context.Context, name string) (ent.Value, 
 		return m.OldKey(ctx)
 	case apikey.FieldName:
 		return m.OldName(ctx)
+	case apikey.FieldPurpose:
+		return m.OldPurpose(ctx)
 	case apikey.FieldGroupID:
 		return m.OldGroupID(ctx)
 	case apikey.FieldStatus:
@@ -1761,6 +1805,13 @@ func (m *APIKeyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetName(v)
+		return nil
+	case apikey.FieldPurpose:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPurpose(v)
 		return nil
 	case apikey.FieldGroupID:
 		v, ok := value.(int64)
@@ -2103,6 +2154,9 @@ func (m *APIKeyMutation) ResetField(name string) error {
 		return nil
 	case apikey.FieldName:
 		m.ResetName()
+		return nil
+	case apikey.FieldPurpose:
+		m.ResetPurpose()
 		return nil
 	case apikey.FieldGroupID:
 		m.ResetGroupID()
@@ -14637,6 +14691,8 @@ type ChannelMonitorMutation struct {
 	cleareddaily_rollups    bool
 	request_template        *int64
 	clearedrequest_template bool
+	group                   *int64
+	clearedgroup            bool
 	done                    bool
 	oldValue                func(context.Context) (*ChannelMonitor, error)
 	predicates              []predicate.ChannelMonitor
@@ -15077,6 +15133,55 @@ func (m *ChannelMonitorMutation) AppendedExtraModels() ([]string, bool) {
 func (m *ChannelMonitorMutation) ResetExtraModels() {
 	m.extra_models = nil
 	m.appendextra_models = nil
+}
+
+// SetGroupID sets the "group_id" field.
+func (m *ChannelMonitorMutation) SetGroupID(i int64) {
+	m.group = &i
+}
+
+// GroupID returns the value of the "group_id" field in the mutation.
+func (m *ChannelMonitorMutation) GroupID() (r int64, exists bool) {
+	v := m.group
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldGroupID returns the old "group_id" field's value of the ChannelMonitor entity.
+// If the ChannelMonitor object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChannelMonitorMutation) OldGroupID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldGroupID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldGroupID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldGroupID: %w", err)
+	}
+	return oldValue.GroupID, nil
+}
+
+// ClearGroupID clears the value of the "group_id" field.
+func (m *ChannelMonitorMutation) ClearGroupID() {
+	m.group = nil
+	m.clearedFields[channelmonitor.FieldGroupID] = struct{}{}
+}
+
+// GroupIDCleared returns if the "group_id" field was cleared in this mutation.
+func (m *ChannelMonitorMutation) GroupIDCleared() bool {
+	_, ok := m.clearedFields[channelmonitor.FieldGroupID]
+	return ok
+}
+
+// ResetGroupID resets all changes to the "group_id" field.
+func (m *ChannelMonitorMutation) ResetGroupID() {
+	m.group = nil
+	delete(m.clearedFields, channelmonitor.FieldGroupID)
 }
 
 // SetGroupName sets the "group_name" field.
@@ -15755,6 +15860,33 @@ func (m *ChannelMonitorMutation) ResetRequestTemplate() {
 	m.clearedrequest_template = false
 }
 
+// ClearGroup clears the "group" edge to the Group entity.
+func (m *ChannelMonitorMutation) ClearGroup() {
+	m.clearedgroup = true
+	m.clearedFields[channelmonitor.FieldGroupID] = struct{}{}
+}
+
+// GroupCleared reports if the "group" edge to the Group entity was cleared.
+func (m *ChannelMonitorMutation) GroupCleared() bool {
+	return m.GroupIDCleared() || m.clearedgroup
+}
+
+// GroupIDs returns the "group" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// GroupID instead. It exists only for internal usage by the builders.
+func (m *ChannelMonitorMutation) GroupIDs() (ids []int64) {
+	if id := m.group; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetGroup resets all changes to the "group" edge.
+func (m *ChannelMonitorMutation) ResetGroup() {
+	m.group = nil
+	m.clearedgroup = false
+}
+
 // Where appends a list predicates to the ChannelMonitorMutation builder.
 func (m *ChannelMonitorMutation) Where(ps ...predicate.ChannelMonitor) {
 	m.predicates = append(m.predicates, ps...)
@@ -15789,7 +15921,7 @@ func (m *ChannelMonitorMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ChannelMonitorMutation) Fields() []string {
-	fields := make([]string, 0, 20)
+	fields := make([]string, 0, 21)
 	if m.created_at != nil {
 		fields = append(fields, channelmonitor.FieldCreatedAt)
 	}
@@ -15816,6 +15948,9 @@ func (m *ChannelMonitorMutation) Fields() []string {
 	}
 	if m.extra_models != nil {
 		fields = append(fields, channelmonitor.FieldExtraModels)
+	}
+	if m.group != nil {
+		fields = append(fields, channelmonitor.FieldGroupID)
 	}
 	if m.group_name != nil {
 		fields = append(fields, channelmonitor.FieldGroupName)
@@ -15876,6 +16011,8 @@ func (m *ChannelMonitorMutation) Field(name string) (ent.Value, bool) {
 		return m.PrimaryModel()
 	case channelmonitor.FieldExtraModels:
 		return m.ExtraModels()
+	case channelmonitor.FieldGroupID:
+		return m.GroupID()
 	case channelmonitor.FieldGroupName:
 		return m.GroupName()
 	case channelmonitor.FieldSortOrder:
@@ -15925,6 +16062,8 @@ func (m *ChannelMonitorMutation) OldField(ctx context.Context, name string) (ent
 		return m.OldPrimaryModel(ctx)
 	case channelmonitor.FieldExtraModels:
 		return m.OldExtraModels(ctx)
+	case channelmonitor.FieldGroupID:
+		return m.OldGroupID(ctx)
 	case channelmonitor.FieldGroupName:
 		return m.OldGroupName(ctx)
 	case channelmonitor.FieldSortOrder:
@@ -16018,6 +16157,13 @@ func (m *ChannelMonitorMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetExtraModels(v)
+		return nil
+	case channelmonitor.FieldGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetGroupID(v)
 		return nil
 	case channelmonitor.FieldGroupName:
 		v, ok := value.(string)
@@ -16177,6 +16323,9 @@ func (m *ChannelMonitorMutation) AddField(name string, value ent.Value) error {
 // mutation.
 func (m *ChannelMonitorMutation) ClearedFields() []string {
 	var fields []string
+	if m.FieldCleared(channelmonitor.FieldGroupID) {
+		fields = append(fields, channelmonitor.FieldGroupID)
+	}
 	if m.FieldCleared(channelmonitor.FieldGroupName) {
 		fields = append(fields, channelmonitor.FieldGroupName)
 	}
@@ -16203,6 +16352,9 @@ func (m *ChannelMonitorMutation) FieldCleared(name string) bool {
 // error if the field is not defined in the schema.
 func (m *ChannelMonitorMutation) ClearField(name string) error {
 	switch name {
+	case channelmonitor.FieldGroupID:
+		m.ClearGroupID()
+		return nil
 	case channelmonitor.FieldGroupName:
 		m.ClearGroupName()
 		return nil
@@ -16250,6 +16402,9 @@ func (m *ChannelMonitorMutation) ResetField(name string) error {
 	case channelmonitor.FieldExtraModels:
 		m.ResetExtraModels()
 		return nil
+	case channelmonitor.FieldGroupID:
+		m.ResetGroupID()
+		return nil
 	case channelmonitor.FieldGroupName:
 		m.ResetGroupName()
 		return nil
@@ -16289,7 +16444,7 @@ func (m *ChannelMonitorMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *ChannelMonitorMutation) AddedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	if m.history != nil {
 		edges = append(edges, channelmonitor.EdgeHistory)
 	}
@@ -16298,6 +16453,9 @@ func (m *ChannelMonitorMutation) AddedEdges() []string {
 	}
 	if m.request_template != nil {
 		edges = append(edges, channelmonitor.EdgeRequestTemplate)
+	}
+	if m.group != nil {
+		edges = append(edges, channelmonitor.EdgeGroup)
 	}
 	return edges
 }
@@ -16322,13 +16480,17 @@ func (m *ChannelMonitorMutation) AddedIDs(name string) []ent.Value {
 		if id := m.request_template; id != nil {
 			return []ent.Value{*id}
 		}
+	case channelmonitor.EdgeGroup:
+		if id := m.group; id != nil {
+			return []ent.Value{*id}
+		}
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *ChannelMonitorMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	if m.removedhistory != nil {
 		edges = append(edges, channelmonitor.EdgeHistory)
 	}
@@ -16360,7 +16522,7 @@ func (m *ChannelMonitorMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *ChannelMonitorMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	if m.clearedhistory {
 		edges = append(edges, channelmonitor.EdgeHistory)
 	}
@@ -16369,6 +16531,9 @@ func (m *ChannelMonitorMutation) ClearedEdges() []string {
 	}
 	if m.clearedrequest_template {
 		edges = append(edges, channelmonitor.EdgeRequestTemplate)
+	}
+	if m.clearedgroup {
+		edges = append(edges, channelmonitor.EdgeGroup)
 	}
 	return edges
 }
@@ -16383,6 +16548,8 @@ func (m *ChannelMonitorMutation) EdgeCleared(name string) bool {
 		return m.cleareddaily_rollups
 	case channelmonitor.EdgeRequestTemplate:
 		return m.clearedrequest_template
+	case channelmonitor.EdgeGroup:
+		return m.clearedgroup
 	}
 	return false
 }
@@ -16393,6 +16560,9 @@ func (m *ChannelMonitorMutation) ClearEdge(name string) error {
 	switch name {
 	case channelmonitor.EdgeRequestTemplate:
 		m.ClearRequestTemplate()
+		return nil
+	case channelmonitor.EdgeGroup:
+		m.ClearGroup()
 		return nil
 	}
 	return fmt.Errorf("unknown ChannelMonitor unique edge %s", name)
@@ -16410,6 +16580,9 @@ func (m *ChannelMonitorMutation) ResetEdge(name string) error {
 		return nil
 	case channelmonitor.EdgeRequestTemplate:
 		m.ResetRequestTemplate()
+		return nil
+	case channelmonitor.EdgeGroup:
+		m.ResetGroup()
 		return nil
 	}
 	return fmt.Errorf("unknown ChannelMonitor edge %s", name)
@@ -22018,6 +22191,9 @@ type GroupMutation struct {
 	api_keys                                map[int64]struct{}
 	removedapi_keys                         map[int64]struct{}
 	clearedapi_keys                         bool
+	channel_monitors                        map[int64]struct{}
+	removedchannel_monitors                 map[int64]struct{}
+	clearedchannel_monitors                 bool
 	redeem_codes                            map[int64]struct{}
 	removedredeem_codes                     map[int64]struct{}
 	clearedredeem_codes                     bool
@@ -24880,6 +25056,60 @@ func (m *GroupMutation) ResetAPIKeys() {
 	m.removedapi_keys = nil
 }
 
+// AddChannelMonitorIDs adds the "channel_monitors" edge to the ChannelMonitor entity by ids.
+func (m *GroupMutation) AddChannelMonitorIDs(ids ...int64) {
+	if m.channel_monitors == nil {
+		m.channel_monitors = make(map[int64]struct{})
+	}
+	for i := range ids {
+		m.channel_monitors[ids[i]] = struct{}{}
+	}
+}
+
+// ClearChannelMonitors clears the "channel_monitors" edge to the ChannelMonitor entity.
+func (m *GroupMutation) ClearChannelMonitors() {
+	m.clearedchannel_monitors = true
+}
+
+// ChannelMonitorsCleared reports if the "channel_monitors" edge to the ChannelMonitor entity was cleared.
+func (m *GroupMutation) ChannelMonitorsCleared() bool {
+	return m.clearedchannel_monitors
+}
+
+// RemoveChannelMonitorIDs removes the "channel_monitors" edge to the ChannelMonitor entity by IDs.
+func (m *GroupMutation) RemoveChannelMonitorIDs(ids ...int64) {
+	if m.removedchannel_monitors == nil {
+		m.removedchannel_monitors = make(map[int64]struct{})
+	}
+	for i := range ids {
+		delete(m.channel_monitors, ids[i])
+		m.removedchannel_monitors[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedChannelMonitors returns the removed IDs of the "channel_monitors" edge to the ChannelMonitor entity.
+func (m *GroupMutation) RemovedChannelMonitorsIDs() (ids []int64) {
+	for id := range m.removedchannel_monitors {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ChannelMonitorsIDs returns the "channel_monitors" edge IDs in the mutation.
+func (m *GroupMutation) ChannelMonitorsIDs() (ids []int64) {
+	for id := range m.channel_monitors {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetChannelMonitors resets all changes to the "channel_monitors" edge.
+func (m *GroupMutation) ResetChannelMonitors() {
+	m.channel_monitors = nil
+	m.clearedchannel_monitors = false
+	m.removedchannel_monitors = nil
+}
+
 // AddRedeemCodeIDs adds the "redeem_codes" edge to the RedeemCode entity by ids.
 func (m *GroupMutation) AddRedeemCodeIDs(ids ...int64) {
 	if m.redeem_codes == nil {
@@ -26579,9 +26809,12 @@ func (m *GroupMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *GroupMutation) AddedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
 	if m.api_keys != nil {
 		edges = append(edges, group.EdgeAPIKeys)
+	}
+	if m.channel_monitors != nil {
+		edges = append(edges, group.EdgeChannelMonitors)
 	}
 	if m.redeem_codes != nil {
 		edges = append(edges, group.EdgeRedeemCodes)
@@ -26608,6 +26841,12 @@ func (m *GroupMutation) AddedIDs(name string) []ent.Value {
 	case group.EdgeAPIKeys:
 		ids := make([]ent.Value, 0, len(m.api_keys))
 		for id := range m.api_keys {
+			ids = append(ids, id)
+		}
+		return ids
+	case group.EdgeChannelMonitors:
+		ids := make([]ent.Value, 0, len(m.channel_monitors))
+		for id := range m.channel_monitors {
 			ids = append(ids, id)
 		}
 		return ids
@@ -26647,9 +26886,12 @@ func (m *GroupMutation) AddedIDs(name string) []ent.Value {
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *GroupMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
 	if m.removedapi_keys != nil {
 		edges = append(edges, group.EdgeAPIKeys)
+	}
+	if m.removedchannel_monitors != nil {
+		edges = append(edges, group.EdgeChannelMonitors)
 	}
 	if m.removedredeem_codes != nil {
 		edges = append(edges, group.EdgeRedeemCodes)
@@ -26676,6 +26918,12 @@ func (m *GroupMutation) RemovedIDs(name string) []ent.Value {
 	case group.EdgeAPIKeys:
 		ids := make([]ent.Value, 0, len(m.removedapi_keys))
 		for id := range m.removedapi_keys {
+			ids = append(ids, id)
+		}
+		return ids
+	case group.EdgeChannelMonitors:
+		ids := make([]ent.Value, 0, len(m.removedchannel_monitors))
+		for id := range m.removedchannel_monitors {
 			ids = append(ids, id)
 		}
 		return ids
@@ -26715,9 +26963,12 @@ func (m *GroupMutation) RemovedIDs(name string) []ent.Value {
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *GroupMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 6)
+	edges := make([]string, 0, 7)
 	if m.clearedapi_keys {
 		edges = append(edges, group.EdgeAPIKeys)
+	}
+	if m.clearedchannel_monitors {
+		edges = append(edges, group.EdgeChannelMonitors)
 	}
 	if m.clearedredeem_codes {
 		edges = append(edges, group.EdgeRedeemCodes)
@@ -26743,6 +26994,8 @@ func (m *GroupMutation) EdgeCleared(name string) bool {
 	switch name {
 	case group.EdgeAPIKeys:
 		return m.clearedapi_keys
+	case group.EdgeChannelMonitors:
+		return m.clearedchannel_monitors
 	case group.EdgeRedeemCodes:
 		return m.clearedredeem_codes
 	case group.EdgeSubscriptions:
@@ -26771,6 +27024,9 @@ func (m *GroupMutation) ResetEdge(name string) error {
 	switch name {
 	case group.EdgeAPIKeys:
 		m.ResetAPIKeys()
+		return nil
+	case group.EdgeChannelMonitors:
+		m.ResetChannelMonitors()
 		return nil
 	case group.EdgeRedeemCodes:
 		m.ResetRedeemCodes()

@@ -766,9 +766,10 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 
 	// 计算费用
 	cost := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, opts)
+	makeManagedMonitorUsageFree(apiKey, cost)
 
 	// 判断计费方式：订阅模式 vs 余额模式
-	isSubscriptionBilling := subscription != nil && apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
+	isSubscriptionBilling := !apiKey.IsManaged() && subscription != nil && apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
 	billingType := BillingTypeBalance
 	if isSubscriptionBilling {
 		billingType = BillingTypeSubscription
@@ -835,6 +836,15 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
 
 	return nil
+}
+
+// makeManagedMonitorUsageFree removes customer-facing billing while retaining
+// TotalCost. Account statistics and upstream account quota therefore continue
+// to reflect the real operator cost of health probes.
+func makeManagedMonitorUsageFree(apiKey *APIKey, cost *CostBreakdown) {
+	if apiKey != nil && apiKey.Purpose == APIKeyPurposeChannelMonitor && cost != nil {
+		cost.ActualCost = 0
+	}
 }
 
 // calculateRecordUsageCost 根据请求类型和选项计算费用。

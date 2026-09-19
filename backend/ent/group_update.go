@@ -14,6 +14,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/channelmonitor"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/redeemcode"
@@ -1024,6 +1025,21 @@ func (_u *GroupUpdate) AddAPIKeys(v ...*APIKey) *GroupUpdate {
 	return _u.AddAPIKeyIDs(ids...)
 }
 
+// AddChannelMonitorIDs adds the "channel_monitors" edge to the ChannelMonitor entity by IDs.
+func (_u *GroupUpdate) AddChannelMonitorIDs(ids ...int64) *GroupUpdate {
+	_u.mutation.AddChannelMonitorIDs(ids...)
+	return _u
+}
+
+// AddChannelMonitors adds the "channel_monitors" edges to the ChannelMonitor entity.
+func (_u *GroupUpdate) AddChannelMonitors(v ...*ChannelMonitor) *GroupUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddChannelMonitorIDs(ids...)
+}
+
 // AddRedeemCodeIDs adds the "redeem_codes" edge to the RedeemCode entity by IDs.
 func (_u *GroupUpdate) AddRedeemCodeIDs(ids ...int64) *GroupUpdate {
 	_u.mutation.AddRedeemCodeIDs(ids...)
@@ -1123,6 +1139,27 @@ func (_u *GroupUpdate) RemoveAPIKeys(v ...*APIKey) *GroupUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAPIKeyIDs(ids...)
+}
+
+// ClearChannelMonitors clears all "channel_monitors" edges to the ChannelMonitor entity.
+func (_u *GroupUpdate) ClearChannelMonitors() *GroupUpdate {
+	_u.mutation.ClearChannelMonitors()
+	return _u
+}
+
+// RemoveChannelMonitorIDs removes the "channel_monitors" edge to ChannelMonitor entities by IDs.
+func (_u *GroupUpdate) RemoveChannelMonitorIDs(ids ...int64) *GroupUpdate {
+	_u.mutation.RemoveChannelMonitorIDs(ids...)
+	return _u
+}
+
+// RemoveChannelMonitors removes "channel_monitors" edges to ChannelMonitor entities.
+func (_u *GroupUpdate) RemoveChannelMonitors(v ...*ChannelMonitor) *GroupUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveChannelMonitorIDs(ids...)
 }
 
 // ClearRedeemCodes clears all "redeem_codes" edges to the RedeemCode entity.
@@ -1653,6 +1690,51 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ChannelMonitorsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.ChannelMonitorsTable,
+			Columns: []string{group.ChannelMonitorsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmonitor.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedChannelMonitorsIDs(); len(nodes) > 0 && !_u.mutation.ChannelMonitorsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.ChannelMonitorsTable,
+			Columns: []string{group.ChannelMonitorsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmonitor.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ChannelMonitorsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.ChannelMonitorsTable,
+			Columns: []string{group.ChannelMonitorsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmonitor.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {
@@ -2917,6 +2999,21 @@ func (_u *GroupUpdateOne) AddAPIKeys(v ...*APIKey) *GroupUpdateOne {
 	return _u.AddAPIKeyIDs(ids...)
 }
 
+// AddChannelMonitorIDs adds the "channel_monitors" edge to the ChannelMonitor entity by IDs.
+func (_u *GroupUpdateOne) AddChannelMonitorIDs(ids ...int64) *GroupUpdateOne {
+	_u.mutation.AddChannelMonitorIDs(ids...)
+	return _u
+}
+
+// AddChannelMonitors adds the "channel_monitors" edges to the ChannelMonitor entity.
+func (_u *GroupUpdateOne) AddChannelMonitors(v ...*ChannelMonitor) *GroupUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddChannelMonitorIDs(ids...)
+}
+
 // AddRedeemCodeIDs adds the "redeem_codes" edge to the RedeemCode entity by IDs.
 func (_u *GroupUpdateOne) AddRedeemCodeIDs(ids ...int64) *GroupUpdateOne {
 	_u.mutation.AddRedeemCodeIDs(ids...)
@@ -3016,6 +3113,27 @@ func (_u *GroupUpdateOne) RemoveAPIKeys(v ...*APIKey) *GroupUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveAPIKeyIDs(ids...)
+}
+
+// ClearChannelMonitors clears all "channel_monitors" edges to the ChannelMonitor entity.
+func (_u *GroupUpdateOne) ClearChannelMonitors() *GroupUpdateOne {
+	_u.mutation.ClearChannelMonitors()
+	return _u
+}
+
+// RemoveChannelMonitorIDs removes the "channel_monitors" edge to ChannelMonitor entities by IDs.
+func (_u *GroupUpdateOne) RemoveChannelMonitorIDs(ids ...int64) *GroupUpdateOne {
+	_u.mutation.RemoveChannelMonitorIDs(ids...)
+	return _u
+}
+
+// RemoveChannelMonitors removes "channel_monitors" edges to ChannelMonitor entities.
+func (_u *GroupUpdateOne) RemoveChannelMonitors(v ...*ChannelMonitor) *GroupUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveChannelMonitorIDs(ids...)
 }
 
 // ClearRedeemCodes clears all "redeem_codes" edges to the RedeemCode entity.
@@ -3576,6 +3694,51 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ChannelMonitorsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.ChannelMonitorsTable,
+			Columns: []string{group.ChannelMonitorsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmonitor.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedChannelMonitorsIDs(); len(nodes) > 0 && !_u.mutation.ChannelMonitorsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.ChannelMonitorsTable,
+			Columns: []string{group.ChannelMonitorsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmonitor.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ChannelMonitorsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.ChannelMonitorsTable,
+			Columns: []string{group.ChannelMonitorsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(channelmonitor.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

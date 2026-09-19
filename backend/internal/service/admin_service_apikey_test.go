@@ -309,6 +309,36 @@ func TestAdminService_AdminUpdateAPIKeyGroupID_KeyNotFound(t *testing.T) {
 	require.ErrorIs(t, err, ErrAPIKeyNotFound)
 }
 
+func TestAdminService_AdminUpdateAPIKeyGroupID_RejectsManagedKey(t *testing.T) {
+	repo := &apiKeyRepoStubForGroupUpdate{key: &APIKey{
+		ID:      1,
+		UserID:  7,
+		Key:     "sk-managed",
+		Purpose: APIKeyPurposeChannelMonitor,
+	}}
+	svc := &adminServiceImpl{apiKeyRepo: repo}
+
+	_, err := svc.AdminUpdateAPIKeyGroupID(context.Background(), 1, int64Ptr(10))
+
+	require.ErrorIs(t, err, ErrManagedAPIKey)
+	require.Nil(t, repo.updated)
+}
+
+func TestAdminService_AdminResetAPIKeyRateLimitUsage_RejectsManagedKey(t *testing.T) {
+	repo := &apiKeyRepoStubForGroupUpdate{key: &APIKey{
+		ID:      1,
+		UserID:  7,
+		Key:     "sk-managed",
+		Purpose: APIKeyPurposeChannelMonitor,
+	}}
+	svc := &adminServiceImpl{apiKeyRepo: repo}
+
+	_, err := svc.AdminResetAPIKeyRateLimitUsage(context.Background(), 1)
+
+	require.ErrorIs(t, err, ErrManagedAPIKey)
+	require.Nil(t, repo.updated)
+}
+
 func TestAdminService_AdminUpdateAPIKeyGroupID_NilGroupID_NoOp(t *testing.T) {
 	existing := &APIKey{ID: 1, Key: "sk-test", GroupID: int64Ptr(5)}
 	repo := &apiKeyRepoStubForGroupUpdate{key: existing}
