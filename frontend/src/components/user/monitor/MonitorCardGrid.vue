@@ -6,7 +6,7 @@
     <section
       v-for="provider in providerSections"
       :key="provider.value"
-      class="flex min-w-0 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm"
+      class="monitor-provider-card flex min-w-0 flex-col overflow-hidden rounded-lg bg-white/75 shadow-sm ring-1 ring-white/90 backdrop-blur-md"
       :class="provider.value === 'custom' ? 'lg:col-span-2' : ''"
       :data-testid="`monitor-provider-${provider.value}`"
     >

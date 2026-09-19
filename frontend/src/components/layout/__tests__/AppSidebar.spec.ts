@@ -75,8 +75,8 @@ describe('AppSidebar grouped navigation', () => {
 })
 
 describe('AppSidebar feature management navigation', () => {
-  it('exposes a direct administrator entry for feature management', () => {
-    expect(componentSource).toContain("path: '/admin/features', label: t('nav.featureManagement'), icon: CogIcon")
+  it('does not expose feature management in the administrator sidebar', () => {
+    expect(componentSource).not.toContain("path: '/admin/features', label: t('nav.featureManagement'), icon: CogIcon")
   })
 })
 

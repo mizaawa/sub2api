@@ -170,6 +170,12 @@ describe('ChannelStatusView', () => {
     const providerGrid = wrapper.get('[data-testid="monitor-provider-grid"]')
     expect(providerGrid.classes()).toContain('lg:grid-cols-2')
     expect(wrapper.get('[data-testid="monitor-provider-custom"]').classes()).toContain('lg:col-span-2')
+    expect(wrapper.get('[data-testid="monitor-provider-openai"]').classes()).toEqual(expect.arrayContaining([
+      'monitor-provider-card',
+      'bg-white/75',
+      'ring-white/90',
+      'backdrop-blur-md',
+    ]))
 
     const openAISection = wrapper.get('[data-testid="monitor-provider-openai"]')
     expect(openAISection.text()).toContain('Chat Completions')
