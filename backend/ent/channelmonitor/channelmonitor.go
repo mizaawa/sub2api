@@ -35,6 +35,7 @@ const (
 	FieldExtraModels = "extra_models"
 	// FieldGroupName holds the string denoting the group_name field in the database.
 	FieldGroupName = "group_name"
+	// FieldSortOrder holds the string denoting the sort_order field in the database.
 	FieldSortOrder = "sort_order"
 	// FieldEnabled holds the string denoting the enabled field in the database.
 	FieldEnabled = "enabled"
