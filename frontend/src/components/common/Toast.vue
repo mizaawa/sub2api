@@ -99,10 +99,10 @@ const getToastIconName = (type: string): 'checkCircle' | 'xCircle' | 'exclamatio
 
 const getIconColor = (type: string): string => {
   const colors: Record<string, string> = {
-    success: 'text-green-500',
+    success: 'text-accent-600',
     error: 'text-red-500',
-    warning: 'text-yellow-500',
-    info: 'text-blue-500'
+    warning: 'text-amber-700',
+    info: 'text-primary-600'
   }
   return colors[type] || colors.info
 }
@@ -111,10 +111,10 @@ const getToastTone = (type: string): string => `toast-tone-${type || 'info'}`
 
 const getProgressBarColor = (type: string): string => {
   const colors: Record<string, string> = {
-    success: 'bg-green-500',
+    success: 'bg-primary-600',
     error: 'bg-red-500',
-    warning: 'bg-yellow-500',
-    info: 'bg-blue-500'
+    warning: 'bg-amber-700',
+    info: 'bg-primary-600'
   }
   return colors[type] || colors.info
 }
@@ -129,19 +129,17 @@ const removeToast = (id: string) => {
   border: 1px solid transparent;
   background: var(--md-sys-color-surface-container-high);
   color: var(--md-sys-color-on-surface);
-  box-shadow: 0 1rem 2rem rgb(15 23 42 / 0.12);
+  box-shadow: 0 1rem 2rem rgb(63 52 32 / 0.12);
 }
 .toast-title, .toast-message { color: var(--md-sys-color-on-surface); }
 .toast-message-muted { color: var(--md-sys-color-on-surface-variant); }
 .toast-close { color: var(--md-sys-color-on-surface-variant); }
 .toast-close:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent); color: var(--md-sys-color-on-surface); }
 .toast-progress-track { background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent); }
-.toast-tone-success { border-left: 4px solid #39c5bb; }
-.toast-tone-error { border-left: 4px solid #ef6f7b; }
-.toast-tone-warning { border-left: 4px solid #e9c46a; }
+.toast-tone-success { border-left: 4px solid var(--md-sys-color-secondary); }
+.toast-tone-error { border-left: 4px solid #c73545; }
+.toast-tone-warning { border-left: 4px solid #a96700; }
 .toast-tone-info { border-left: 4px solid var(--md-sys-color-primary); }
-.toast-progress.bg-green-500 { background: #39c5bb; }
-.toast-progress.bg-blue-500 { background: var(--md-sys-color-primary); }
 .toast-progress {
   width: 100%;
   animation-name: toast-progress-shrink;

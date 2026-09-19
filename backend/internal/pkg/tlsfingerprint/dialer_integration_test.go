@@ -13,10 +13,20 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+const externalFingerprintTestsEnv = "TLSFINGERPRINT_EXTERNAL_TESTS"
+
+func requireExternalFingerprintTests(t *testing.T) {
+	t.Helper()
+	if strings.TrimSpace(os.Getenv(externalFingerprintTestsEnv)) != "1" {
+		t.Skipf("skipping external fingerprint test; set %s=1 to enable", externalFingerprintTestsEnv)
+	}
+}
 
 // skipIfExternalServiceUnavailable checks if the external service is available.
 // If not, it skips the test instead of failing.
@@ -45,7 +55,9 @@ func skipIfExternalServiceUnavailable(t *testing.T, err error) {
 // This test uses tls.peet.ws to verify the fingerprint.
 // Expected JA3 hash: 44f88fca027f27bab4bb08d4af15f23e (Node.js 24.x)
 // Expected JA4: t13d1714h1_5b57614c22b0_7baf387fc6ff
+// Run manually with TLSFINGERPRINT_EXTERNAL_TESTS=1.
 func TestJA3Fingerprint(t *testing.T) {
+	requireExternalFingerprintTests(t)
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -108,8 +120,9 @@ func TestJA3Fingerprint(t *testing.T) {
 }
 
 // TestAllProfiles tests multiple TLS fingerprint profiles against tls.peet.ws.
-// Run with: go test -v -tags=integration -run TestAllProfiles ./internal/pkg/tlsfingerprint/...
+// Run with: TLSFINGERPRINT_EXTERNAL_TESTS=1 go test -v -tags=integration -run TestAllProfiles ./internal/pkg/tlsfingerprint/...
 func TestAllProfiles(t *testing.T) {
+	requireExternalFingerprintTests(t)
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}

@@ -39,8 +39,8 @@
 
       <!-- Input Section -->
       <div class="max-w-xl mx-auto mb-14">
-        <div class="flex gap-3">
-          <div class="flex-1 relative">
+        <div class="flex flex-col gap-3 sm:flex-row">
+          <div class="relative min-w-0 flex-1">
             <div class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-500">
               <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
@@ -50,7 +50,7 @@
               v-model="apiKey"
               :type="keyVisible ? 'text' : 'password'"
               :placeholder="t('keyUsage.placeholder')"
-              class="input-ring w-full h-12 pl-12 pr-12 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 placeholder:text-gray-400 transition-all dark:border-dark-700 dark:bg-dark-900 dark:text-white dark:placeholder:text-dark-500"
+              class="input-ring w-full h-12 pl-12 pr-12 rounded-xl border border-gray-200 bg-white text-sm text-gray-900 transition-all dark:border-dark-700 dark:bg-dark-900 dark:text-white"
               @keydown.enter="queryKey"
             />
             <button
@@ -69,7 +69,7 @@
           <button
             @click="queryKey"
             :disabled="isQuerying"
-            class="h-12 px-7 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-medium text-sm transition-all active:scale-[0.97] flex items-center gap-2 whitespace-nowrap disabled:opacity-60"
+            class="flex h-12 w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-primary-500 px-7 text-sm font-medium text-primary-950 transition-all hover:bg-primary-400 active:scale-[0.97] disabled:opacity-60 sm:w-auto"
           >
             <svg v-if="isQuerying" class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
               <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" opacity="0.25"/>
@@ -95,7 +95,7 @@
               @click="setDateRange(range.key)"
               class="text-xs px-3 py-1.5 rounded-lg border transition-all"
               :class="currentRange === range.key
-                ? 'bg-primary-500 text-white border-primary-500'
+                ? 'bg-primary-500 text-primary-950 border-primary-500'
                 : 'border-gray-200 bg-white text-gray-700 dark:border-dark-700 dark:bg-dark-900 dark:text-dark-200 hover:border-primary-300 dark:hover:border-dark-600'"
             >{{ range.label }}</button>
             <div v-if="currentRange === 'custom'" class="flex items-center gap-2 ml-1">
@@ -112,7 +112,7 @@
               />
               <button
                 @click="queryKey"
-                class="text-xs px-3 py-1.5 rounded-lg bg-primary-500 text-white hover:bg-primary-600"
+                class="text-xs px-3 py-1.5 rounded-lg bg-primary-500 text-primary-950 hover:bg-primary-400"
               >{{ t('keyUsage.apply') }}</button>
             </div>
           </div>
@@ -295,7 +295,7 @@
                   @click="setDailyUsageDays(option.value)"
                   class="min-w-12 rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
                   :class="dailyUsageDays === option.value
-                    ? 'bg-primary-500 text-white'
+                    ? 'bg-primary-500 text-primary-950'
                     : 'text-gray-600 hover:bg-gray-100 dark:text-dark-300 dark:hover:bg-dark-800'"
                 >
                   {{ option.label }}
@@ -511,16 +511,16 @@ function setDailyUsageDays(days: 7 | 30 | 90) {
 
 const CIRCUMFERENCE = 2 * Math.PI * 68
 const RING_GRADIENTS = [
-  { from: '#b99938', to: '#edd889' },
-  { from: '#8ea98a', to: '#c7d4bd' },
-  { from: '#a9796f', to: '#e0b8ad' },
-  { from: '#d2b455', to: '#f8eab0' },
+  { from: '#976800', to: '#f8d65d' },
+  { from: '#477b54', to: '#a5cc9f' },
+  { from: '#b94e37', to: '#f2b6a6' },
+  { from: '#e9b824', to: '#ffe78a' },
 ]
 
 const ringAnimated = ref(false)
 const displayPcts = ref<number[]>([])
 
-const ringTrackColor = '#ebe3c3'
+const ringTrackColor = '#ffe78a'
 
 interface RingItem {
   title: string
@@ -921,8 +921,8 @@ onUnmounted(() => {
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 .input-ring:focus {
-  box-shadow: 0 0 0 3px rgba(210, 180, 85, 0.24);
-  border-color: #d2b455;
+  box-shadow: 0 0 0 3px rgba(233, 184, 36, 0.28);
+  border-color: #e9b824;
   outline: none;
 }
 
@@ -939,13 +939,13 @@ onUnmounted(() => {
   100% { background-position: 200% 0; }
 }
 .skeleton {
-  background: linear-gradient(90deg, #ebe3c3 25%, #fffdf5 50%, #ebe3c3 75%);
+  background: linear-gradient(90deg, #ffe78a 25%, #fffef8 50%, #ffe78a 75%);
   background-size: 200% 100%;
   animation: shimmer-kv 1.8s ease-in-out infinite;
   border-radius: 8px;
 }
 :global(.dark) .skeleton {
-  background: linear-gradient(90deg, #ebe3c3 25%, #fffdf5 50%, #ebe3c3 75%);
+  background: linear-gradient(90deg, #ffe78a 25%, #fffef8 50%, #ffe78a 75%);
   background-size: 200% 100%;
 }
 

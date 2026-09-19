@@ -12,7 +12,7 @@
           <div
             :class="[
               'flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold',
-              step >= 1 ? 'bg-primary-500 text-white' : 'bg-gray-200 text-gray-500 dark:bg-dark-600'
+              step >= 1 ? 'bg-primary-500 text-primary-950' : 'bg-gray-200 text-gray-500 dark:bg-dark-600'
             ]"
           >
             1
@@ -26,7 +26,7 @@
           <div
             :class="[
               'flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold',
-              step >= 2 ? 'bg-primary-500 text-white' : 'bg-gray-200 text-gray-500 dark:bg-dark-600'
+              step >= 2 ? 'bg-primary-500 text-primary-950' : 'bg-gray-200 text-gray-500 dark:bg-dark-600'
             ]"
           >
             2

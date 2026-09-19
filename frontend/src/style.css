@@ -5,32 +5,34 @@
 @layer base {
   :root {
     color-scheme: light;
-    --md-sys-color-background: #fcf8e8;
-    --md-sys-color-surface: #fffdf5;
-    --md-sys-color-surface-container: #f3eed7;
-    --md-sys-color-surface-container-high: #ebe3c3;
-    --md-sys-color-outline: #ded5ad;
-    --md-sys-color-on-surface: #3f3b2e;
-    --md-sys-color-on-surface-variant: #726d58;
-    --md-sys-color-primary: #d2b455;
-    --md-sys-color-on-primary: #413617;
-    --md-sys-color-secondary: #8ea98a;
+    --md-sys-color-background: #fffbe8;
+    --md-sys-color-surface: #fffef8;
+    --md-sys-color-surface-container: #fff3bd;
+    --md-sys-color-surface-container-high: #ffe78a;
+    --md-sys-color-outline: #d7c16a;
+    --md-sys-color-on-surface: #3f3420;
+    --md-sys-color-on-surface-variant: #6b6045;
+    --md-sys-color-primary: #e9b824;
+    --md-sys-color-on-primary: #3f3420;
+    --md-sys-color-secondary: #477b54;
+    --md-sys-color-placeholder: #716443;
   }
 
   /* Night mode is intentionally disabled. Keep this fallback light so a
    * stale preference or an embedded page cannot reintroduce dark surfaces. */
   :root.dark {
     color-scheme: light;
-    --md-sys-color-background: #fcf8e8;
-    --md-sys-color-surface: #fffdf5;
-    --md-sys-color-surface-container: #f3eed7;
-    --md-sys-color-surface-container-high: #ebe3c3;
-    --md-sys-color-outline: #ded5ad;
-    --md-sys-color-on-surface: #3f3b2e;
-    --md-sys-color-on-surface-variant: #726d58;
-    --md-sys-color-primary: #d2b455;
-    --md-sys-color-on-primary: #413617;
-    --md-sys-color-secondary: #8ea98a;
+    --md-sys-color-background: #fffbe8;
+    --md-sys-color-surface: #fffef8;
+    --md-sys-color-surface-container: #fff3bd;
+    --md-sys-color-surface-container-high: #ffe78a;
+    --md-sys-color-outline: #d7c16a;
+    --md-sys-color-on-surface: #3f3420;
+    --md-sys-color-on-surface-variant: #6b6045;
+    --md-sys-color-primary: #e9b824;
+    --md-sys-color-on-primary: #3f3420;
+    --md-sys-color-secondary: #477b54;
+    --md-sys-color-placeholder: #716443;
   }
 
   /* Balance states are shared by the header and profile overview. */
@@ -44,7 +46,7 @@
 
   .balance-tone-premium {
     color: transparent !important;
-    background: linear-gradient(110deg, #9cae8e, #d2b455 38%, #c9a7a0 68%, #9cae8e);
+    background: linear-gradient(110deg, #5c9865, #e9b824 38%, #d57d68 68%, #5c9865);
     background-size: 240% 100%;
     -webkit-background-clip: text;
     background-clip: text;
@@ -153,7 +155,7 @@
   .btn-primary {
     background: var(--md-sys-color-primary);
     color: var(--md-sys-color-on-primary);
-    @apply shadow-none hover:bg-primary-700 dark:hover:bg-primary-300;
+    @apply shadow-none hover:bg-primary-400 dark:hover:bg-primary-400;
   }
 
   .btn-secondary {
@@ -230,7 +232,6 @@
     background: var(--md-sys-color-surface-container);
     border: 1px solid transparent;
     @apply text-gray-900 dark:text-gray-100;
-    @apply placeholder:text-gray-400 dark:placeholder:text-dark-400;
     @apply transition-all duration-200;
     @apply focus:border-transparent focus:outline-none focus:ring-2 focus:ring-primary-500/30;
     @apply disabled:cursor-not-allowed disabled:bg-gray-100 dark:disabled:bg-dark-900;
@@ -253,7 +254,8 @@
   }
 
   .input-hint {
-    @apply mt-1 text-xs text-gray-500 dark:text-dark-400;
+    color: var(--md-sys-color-on-surface-variant);
+    @apply mt-1 text-xs;
   }
 
   .input-error-text {
@@ -501,7 +503,7 @@
     @apply overflow-hidden rounded-4xl shadow-card-hover;
     @apply flex flex-col;
     min-width: 0;
-    box-shadow: 0 1.5rem 3rem rgb(15 23 42 / 0.16), 0 0.35rem 1rem rgb(15 23 42 / 0.08);
+    box-shadow: 0 1.5rem 3rem rgb(63 52 32 / 0.16), 0 0.35rem 1rem rgb(63 52 32 / 0.08);
   }
 
   .modal-header {
@@ -536,7 +538,7 @@
     transform: translate(-50%, -50%);
     background: var(--md-sys-color-surface);
     border: 1px solid transparent;
-    box-shadow: 0 1.5rem 3rem rgb(15 23 42 / 0.16), 0 0.35rem 1rem rgb(15 23 42 / 0.08);
+    box-shadow: 0 1.5rem 3rem rgb(63 52 32 / 0.16), 0 0.35rem 1rem rgb(63 52 32 / 0.08);
   }
 
   @media (max-width: 640px) {
@@ -553,7 +555,7 @@
     width: 100%;
     height: 100%;
     border: 0;
-    background: rgb(3 44 42 / 0.58);
+    background: rgb(53 44 28 / 0.58);
     backdrop-filter: blur(7px) saturate(1.08);
   }
 
@@ -661,7 +663,7 @@
   }
 
   .toast-success {
-    @apply border-l-emerald-500;
+    @apply border-l-accent-600;
   }
 
   .toast-error {
@@ -946,7 +948,7 @@
 @layer components {
   /* Authenticated sidebar pages use open surfaces. Clear neutral and primary
    * utility borders in one place so page-specific lists and controls cannot
-   * reintroduce the teal outline. Semantic status borders and spinners stay
+   * reintroduce neutral outlines. Semantic status borders and spinners stay
    * visible, while focus rings continue to provide keyboard feedback. */
   .app-shell [class~='border']:not(.animate-spin):not(.rank-gold):not(.rank-silver):not(.rank-bronze):not([class*='border-red-']):not([class*='border-rose-']):not([class*='border-amber-']):not([class*='border-yellow-']):not([class*='border-orange-']):not([class*='border-green-']):not([class*='border-emerald-']):not([class*='border-blue-']):not([class*='border-sky-']):not([class*='border-indigo-']):not([class*='border-violet-']):not([class*='border-purple-']):not([class*='border-fuchsia-']):not([class*='border-pink-']):not([class*='border-lime-']),
   .app-shell [class*='border-']:not(.animate-spin):not(.rank-gold):not(.rank-silver):not(.rank-bronze):not([class*='border-red-']):not([class*='border-rose-']):not([class*='border-amber-']):not([class*='border-yellow-']):not([class*='border-orange-']):not([class*='border-green-']):not([class*='border-emerald-']):not([class*='border-blue-']):not([class*='border-sky-']):not([class*='border-indigo-']):not([class*='border-violet-']):not([class*='border-purple-']):not([class*='border-fuchsia-']):not([class*='border-pink-']):not([class*='border-lime-']),
@@ -981,7 +983,7 @@
   }
 
   .dashboard-layout .app-header {
-    box-shadow: 0 0.625rem 1.75rem rgb(15 23 42 / 0.08) !important;
+    box-shadow: 0 0.625rem 1.75rem rgb(63 52 32 / 0.08) !important;
   }
 
   /* Select menus are teleported to body, so keep their dashboard border
@@ -990,4 +992,12 @@
   body:has(.dashboard-layout) .select-dropdown-portal .select-search {
     border-color: transparent !important;
   }
+}
+
+/* Placeholder text is functional guidance, so keep it readable across every
+ * input implementation, including scoped searchable selects. */
+input::placeholder,
+textarea::placeholder {
+  color: var(--md-sys-color-placeholder) !important;
+  opacity: 1;
 }
