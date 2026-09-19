@@ -11,6 +11,7 @@ vi.mock('vue-i18n', () => ({
 function makeMonitor(overrides: Partial<ChannelMonitor> = {}): ChannelMonitor {
   return {
     id: 42,
+    sort_order: 0,
     name: 'primary',
     provider: 'openai',
     api_mode: 'chat_completions',

@@ -52,6 +52,15 @@
         <Icon name="cog" size="md" class="mr-2" />
         {{ t('admin.channelMonitor.template.manageButton') }}
       </button>
+      <button
+        data-testid="channel-monitor-sort-button"
+        @click="$emit('sort')"
+        class="btn btn-secondary"
+        :title="t('admin.channelMonitor.sortOrder')"
+      >
+        <Icon name="arrowsUpDown" size="md" class="mr-2" />
+        {{ t('admin.channelMonitor.sortOrder') }}
+      </button>
       <button @click="$emit('create')" class="btn btn-primary">
         <Icon name="plus" size="md" class="mr-2" />
         {{ t('admin.channelMonitor.createButton') }}
@@ -71,6 +80,7 @@ import {
   PROVIDER_ANTHROPIC,
   PROVIDER_GEMINI,
   PROVIDER_GROK,
+  PROVIDER_CUSTOM,
 } from '@/constants/channelMonitor'
 
 defineProps<{
@@ -81,6 +91,7 @@ defineEmits<{
   (e: 'reload'): void
   (e: 'create'): void
   (e: 'manage-templates'): void
+  (e: 'sort'): void
   (e: 'search-input'): void
 }>()
 
@@ -96,6 +107,7 @@ const providerFilterOptions = computed(() => [
   { value: PROVIDER_ANTHROPIC, label: t('monitorCommon.providers.anthropic') },
   { value: PROVIDER_GEMINI, label: t('monitorCommon.providers.gemini') },
   { value: PROVIDER_GROK, label: t('monitorCommon.providers.grok') },
+  { value: PROVIDER_CUSTOM, label: t('monitorCommon.providers.custom') },
 ])
 
 const enabledFilterOptions = computed(() => [

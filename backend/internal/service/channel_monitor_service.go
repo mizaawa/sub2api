@@ -24,6 +24,7 @@ type ChannelMonitorRepository interface {
 	Update(ctx context.Context, m *ChannelMonitor) error
 	Delete(ctx context.Context, id int64) error
 	List(ctx context.Context, params ChannelMonitorListParams) ([]*ChannelMonitor, int64, error)
+	UpdateSortOrders(ctx context.Context, updates []ChannelMonitorSortOrderUpdate) error
 	FindByDuplicateOperationID(ctx context.Context, operationID string) (*ChannelMonitor, error)
 
 	// 调度器辅助
@@ -102,6 +103,14 @@ func (s *ChannelMonitorService) List(ctx context.Context, params ChannelMonitorL
 		s.decryptInPlace(it)
 	}
 	return items, total, nil
+}
+
+// UpdateSortOrders 批量更新渠道监控排序。
+func (s *ChannelMonitorService) UpdateSortOrders(ctx context.Context, updates []ChannelMonitorSortOrderUpdate) error {
+	if err := s.repo.UpdateSortOrders(ctx, updates); err != nil {
+		return fmt.Errorf("update channel monitor sort orders: %w", err)
+	}
+	return nil
 }
 
 // Get 查询单个监控（解密 API Key）。
@@ -203,6 +212,7 @@ func (s *ChannelMonitorService) Duplicate(
 		PrimaryModel:         source.PrimaryModel,
 		ExtraModels:          append([]string{}, source.ExtraModels...),
 		GroupName:            source.GroupName,
+		SortOrder:            source.SortOrder,
 		Enabled:              false,
 		IntervalSeconds:      source.IntervalSeconds,
 		JitterSeconds:        source.JitterSeconds,

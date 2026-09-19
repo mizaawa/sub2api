@@ -279,6 +279,47 @@ func TestRunCheckForModel_Grok_RedactsXAIKeyFromUpstreamBody(t *testing.T) {
 	}
 }
 
+func TestCustomMonitorConfiguration(t *testing.T) {
+	if err := validateProvider(MonitorProviderCustom); err != nil {
+		t.Fatalf("custom provider should be supported: %v", err)
+	}
+	if err := validateAPIMode(MonitorProviderCustom, MonitorAPIModeChatCompletions); err != nil {
+		t.Fatalf("custom chat_completions mode should be valid: %v", err)
+	}
+	if err := validateAPIMode(MonitorProviderCustom, MonitorAPIModeResponses); err == nil {
+		t.Fatal("custom responses mode should be rejected by channel monitoring")
+	}
+	if err := validateReplaceRequestBody(MonitorProviderCustom, MonitorAPIModeChatCompletions, map[string]any{}); err == nil {
+		t.Fatal("custom replace-mode body should require messages")
+	}
+}
+
+func TestRunCheckForModel_Custom_DefaultChatRequest(t *testing.T) {
+	h := &openAICaptureHandler{}
+	endpoint := setupFakeOpenAI(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderCustom, endpoint, "custom-key", "custom-model", nil)
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("custom request should pass challenge, got status=%s message=%q", res.Status, res.Message)
+	}
+	if h.lastPath != providerCustomPath {
+		t.Fatalf("expected custom chat completions path %q, got %q", providerCustomPath, h.lastPath)
+	}
+	if h.lastBody["model"] != "custom-model" {
+		t.Errorf("custom body should contain model=custom-model, got %v", h.lastBody["model"])
+	}
+	if _, ok := h.lastBody["messages"]; !ok {
+		t.Error("custom body should contain messages")
+	}
+	if h.lastBody["stream"] != false {
+		t.Errorf("custom body should set stream=false, got %v", h.lastBody["stream"])
+	}
+	if h.lastHeaders.Get("Authorization") != "Bearer custom-key" {
+		t.Errorf("expected custom bearer auth header, got %q", h.lastHeaders.Get("Authorization"))
+	}
+}
+
 func TestRunCheckForModel_OpenAIResponses_DefaultRequest(t *testing.T) {
 	h := &openAICaptureHandler{}
 	endpoint := setupFakeOpenAI(t, h)

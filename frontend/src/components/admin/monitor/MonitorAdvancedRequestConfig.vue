@@ -112,6 +112,7 @@ import {
   DEFAULT_GROK_MODEL,
   PROVIDER_GROK,
   PROVIDER_OPENAI,
+  PROVIDER_CUSTOM,
 } from '@/constants/channelMonitor'
 
 const props = defineProps<{
@@ -307,7 +308,7 @@ const bodyPlaceholder = computed(() => {
     }
     return '{\n  "model": "gpt-4o-mini",\n  "instructions": "You are a health check endpoint. Reply briefly.",\n  "input": "Reply with exactly: ok",\n  "max_output_tokens": 20,\n  "stream": false\n}'
   }
-  if (props.provider === PROVIDER_OPENAI || props.provider === PROVIDER_GROK) {
+  if (props.provider === PROVIDER_OPENAI || props.provider === PROVIDER_GROK || props.provider === PROVIDER_CUSTOM) {
     if (props.bodyOverrideMode === 'merge') {
       return '{\n  "max_tokens": 20\n}'
     }

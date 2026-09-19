@@ -1,65 +1,60 @@
 <template>
   <AppLayout>
-    <MonitorHero
-      :overall-status="overallStatus"
-      :interval-seconds="DEFAULT_INTERVAL_SECONDS"
-      :window="currentWindow"
-      :loading="loading"
-      :auto-refresh="autoRefresh"
-      @update:window="handleWindowChange"
-      @refresh="manualReload"
-    />
+    <div class="mx-auto w-full max-w-5xl pb-8">
+      <section
+        class="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm"
+        aria-labelledby="channel-system-status-title"
+      >
+        <header class="border-b border-gray-200 px-4 py-5 sm:px-6">
+          <h1
+            id="channel-system-status-title"
+            class="text-xl font-semibold text-gray-950"
+          >
+            {{ t('channelStatus.systemStatus') }}
+          </h1>
+        </header>
 
-    <MonitorCardGrid
-      :items="items"
-      :window="currentWindow"
-      :countdown-seconds="countdown"
-      :loading="loading"
-      :detail-cache="detailCache"
-      @card-click="openDetail"
-    />
+        <MonitorCardGrid :items="items" :loading="loading" />
+      </section>
 
-    <MonitorDetailDialog
-      :show="showDetail"
-      :monitor-id="detailTarget?.id ?? null"
-      :title="detailTitle"
-      @close="closeDetail"
-    />
+      <p class="mt-4 px-1 text-xs leading-5 text-gray-500">
+        {{ t('channelStatus.metricsDisclaimer') }}
+      </p>
+
+      <footer class="mt-5 border-t border-gray-200 pt-4 text-center text-xs text-gray-500">
+        <span>{{ t('channelStatus.poweredBy') }}</span>
+        <a
+          href="https://mizaawa.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="ml-1 font-medium text-gray-700 underline decoration-gray-300 underline-offset-4 transition-colors hover:text-gray-950"
+        >
+          mizaawa.com
+        </a>
+      </footer>
+    </div>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import {
   list as listChannelMonitorViews,
-  status as fetchChannelMonitorDetail,
   type UserMonitorView,
-  type UserMonitorDetail,
 } from '@/api/channelMonitor'
 import AppLayout from '@/components/layout/AppLayout.vue'
-import MonitorHero, {
-  type MonitorWindow,
-  type OverallStatus,
-} from '@/components/user/monitor/MonitorHero.vue'
 import MonitorCardGrid from '@/components/user/monitor/MonitorCardGrid.vue'
-import MonitorDetailDialog from '@/components/user/MonitorDetailDialog.vue'
-import { DEFAULT_INTERVAL_SECONDS, STATUS_OPERATIONAL } from '@/constants/channelMonitor'
+import { DEFAULT_INTERVAL_SECONDS } from '@/constants/channelMonitor'
 import { useAutoRefresh } from '@/composables/useAutoRefresh'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 
-// ── State ──
 const items = ref<UserMonitorView[]>([])
 const loading = ref(false)
-const currentWindow = ref<MonitorWindow>('7d')
-const detailCache = reactive<Record<number, UserMonitorDetail>>({})
-const showDetail = ref(false)
-const detailTarget = ref<UserMonitorView | null>(null)
-
 let abortController: AbortController | null = null
 
 const autoRefresh = useAutoRefresh({
@@ -69,87 +64,29 @@ const autoRefresh = useAutoRefresh({
   onRefresh: () => reload(true),
   shouldPause: () => document.hidden || loading.value,
 })
-const countdown = autoRefresh.countdown
 
-// ── Computed ──
-const overallStatus = computed<OverallStatus>(() => {
-  if (items.value.length === 0) return 'operational'
-  for (const it of items.value) {
-    if (it.primary_status === 'failed' || it.primary_status === 'error') return 'degraded'
-    if (it.primary_status !== STATUS_OPERATIONAL) return 'degraded'
-  }
-  return 'operational'
-})
-
-const detailTitle = computed(() => {
-  return detailTarget.value?.name || t('channelStatus.detailTitle')
-})
-
-// ── Loaders ──
 async function reload(silent = false) {
-  if (abortController) abortController.abort()
+  abortController?.abort()
   const ctrl = new AbortController()
   abortController = ctrl
   if (!silent) loading.value = true
+
   try {
-    const res = await listChannelMonitorViews({ signal: ctrl.signal })
+    const response = await listChannelMonitorViews({ signal: ctrl.signal })
     if (ctrl.signal.aborted || abortController !== ctrl) return
-    items.value = res.items || []
+    items.value = response.items || []
   } catch (err: unknown) {
-    const e = err as { name?: string; code?: string }
-    if (e?.name === 'AbortError' || e?.code === 'ERR_CANCELED') return
+    const requestError = err as { name?: string; code?: string }
+    if (requestError?.name === 'AbortError' || requestError?.code === 'ERR_CANCELED') return
     appStore.showError(extractApiErrorMessage(err, t('channelStatus.loadError')))
   } finally {
     if (abortController === ctrl) {
       if (!silent) loading.value = false
-      countdown.value = DEFAULT_INTERVAL_SECONDS
+      autoRefresh.resetCountdown()
       abortController = null
     }
   }
 }
-
-async function manualReload() {
-  await reload(false)
-  // After base reload, refresh any cached detail records so non-7d availability
-  // values stay in sync without forcing the user to switch tabs again.
-  if (currentWindow.value !== '7d') {
-    await Promise.all(items.value.map(it => loadDetail(it.id, true)))
-  }
-}
-
-async function loadDetail(id: number, force = false) {
-  if (!force && detailCache[id]) return
-  try {
-    detailCache[id] = await fetchChannelMonitorDetail(id)
-  } catch (err: unknown) {
-    appStore.showError(extractApiErrorMessage(err, t('channelStatus.detailLoadError')))
-  }
-}
-
-async function ensureDetailsForWindow() {
-  if (currentWindow.value === '7d') return
-  await Promise.all(items.value.map(it => loadDetail(it.id)))
-}
-
-// ── Handlers ──
-async function handleWindowChange(value: MonitorWindow) {
-  currentWindow.value = value
-  await ensureDetailsForWindow()
-}
-
-function openDetail(row: UserMonitorView) {
-  detailTarget.value = row
-  showDetail.value = true
-}
-
-function closeDetail() {
-  showDetail.value = false
-  detailTarget.value = null
-}
-
-watch(items, () => {
-  void ensureDetailsForWindow()
-})
 
 watch(
   () => appStore.cachedPublicSettings?.channel_monitor_enabled,
@@ -167,6 +104,6 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
-  if (abortController) abortController.abort()
+  abortController?.abort()
 })
 </script>

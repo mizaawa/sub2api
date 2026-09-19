@@ -450,7 +450,8 @@ export default {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
       gemini: 'Gemini',
-      grok: 'Grok'
+      grok: 'Grok',
+      custom: 'Custom'
     },
     extraModelsHeader: '附加模型',
     extraModelsEmpty: '无附加模型',
@@ -476,6 +477,22 @@ export default {
   channelStatus: {
     title: '渠道状态',
     description: '查看渠道可用性、延迟和近期状态',
+    systemStatus: '系统状态',
+    poweredBy: 'Powered by',
+    componentCount: '{n} 个组件',
+    loadingProvider: '正在加载 {provider} 渠道状态',
+    emptyProvider: '暂无已配置的渠道监控',
+    uptime: '{value}% 可用率',
+    uptimeUnavailable: '-- 可用率',
+    timelineLabel: '最近 {n} 次状态记录',
+    metricsDisclaimer: '可用率指标由渠道监控检查汇总得出。实际可用性可能因模型、接口端点、地区和请求类型而异。',
+    providers: {
+      openai: 'OpenAI',
+      anthropic: 'Anthropic',
+      gemini: 'Gemini',
+      grok: 'Grok',
+      custom: 'Custom'
+    },
     searchPlaceholder: '搜索渠道...',
     allProviders: '全部供应商',
     loadError: '加载渠道状态失败',

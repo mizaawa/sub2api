@@ -445,7 +445,8 @@ export default {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
       gemini: 'Gemini',
-      grok: 'Grok'
+      grok: 'Grok',
+      custom: 'Custom'
     },
     extraModelsHeader: 'Extra Models',
     extraModelsEmpty: 'No extra models',
@@ -471,6 +472,22 @@ export default {
   channelStatus: {
     title: 'Channel Status',
     description: 'Inspect channel availability, latency and recent status',
+    systemStatus: 'System status',
+    poweredBy: 'Powered by',
+    componentCount: '{n} components',
+    loadingProvider: 'Loading {provider} channel status',
+    emptyProvider: 'No monitored channels configured',
+    uptime: '{value}% uptime',
+    uptimeUnavailable: '-- uptime',
+    timelineLabel: '{n} recent status checks',
+    metricsDisclaimer: 'Availability metrics are aggregated from channel monitoring checks. Actual availability may vary by model, endpoint, region, and request type.',
+    providers: {
+      openai: 'OpenAI',
+      anthropic: 'Anthropic',
+      gemini: 'Gemini',
+      grok: 'Grok',
+      custom: 'Custom'
+    },
     searchPlaceholder: 'Search channels...',
     allProviders: 'All Providers',
     loadError: 'Failed to load channel status',

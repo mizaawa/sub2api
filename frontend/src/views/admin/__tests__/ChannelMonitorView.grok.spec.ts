@@ -82,15 +82,16 @@ describe('channel monitor Grok provider', () => {
 
     expect(PROVIDERS).toContain(PROVIDER_GROK)
     const providerButtons = wrapper.findAll('[data-testid^="monitor-provider-"]')
-    expect(providerButtons).toHaveLength(4)
+    expect(providerButtons).toHaveLength(5)
     expect(providerButtons[0].element.parentElement?.className).toContain('grid-cols-2')
-    expect(providerButtons[0].element.parentElement?.className).toContain('sm:grid-cols-4')
+    expect(providerButtons[0].element.parentElement?.className).toContain('sm:grid-cols-3')
+    expect(providerButtons[0].element.parentElement?.className).toContain('md:grid-cols-5')
 
     const grokButton = wrapper.get('[data-testid="monitor-provider-grok"]')
     expect(grokButton.find('svg').exists()).toBe(true)
     expect(grokButton.text()).toContain('monitorCommon.providers.grok')
     await grokButton.trigger('click')
-    expect(grokButton.classes().join(' ')).toContain('zinc')
+    expect(grokButton.classes().join(' ')).toContain('border-primary-500')
 
     const endpoint = wrapper.get('[data-testid="monitor-endpoint"]')
     const model = wrapper.get('[data-testid="monitor-primary-model"]')

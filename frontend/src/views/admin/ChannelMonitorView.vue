@@ -10,6 +10,7 @@
           @reload="reload"
           @create="openCreateDialog"
           @manage-templates="showTemplateManager = true"
+          @sort="openSortDialog"
           @search-input="handleSearch"
         />
       </template>
@@ -107,6 +108,92 @@
       @close="showRunResult = false"
     />
 
+    <BaseDialog
+      :show="showSortDialog"
+      :title="t('admin.channelMonitor.sortOrder')"
+      width="normal"
+      @close="closeSortDialog"
+    >
+      <div class="space-y-4">
+        <p class="text-sm text-gray-500 dark:text-gray-400">
+          {{ t('admin.channelMonitor.sortOrderHint') }}
+        </p>
+
+        <div
+          v-if="sortLoading"
+          class="flex min-h-40 items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400"
+          data-testid="channel-monitor-sort-loading"
+        >
+          <Icon name="refresh" size="md" class="animate-spin" />
+          {{ t('common.loading') }}
+        </div>
+
+        <div v-else class="max-h-[65vh] space-y-5 overflow-y-auto pr-1">
+          <section v-for="provider in PROVIDERS" :key="provider" class="space-y-2">
+            <div class="flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
+                <ProviderIcon :provider="provider" :size="18" />
+                {{ providerLabel(provider) }}
+              </div>
+              <span class="text-xs text-gray-400 dark:text-gray-500">
+                {{ t('admin.channelMonitor.sortOrderCount', { count: sortableMonitors[provider].length }) }}
+              </span>
+            </div>
+
+            <VueDraggable
+              v-if="sortableMonitors[provider].length > 0"
+              v-model="sortableMonitors[provider]"
+              :animation="200"
+              class="space-y-2"
+              :data-testid="`channel-monitor-sort-list-${provider}`"
+            >
+              <div
+                v-for="monitor in sortableMonitors[provider]"
+                :key="monitor.id"
+                :data-monitor-id="monitor.id"
+                class="flex cursor-grab items-center gap-3 rounded-lg border border-gray-200 bg-white p-3 transition-shadow hover:shadow-md active:cursor-grabbing dark:border-dark-600 dark:bg-dark-700"
+              >
+                <Icon name="menu" size="md" class="flex-none text-gray-400" />
+                <div class="min-w-0 flex-1">
+                  <div class="truncate font-medium text-gray-900 dark:text-white">
+                    {{ monitor.name }}
+                  </div>
+                  <div class="truncate text-xs text-gray-500 dark:text-gray-400">
+                    {{ monitor.primary_model }}
+                  </div>
+                </div>
+                <span class="flex-none text-sm text-gray-400">#{{ monitor.id }}</span>
+              </div>
+            </VueDraggable>
+
+            <div
+              v-else
+              class="rounded-lg border border-dashed border-gray-200 px-3 py-2 text-sm text-gray-400 dark:border-dark-600 dark:text-gray-500"
+            >
+              {{ t('admin.channelMonitor.sortOrderEmptyProvider') }}
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end gap-3 pt-4">
+          <button type="button" class="btn btn-secondary" @click="closeSortDialog">
+            {{ t('common.cancel') }}
+          </button>
+          <button
+            data-testid="channel-monitor-sort-save"
+            class="btn btn-primary"
+            :disabled="sortLoading || sortSubmitting || sortableCount === 0"
+            @click="saveSortOrder"
+          >
+            <Icon v-if="sortSubmitting" name="refresh" size="sm" class="mr-2 animate-spin" />
+            {{ sortSubmitting ? t('common.saving') : t('common.save') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+
     <ConfirmDialog
       :show="showDeleteDialog"
       :title="t('common.delete')"
@@ -137,6 +224,7 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
 import Pagination from '@/components/common/Pagination.vue'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
@@ -148,8 +236,11 @@ import MonitorTemplateManagerDialog from '@/components/admin/monitor/MonitorTemp
 import MonitorRunResultDialog from '@/components/admin/monitor/MonitorRunResultDialog.vue'
 import MonitorPrimaryModelCell from '@/components/admin/monitor/MonitorPrimaryModelCell.vue'
 import MonitorActionsCell from '@/components/admin/monitor/MonitorActionsCell.vue'
+import ProviderIcon from '@/components/user/monitor/ProviderIcon.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
+import { PROVIDERS } from '@/constants/channelMonitor'
+import { VueDraggable } from 'vue-draggable-plus'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -176,9 +267,30 @@ const deleting = ref<ChannelMonitor | null>(null)
 const showRunResult = ref(false)
 const runResults = ref<CheckResult[]>([])
 const duplicatingIds = reactive(new Set<number>())
+const showSortDialog = ref(false)
+const sortLoading = ref(false)
+const sortSubmitting = ref(false)
+
+function emptySortableMonitors(): Record<Provider, ChannelMonitor[]> {
+  return {
+    openai: [],
+    anthropic: [],
+    gemini: [],
+    grok: [],
+    custom: [],
+  }
+}
+
+const sortableMonitors = ref<Record<Provider, ChannelMonitor[]>>(emptySortableMonitors())
+const sortableCount = computed(() =>
+  PROVIDERS.reduce((count, provider) => count + sortableMonitors.value[provider].length, 0)
+)
 
 let abortController: AbortController | null = null
 let searchTimeout: ReturnType<typeof setTimeout> | null = null
+let sortLoadGeneration = 0
+
+const SORT_PAGE_SIZE = 100
 
 const columns = computed<Column[]>(() => [
   { key: 'name', label: t('admin.channelMonitor.columns.name'), sortable: false },
@@ -272,6 +384,79 @@ function closeDialog() {
   editing.value = null
 }
 
+async function loadAllMonitorsForSort(): Promise<ChannelMonitor[]> {
+  const monitorsByID = new Map<number, ChannelMonitor>()
+  let page = 1
+  let pages = 1
+
+  do {
+    const response = await adminAPI.channelMonitor.list({ page, page_size: SORT_PAGE_SIZE })
+    for (const monitor of response.items || []) monitorsByID.set(monitor.id, monitor)
+    pages = Math.max(
+      1,
+      response.pages || Math.ceil(response.total / Math.max(1, response.page_size))
+    )
+    page += 1
+  } while (page <= pages)
+
+  return [...monitorsByID.values()].sort(
+    (left, right) => left.sort_order - right.sort_order || left.id - right.id
+  )
+}
+
+async function openSortDialog() {
+  const generation = ++sortLoadGeneration
+  showSortDialog.value = true
+  sortLoading.value = true
+  sortableMonitors.value = emptySortableMonitors()
+
+  try {
+    const allMonitors = await loadAllMonitorsForSort()
+    if (generation !== sortLoadGeneration) return
+
+    const grouped = emptySortableMonitors()
+    for (const monitor of allMonitors) {
+      if (PROVIDERS.includes(monitor.provider)) grouped[monitor.provider].push(monitor)
+    }
+    sortableMonitors.value = grouped
+  } catch (err: unknown) {
+    if (generation !== sortLoadGeneration) return
+    appStore.showError(extractApiErrorMessage(err, t('admin.channelMonitor.sortOrderLoadError')))
+    closeSortDialog()
+  } finally {
+    if (generation === sortLoadGeneration) sortLoading.value = false
+  }
+}
+
+function closeSortDialog() {
+  sortLoadGeneration += 1
+  showSortDialog.value = false
+  sortLoading.value = false
+  sortableMonitors.value = emptySortableMonitors()
+}
+
+async function saveSortOrder() {
+  if (sortSubmitting.value || sortableCount.value === 0) return
+
+  const orderedMonitors = PROVIDERS.flatMap(provider => sortableMonitors.value[provider])
+  const updates = orderedMonitors.map((monitor, index) => ({
+    id: monitor.id,
+    sort_order: index * 10,
+  }))
+
+  sortSubmitting.value = true
+  try {
+    await adminAPI.channelMonitor.updateSortOrder(updates)
+    appStore.showSuccess(t('admin.channelMonitor.sortOrderUpdated'))
+    closeSortDialog()
+    void reload()
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('admin.channelMonitor.sortOrderUpdateError')))
+  } finally {
+    sortSubmitting.value = false
+  }
+}
+
 async function toggleEnabled(row: ChannelMonitor) {
   const next = !row.enabled
   try {
@@ -353,6 +538,7 @@ onUnmounted(() => {
 :deep(.channel-monitor-glow-anthropic) { --monitor-glow-color: 249 115 22; }
 :deep(.channel-monitor-glow-gemini) { --monitor-glow-color: 14 165 233; }
 :deep(.channel-monitor-glow-grok) { --monitor-glow-color: 148 163 184; }
+:deep(.channel-monitor-glow-custom) { --monitor-glow-color: 107 114 128; }
 
 @keyframes channel-monitor-pulse {
   0%, 100% { box-shadow: 0 0 0 rgb(var(--monitor-glow-color) / 0); }

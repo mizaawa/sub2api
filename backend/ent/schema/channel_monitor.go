@@ -35,7 +35,7 @@ func (ChannelMonitor) Fields() []ent.Field {
 			NotEmpty().
 			MaxLen(100),
 		field.Enum("provider").
-			Values("openai", "anthropic", "gemini", "grok"),
+			Values("openai", "anthropic", "gemini", "grok", "custom"),
 		field.String("api_mode").
 			Default("chat_completions").
 			MaxLen(32).
@@ -58,6 +58,9 @@ func (ChannelMonitor) Fields() []ent.Field {
 			Optional().
 			Default("").
 			MaxLen(100),
+		field.Int("sort_order").
+			Default(0).
+			Comment("渠道监控显示排序，数值越小越靠前"),
 		field.Bool("enabled").
 			Default(true),
 		field.Int("interval_seconds").
@@ -114,6 +117,7 @@ func (ChannelMonitor) Indexes() []ent.Index {
 		index.Fields("provider"),
 		index.Fields("provider", "api_mode"),
 		index.Fields("group_name"),
+		index.Fields("sort_order"),
 		index.Fields("template_id"),
 	}
 }

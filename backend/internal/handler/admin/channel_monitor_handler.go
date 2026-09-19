@@ -39,7 +39,7 @@ func NewChannelMonitorHandler(monitorService *service.ChannelMonitorService) *Ch
 
 type channelMonitorCreateRequest struct {
 	Name             string            `json:"name" binding:"required,max=100"`
-	Provider         string            `json:"provider" binding:"required,oneof=openai anthropic gemini grok"`
+	Provider         string            `json:"provider" binding:"required,oneof=openai anthropic gemini grok custom"`
 	APIMode          string            `json:"api_mode" binding:"omitempty,oneof=chat_completions responses"`
 	Endpoint         string            `json:"endpoint" binding:"required,max=500"`
 	APIKey           string            `json:"api_key" binding:"required,max=2000"`
@@ -57,7 +57,7 @@ type channelMonitorCreateRequest struct {
 
 type channelMonitorUpdateRequest struct {
 	Name             *string            `json:"name" binding:"omitempty,max=100"`
-	Provider         *string            `json:"provider" binding:"omitempty,oneof=openai anthropic gemini grok"`
+	Provider         *string            `json:"provider" binding:"omitempty,oneof=openai anthropic gemini grok custom"`
 	APIMode          *string            `json:"api_mode" binding:"omitempty,oneof=chat_completions responses"`
 	Endpoint         *string            `json:"endpoint" binding:"omitempty,max=500"`
 	APIKey           *string            `json:"api_key" binding:"omitempty,max=2000"`
@@ -74,6 +74,13 @@ type channelMonitorUpdateRequest struct {
 	BodyOverride     *map[string]any    `json:"body_override"`
 }
 
+type channelMonitorSortOrderRequest struct {
+	Updates []struct {
+		ID        int64 `json:"id" binding:"required,gt=0"`
+		SortOrder int   `json:"sort_order"`
+	} `json:"updates" binding:"required,min=1"`
+}
+
 type channelMonitorResponse struct {
 	ID                  int64                                `json:"id"`
 	Name                string                               `json:"name"`
@@ -85,6 +92,7 @@ type channelMonitorResponse struct {
 	PrimaryModel        string                               `json:"primary_model"`
 	ExtraModels         []string                             `json:"extra_models"`
 	GroupName           string                               `json:"group_name"`
+	SortOrder           int                                  `json:"sort_order"`
 	Enabled             bool                                 `json:"enabled"`
 	IntervalSeconds     int                                  `json:"interval_seconds"`
 	JitterSeconds       int                                  `json:"jitter_seconds"`
@@ -153,6 +161,7 @@ func channelMonitorToResponse(m *service.ChannelMonitor) *channelMonitorResponse
 		PrimaryModel:        m.PrimaryModel,
 		ExtraModels:         extras,
 		GroupName:           m.GroupName,
+		SortOrder:           m.SortOrder,
 		Enabled:             m.Enabled,
 		IntervalSeconds:     m.IntervalSeconds,
 		JitterSeconds:       m.JitterSeconds,
@@ -249,6 +258,32 @@ func (h *ChannelMonitorHandler) List(c *gin.Context) {
 		out = append(out, buildListItemResponse(m, summaries[m.ID]))
 	}
 	response.Paginated(c, out, total, page, pageSize)
+}
+
+// UpdateSortOrder PUT /api/v1/admin/channel-monitors/sort-order
+func (h *ChannelMonitorHandler) UpdateSortOrder(c *gin.Context) {
+	var req channelMonitorSortOrderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.ErrorFrom(c, infraerrors.BadRequest("VALIDATION_ERROR", err.Error()))
+		return
+	}
+
+	updates := make([]service.ChannelMonitorSortOrderUpdate, 0, len(req.Updates))
+	for _, update := range req.Updates {
+		if update.ID <= 0 {
+			response.ErrorFrom(c, infraerrors.BadRequest("INVALID_MONITOR_ID", "invalid monitor id"))
+			return
+		}
+		updates = append(updates, service.ChannelMonitorSortOrderUpdate{
+			ID:        update.ID,
+			SortOrder: update.SortOrder,
+		})
+	}
+	if err := h.monitorService.UpdateSortOrders(c.Request.Context(), updates); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "Sort order updated successfully"})
 }
 
 // batchSummaryFor 批量聚合 latest + 7d 可用率，避免每行 2 次 SQL（消除 N+1）。

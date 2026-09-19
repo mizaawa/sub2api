@@ -46,6 +46,7 @@ func (r *channelMonitorRepository) Create(ctx context.Context, m *service.Channe
 		SetPrimaryModel(m.PrimaryModel).
 		SetExtraModels(emptySliceIfNil(m.ExtraModels)).
 		SetGroupName(m.GroupName).
+		SetSortOrder(m.SortOrder).
 		SetEnabled(m.Enabled).
 		SetIntervalSeconds(m.IntervalSeconds).
 		SetJitterSeconds(m.JitterSeconds).
@@ -177,7 +178,10 @@ func (r *channelMonitorRepository) List(ctx context.Context, params service.Chan
 	}
 
 	rows, err := q.
-		Order(dbent.Desc(channelmonitor.FieldID)).
+		Order(
+			dbent.Asc(channelmonitor.FieldSortOrder),
+			dbent.Asc(channelmonitor.FieldID),
+		).
 		Offset((page - 1) * pageSize).
 		Limit(pageSize).
 		All(ctx)
@@ -192,11 +196,87 @@ func (r *channelMonitorRepository) List(ctx context.Context, params service.Chan
 	return out, int64(total), nil
 }
 
+// UpdateSortOrders 批量更新渠道监控排序。重复 ID 以最后一次提交的值为准；
+// 任一 ID 不存在时整批回滚，避免产生部分排序结果。
+func (r *channelMonitorRepository) UpdateSortOrders(ctx context.Context, updates []service.ChannelMonitorSortOrderUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	sortOrderByID := make(map[int64]int, len(updates))
+	ids := make([]int64, 0, len(updates))
+	for _, update := range updates {
+		if update.ID <= 0 {
+			continue
+		}
+		if _, exists := sortOrderByID[update.ID]; !exists {
+			ids = append(ids, update.ID)
+		}
+		sortOrderByID[update.ID] = update.SortOrder
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+
+	if tx := dbent.TxFromContext(ctx); tx != nil {
+		return updateChannelMonitorSortOrders(ctx, tx.Client(), ids, sortOrderByID)
+	}
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin channel monitor sort transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	txCtx := dbent.NewTxContext(ctx, tx)
+	if err := updateChannelMonitorSortOrders(txCtx, tx.Client(), ids, sortOrderByID); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit channel monitor sort transaction: %w", err)
+	}
+	return nil
+}
+
+func updateChannelMonitorSortOrders(
+	ctx context.Context,
+	client *dbent.Client,
+	ids []int64,
+	sortOrderByID map[int64]int,
+) error {
+	existingCount, err := client.ChannelMonitor.Query().
+		Where(channelmonitor.IDIn(ids...)).
+		Count(ctx)
+	if err != nil {
+		return fmt.Errorf("validate channel monitor sort ids: %w", err)
+	}
+	if existingCount != len(ids) {
+		return service.ErrChannelMonitorNotFound
+	}
+
+	for _, id := range ids {
+		affected, err := client.ChannelMonitor.Update().
+			Where(channelmonitor.IDEQ(id)).
+			SetSortOrder(sortOrderByID[id]).
+			Save(ctx)
+		if err != nil {
+			return fmt.Errorf("update channel monitor sort order: %w", err)
+		}
+		if affected != 1 {
+			return service.ErrChannelMonitorNotFound
+		}
+	}
+	return nil
+}
+
 // ---------- 调度器辅助 ----------
 
 func (r *channelMonitorRepository) ListEnabled(ctx context.Context) ([]*service.ChannelMonitor, error) {
 	rows, err := r.client.ChannelMonitor.Query().
 		Where(channelmonitor.EnabledEQ(true)).
+		Order(
+			dbent.Asc(channelmonitor.FieldSortOrder),
+			dbent.Asc(channelmonitor.FieldID),
+		).
 		All(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list enabled monitors: %w", err)
@@ -747,6 +827,7 @@ func entToServiceMonitor(row *dbent.ChannelMonitor) *service.ChannelMonitor {
 		PrimaryModel:         row.PrimaryModel,
 		ExtraModels:          extras,
 		GroupName:            row.GroupName,
+		SortOrder:            row.SortOrder,
 		Enabled:              row.Enabled,
 		IntervalSeconds:      row.IntervalSeconds,
 		JitterSeconds:        row.JitterSeconds,

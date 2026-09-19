@@ -233,6 +233,7 @@ func buildUserViewFromSummary(
 		Name:             m.Name,
 		Provider:         m.Provider,
 		GroupName:        m.GroupName,
+		SortOrder:        m.SortOrder,
 		PrimaryModel:     m.PrimaryModel,
 		PrimaryStatus:    summary.PrimaryStatus,
 		PrimaryLatencyMs: summary.PrimaryLatencyMs,

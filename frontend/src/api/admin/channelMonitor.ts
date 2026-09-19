@@ -5,13 +5,14 @@
 
 import { apiClient } from '../client'
 
-export type Provider = 'openai' | 'anthropic' | 'gemini' | 'grok'
+export type Provider = 'openai' | 'anthropic' | 'gemini' | 'grok' | 'custom'
 export type MonitorStatus = 'operational' | 'degraded' | 'failed' | 'error'
 export type BodyOverrideMode = 'off' | 'merge' | 'replace'
 export type APIMode = 'chat_completions' | 'responses'
 
 export interface ChannelMonitor {
   id: number
+  sort_order: number
   name: string
   provider: Provider
   api_mode: APIMode
@@ -69,6 +70,11 @@ export interface ListResponse {
   page: number
   page_size: number
   pages: number
+}
+
+export interface SortOrderUpdate {
+  id: number
+  sort_order: number
 }
 
 export interface CreateParams {
@@ -247,6 +253,17 @@ export async function update(id: number, params: UpdateParams): Promise<ChannelM
   return data
 }
 
+/** Persist the display order used by both admin and user monitor lists. */
+export async function updateSortOrder(
+  updates: SortOrderUpdate[]
+): Promise<{ message: string }> {
+  const { data } = await apiClient.put<{ message: string }>(
+    '/admin/channel-monitors/sort-order',
+    { updates }
+  )
+  return data
+}
+
 /**
  * Delete a channel monitor
  */
@@ -283,6 +300,7 @@ export const channelMonitorAPI = {
   create,
   duplicate,
   update,
+  updateSortOrder,
   del,
   runNow,
   listHistory,

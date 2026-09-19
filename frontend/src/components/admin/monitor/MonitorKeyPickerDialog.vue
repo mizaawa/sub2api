@@ -77,6 +77,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ApiKey } from '@/types'
 import type { Provider } from '@/api/admin/channelMonitor'
+import { PROVIDER_CUSTOM } from '@/constants/channelMonitor'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import { maskApiKey } from '@/utils/maskApiKey'
@@ -107,7 +108,7 @@ watch(() => props.show, (shown) => {
 const filteredKeys = computed<ApiKey[]>(() => {
   const q = search.value.trim().toLowerCase()
   return props.keys.filter((k) => {
-    if (k.group?.platform !== props.provider) return false
+    if (props.provider !== PROVIDER_CUSTOM && k.group?.platform !== props.provider) return false
     if (!q) return true
     return (
       k.name.toLowerCase().includes(q) ||

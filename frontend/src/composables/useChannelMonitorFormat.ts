@@ -17,6 +17,7 @@ import {
   PROVIDER_ANTHROPIC,
   PROVIDER_GEMINI,
   PROVIDER_GROK,
+  PROVIDER_CUSTOM,
   STATUS_OPERATIONAL,
   STATUS_DEGRADED,
   STATUS_FAILED,
@@ -62,7 +63,8 @@ export function useChannelMonitorFormat() {
       p === PROVIDER_OPENAI ||
       p === PROVIDER_ANTHROPIC ||
       p === PROVIDER_GEMINI ||
-      p === PROVIDER_GROK
+      p === PROVIDER_GROK ||
+      p === PROVIDER_CUSTOM
     ) {
       return t(`monitorCommon.providers.${p}`)
     }
@@ -79,39 +81,18 @@ export function useChannelMonitorFormat() {
         return 'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300'
       case PROVIDER_GROK:
         return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-500/15 dark:text-zinc-300'
+      case PROVIDER_CUSTOM:
+        return 'bg-gray-100 text-gray-700 dark:bg-gray-500/15 dark:text-gray-300'
       default:
         return NEUTRAL_BADGE
     }
   }
 
-  /**
-   * Tailwind class for a provider radio-button-style picker (active/inactive state).
-   * Reuses the same emerald/orange/sky palette as providerBadgeClass to keep
-   * visual semantics consistent across badges and pickers.
-   */
-  function providerPickerClass(p: Provider | string, active: boolean): string {
-    switch (p) {
-      case PROVIDER_OPENAI:
-        return active
-          ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300 dark:border-emerald-400'
-          : 'border-gray-200 bg-white text-gray-600 hover:border-emerald-300 hover:text-emerald-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-emerald-500/50'
-      case PROVIDER_ANTHROPIC:
-        return active
-          ? 'border-orange-500 bg-orange-50 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300 dark:border-orange-400'
-          : 'border-gray-200 bg-white text-gray-600 hover:border-orange-300 hover:text-orange-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-orange-500/50'
-      case PROVIDER_GEMINI:
-        return active
-          ? 'border-sky-500 bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300 dark:border-sky-400'
-          : 'border-gray-200 bg-white text-gray-600 hover:border-sky-300 hover:text-sky-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-sky-500/50'
-      case PROVIDER_GROK:
-        return active
-          ? 'border-zinc-500 bg-zinc-50 text-zinc-800 dark:bg-zinc-500/15 dark:text-zinc-200 dark:border-zinc-400'
-          : 'border-gray-200 bg-white text-gray-600 hover:border-zinc-400 hover:text-zinc-800 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-zinc-500/50'
-      default:
-        return active
-          ? 'border-gray-400 bg-gray-50 text-gray-700 dark:border-dark-500 dark:bg-dark-700 dark:text-gray-200'
-          : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400'
-    }
+  /** All provider choices share one selected state; the icon carries identity. */
+  function providerPickerClass(_p: Provider | string, active: boolean): string {
+    return active
+      ? 'border-primary-500 bg-primary-50 text-primary-700 shadow-sm dark:border-primary-400 dark:bg-primary-500/15 dark:text-primary-300'
+      : 'border-gray-200 bg-white text-gray-600 hover:border-primary-300 hover:text-primary-700 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400 dark:hover:border-primary-500/50 dark:hover:text-primary-300'
   }
 
   function formatLatency(ms: number | null | undefined): string {
@@ -180,6 +161,8 @@ export function providerGradient(provider: string): string {
       return 'bg-gradient-to-br from-sky-50 to-indigo-100 dark:from-sky-500/10 dark:to-indigo-500/20'
     case PROVIDER_GROK:
       return 'bg-gradient-to-br from-zinc-50 to-neutral-200 dark:from-zinc-500/10 dark:to-neutral-500/20'
+    case PROVIDER_CUSTOM:
+      return 'bg-gradient-to-br from-gray-50 to-gray-200 dark:from-gray-500/10 dark:to-gray-500/20'
     default:
       return 'bg-gradient-to-br from-gray-100 to-gray-200 dark:from-dark-700 dark:to-dark-600'
   }

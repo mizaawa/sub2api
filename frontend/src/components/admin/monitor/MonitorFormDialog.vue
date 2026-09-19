@@ -13,14 +13,14 @@
 
       <div>
         <label class="input-label">{{ t('admin.channelMonitor.form.provider') }} <span class="text-red-500">*</span></label>
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-5">
           <button
             v-for="opt in providerOptions"
             :key="opt.value"
             type="button"
             :data-testid="`monitor-provider-${opt.value}`"
             :aria-pressed="form.provider === opt.value"
-            class="flex items-center justify-center gap-2 rounded-lg border-2 px-3 py-2.5 text-sm font-medium transition-colors"
+            class="flex min-h-11 items-center justify-center gap-2 rounded-lg border-2 px-3 py-2.5 text-sm font-medium transition-colors"
             :class="providerPickerClass(opt.value, form.provider === opt.value)"
             @click="selectProvider(opt.value)"
           >
@@ -216,6 +216,7 @@ import {
   PROVIDER_ANTHROPIC,
   PROVIDER_GEMINI,
   PROVIDER_GROK,
+  PROVIDER_CUSTOM,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
   DEFAULT_GROK_ENDPOINT,
@@ -402,6 +403,7 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_OPENAI, label: t('monitorCommon.providers.openai') },
   { value: PROVIDER_GEMINI, label: t('monitorCommon.providers.gemini') },
   { value: PROVIDER_GROK, label: t('monitorCommon.providers.grok') },
+  { value: PROVIDER_CUSTOM, label: t('monitorCommon.providers.custom') },
 ])
 
 function selectProvider(provider: Provider) {
@@ -504,13 +506,12 @@ async function openMyKeyPicker() {
   if (myActiveKeys.value.length > 0) return
   myKeysLoading.value = true
   try {
-    const [res, rates] = await Promise.all([
-      keysAPI.list(1, 100, { status: 'active' }),
+    const [keys, rates] = await Promise.all([
+      loadAllActiveKeys(),
       userGroupsAPI.getUserGroupRates(),
     ])
-    const items = res.items || []
     const now = Date.now()
-    myActiveKeys.value = items.filter(k => {
+    myActiveKeys.value = keys.filter(k => {
       if (k.status !== 'active') return false
       if (!k.expires_at) return true
       return new Date(k.expires_at).getTime() > now
@@ -521,6 +522,22 @@ async function openMyKeyPicker() {
   } finally {
     myKeysLoading.value = false
   }
+}
+
+async function loadAllActiveKeys(): Promise<ApiKey[]> {
+  const pageSize = 100
+  const keysByID = new Map<number, ApiKey>()
+  let page = 1
+  let pages = 1
+
+  do {
+    const response = await keysAPI.list(page, pageSize, { status: 'active' })
+    for (const key of response.items || []) keysByID.set(key.id, key)
+    pages = Math.max(1, response.pages || 1)
+    page += 1
+  } while (page <= pages)
+
+  return [...keysByID.values()]
 }
 
 function pickMyKey(k: ApiKey) {
