@@ -619,9 +619,6 @@ func (s *UsageLogRepoSuite) TestListByUser() {
 	s.Require().NoError(err, "ListByUser")
 	s.Require().Len(logs, 2)
 	s.Require().Equal(int64(2), page.Total)
-	s.Require().NotNil(logs[0].APIKey)
-	s.Require().Equal("k", logs[0].APIKey.Name)
-	s.Require().Empty(logs[0].APIKey.Key, "usage queries must not hydrate raw API key material")
 }
 
 // --- ListByAPIKey ---
@@ -689,6 +686,9 @@ func (s *UsageLogRepoSuite) TestListWithFilters() {
 	s.Require().NoError(err, "ListWithFilters")
 	s.Require().Len(logs, 1)
 	s.Require().Equal(int64(1), page.Total)
+	s.Require().NotNil(logs[0].APIKey)
+	s.Require().Equal("k", logs[0].APIKey.Name)
+	s.Require().Empty(logs[0].APIKey.Key, "usage queries must not hydrate raw API key material")
 }
 
 // --- GetDashboardStats ---
