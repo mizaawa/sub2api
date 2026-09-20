@@ -195,8 +195,10 @@ describe('ChannelStatusView', () => {
       expect.stringContaining('Custom Third'),
     ])
     expect(wrapper.get('[data-testid="monitor-status-row-1"]').text()).toContain('100% uptime')
-    expect(wrapper.get('[data-testid="monitor-status-row-1"]').get('[data-testid="monitor-status-group-name"]').text()).toBe('OpenAI Default')
-    expect(wrapper.get('[data-testid="monitor-status-row-1"]').get('[data-testid="monitor-status-group-rate"]').text()).toBe('0.10x')
+    const groupedMonitor = wrapper.get('[data-testid="monitor-status-row-1"]')
+    expect(groupedMonitor.find('[data-testid="monitor-status-group-name"]').exists()).toBe(false)
+    expect(groupedMonitor.get('[data-testid="monitor-status-group-rate"]').text()).toBe('0.10x')
+    expect(groupedMonitor.text()).not.toContain('OpenAI Default')
     expect(wrapper.get('[data-testid="monitor-status-row-5"]').text()).toContain('99.95% uptime')
 
     expect(wrapper.text()).not.toContain('View history')

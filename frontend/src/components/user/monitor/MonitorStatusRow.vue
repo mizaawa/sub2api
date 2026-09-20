@@ -3,8 +3,8 @@
     class="px-4 py-5 sm:px-6"
     :data-testid="`monitor-status-row-${item.id}`"
   >
-    <div class="flex min-w-0 items-start justify-between gap-4">
-      <div class="flex min-w-0 items-start gap-2.5">
+    <div class="flex min-w-0 flex-wrap items-start gap-x-4 gap-y-1">
+      <div class="flex min-w-0 max-w-full flex-shrink-0 items-start gap-2.5">
         <span
           role="img"
           class="grid h-5 w-5 flex-shrink-0 place-items-center rounded-full text-white"
@@ -19,14 +19,6 @@
             {{ item.name }}
           </h2>
           <span
-            v-if="item.group_name"
-            class="inline-flex max-w-full items-center truncate rounded-md bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600"
-            :title="item.group_name"
-            data-testid="monitor-status-group-name"
-          >
-            {{ item.group_name }}
-          </span>
-          <span
             v-if="groupRateLabel"
             class="inline-flex flex-shrink-0 items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-500"
             data-testid="monitor-status-group-rate"
@@ -36,7 +28,7 @@
         </div>
       </div>
 
-      <span class="flex-shrink-0 whitespace-nowrap text-sm text-gray-500 sm:text-base">
+      <span class="ml-auto flex-shrink-0 whitespace-nowrap text-sm text-gray-500 sm:text-base">
         {{ uptimeLabel }}
       </span>
     </div>
@@ -68,7 +60,7 @@ const { statusLabel } = useChannelMonitorFormat()
 
 const groupRateLabel = computed(() => {
   const rate = props.item.group_rate_multiplier
-  if (!props.item.group_name || rate == null || !Number.isFinite(rate)) return ''
+  if (rate == null || !Number.isFinite(rate)) return ''
   return `${formatMultiplier(rate)}x`
 })
 
