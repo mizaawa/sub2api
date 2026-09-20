@@ -27,6 +27,7 @@ export interface UserMonitorView {
   name: string
   provider: Provider
   group_name: string
+  group_rate_multiplier: number | null
   primary_model: string
   primary_status: MonitorStatus | ''
   primary_latency_ms: number | null
@@ -55,6 +56,7 @@ export interface UserMonitorDetail {
   name: string
   provider: Provider
   group_name: string
+  group_rate_multiplier: number | null
   models: UserMonitorModelDetail[]
 }
 

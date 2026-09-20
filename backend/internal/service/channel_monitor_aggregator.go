@@ -149,11 +149,12 @@ func (s *ChannelMonitorService) GetUserDetail(ctx context.Context, id int64) (*U
 
 	models := mergeModelDetails(m, latest, availMap)
 	return &UserMonitorDetail{
-		ID:        m.ID,
-		Name:      m.Name,
-		Provider:  m.Provider,
-		GroupName: m.GroupName,
-		Models:    models,
+		ID:                  m.ID,
+		Name:                m.Name,
+		Provider:            m.Provider,
+		GroupName:           m.GroupName,
+		GroupRateMultiplier: monitorGroupRateMultiplier(m),
+		Models:              models,
 	}, nil
 }
 
@@ -229,22 +230,34 @@ func buildUserViewFromSummary(
 	timelineEntries []*ChannelMonitorHistoryEntry,
 ) *UserMonitorView {
 	view := &UserMonitorView{
-		ID:               m.ID,
-		Name:             m.Name,
-		Provider:         m.Provider,
-		GroupName:        m.GroupName,
-		SortOrder:        m.SortOrder,
-		PrimaryModel:     m.PrimaryModel,
-		PrimaryStatus:    summary.PrimaryStatus,
-		PrimaryLatencyMs: summary.PrimaryLatencyMs,
-		Availability7d:   summary.Availability7d,
-		ExtraModels:      summary.ExtraModels,
-		Timeline:         buildTimelinePoints(timelineEntries),
+		ID:                  m.ID,
+		Name:                m.Name,
+		Provider:            m.Provider,
+		GroupName:           m.GroupName,
+		GroupRateMultiplier: monitorGroupRateMultiplier(m),
+		SortOrder:           m.SortOrder,
+		PrimaryModel:        m.PrimaryModel,
+		PrimaryStatus:       summary.PrimaryStatus,
+		PrimaryLatencyMs:    summary.PrimaryLatencyMs,
+		Availability7d:      summary.Availability7d,
+		ExtraModels:         summary.ExtraModels,
+		Timeline:            buildTimelinePoints(timelineEntries),
 	}
 	if primaryLatest != nil {
 		view.PrimaryPingLatencyMs = primaryLatest.PingLatencyMs
 	}
 	return view
+}
+
+// monitorGroupRateMultiplier exposes the multiplier only for a group-bound
+// monitor. A pointer keeps an unbound monitor distinguishable from a bound
+// group whose configured multiplier is zero in legacy data.
+func monitorGroupRateMultiplier(m *ChannelMonitor) *float64 {
+	if m == nil || m.GroupID == nil {
+		return nil
+	}
+	rate := m.GroupRateMultiplier
+	return &rate
 }
 
 // buildTimelinePoints 把 history entry 裁剪为 timeline 点（去除 message/ID/Model，减小响应体）。

@@ -95,6 +95,7 @@ function makeMonitor(overrides: Partial<UserMonitorView> = {}): UserMonitorView 
     name: 'Chat Completions',
     provider: 'openai',
     group_name: '',
+    group_rate_multiplier: null,
     primary_model: 'gpt-4o-mini',
     primary_status: 'operational',
     primary_latency_ms: 120,
@@ -143,7 +144,7 @@ describe('ChannelStatusView', () => {
         makeMonitor({ id: 7, name: 'Custom Third', provider: 'custom' as UserMonitorView['provider'] }),
         makeMonitor({ id: 2, name: 'Responses', provider: 'openai', availability_7d: 99.5 }),
         makeMonitor({ id: 4, name: 'Grok Chat', provider: 'grok' }),
-        makeMonitor({ id: 1, name: 'Chat Completions', provider: 'openai' }),
+        makeMonitor({ id: 1, name: 'Chat Completions', provider: 'openai', group_name: 'OpenAI Default', group_rate_multiplier: 0.1 }),
       ],
     })
 
@@ -194,6 +195,8 @@ describe('ChannelStatusView', () => {
       expect.stringContaining('Custom Third'),
     ])
     expect(wrapper.get('[data-testid="monitor-status-row-1"]').text()).toContain('100% uptime')
+    expect(wrapper.get('[data-testid="monitor-status-row-1"]').get('[data-testid="monitor-status-group-name"]').text()).toBe('OpenAI Default')
+    expect(wrapper.get('[data-testid="monitor-status-row-1"]').get('[data-testid="monitor-status-group-rate"]').text()).toBe('0.10x')
     expect(wrapper.get('[data-testid="monitor-status-row-5"]').text()).toContain('99.95% uptime')
 
     expect(wrapper.text()).not.toContain('View history')

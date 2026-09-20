@@ -138,10 +138,13 @@ type CheckResult struct {
 
 // UserMonitorView 用户只读视图：监控概览（含主模型最近状态 + 7d 可用率 + 附加模型最近状态）。
 type UserMonitorView struct {
-	ID                   int64
-	Name                 string
-	Provider             string
-	GroupName            string
+	ID        int64
+	Name      string
+	Provider  string
+	GroupName string
+	// GroupRateMultiplier is the bound group's default billing multiplier.
+	// It is nil when the monitor is not bound to a group.
+	GroupRateMultiplier  *float64
 	SortOrder            int
 	PrimaryModel         string
 	PrimaryStatus        string
@@ -169,11 +172,12 @@ type ExtraModelStatus struct {
 
 // UserMonitorDetail 用户只读视图：监控详情（含全部模型 7d/15d/30d 可用率与平均延迟）。
 type UserMonitorDetail struct {
-	ID        int64
-	Name      string
-	Provider  string
-	GroupName string
-	Models    []ModelDetail
+	ID                  int64
+	Name                string
+	Provider            string
+	GroupName           string
+	GroupRateMultiplier *float64
+	Models              []ModelDetail
 }
 
 // ModelDetail 单个模型的可用率/延迟统计。

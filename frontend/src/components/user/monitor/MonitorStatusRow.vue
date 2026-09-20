@@ -4,7 +4,7 @@
     :data-testid="`monitor-status-row-${item.id}`"
   >
     <div class="flex min-w-0 items-start justify-between gap-4">
-      <div class="flex min-w-0 items-center gap-2.5">
+      <div class="flex min-w-0 items-start gap-2.5">
         <span
           role="img"
           class="grid h-5 w-5 flex-shrink-0 place-items-center rounded-full text-white"
@@ -14,9 +14,26 @@
         >
           <Icon :name="statusIcon" size="xs" :stroke-width="2.5" />
         </span>
-        <h2 class="min-w-0 break-words text-sm font-medium leading-5 text-gray-950 sm:text-base">
-          {{ item.name }}
-        </h2>
+        <div class="min-w-0 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <h2 class="min-w-0 break-words text-sm font-medium leading-5 text-gray-950 sm:text-base">
+            {{ item.name }}
+          </h2>
+          <span
+            v-if="item.group_name"
+            class="inline-flex max-w-full items-center truncate rounded-md bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600"
+            :title="item.group_name"
+            data-testid="monitor-status-group-name"
+          >
+            {{ item.group_name }}
+          </span>
+          <span
+            v-if="groupRateLabel"
+            class="inline-flex flex-shrink-0 items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-500"
+            data-testid="monitor-status-group-rate"
+          >
+            {{ groupRateLabel }}
+          </span>
+        </div>
       </div>
 
       <span class="flex-shrink-0 whitespace-nowrap text-sm text-gray-500 sm:text-base">
@@ -39,6 +56,7 @@ import type { UserMonitorView } from '@/api/channelMonitor'
 import Icon from '@/components/icons/Icon.vue'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import { MONITOR_TIMELINE_POINTS } from '@/constants/channelMonitor'
+import { formatMultiplier } from '@/utils/formatters'
 import MonitorTimeline from './MonitorTimeline.vue'
 
 const props = defineProps<{
@@ -47,6 +65,12 @@ const props = defineProps<{
 
 const { t } = useI18n()
 const { statusLabel } = useChannelMonitorFormat()
+
+const groupRateLabel = computed(() => {
+  const rate = props.item.group_rate_multiplier
+  if (!props.item.group_name || rate == null || !Number.isFinite(rate)) return ''
+  return `${formatMultiplier(rate)}x`
+})
 
 const statusIcon = computed<'check' | 'exclamationTriangle' | 'x' | 'infoCircle'>(() => {
   switch (props.item.primary_status) {

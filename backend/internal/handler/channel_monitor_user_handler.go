@@ -45,6 +45,7 @@ type channelMonitorUserListItem struct {
 	Name                 string                               `json:"name"`
 	Provider             string                               `json:"provider"`
 	GroupName            string                               `json:"group_name"`
+	GroupRateMultiplier  *float64                             `json:"group_rate_multiplier"`
 	SortOrder            int                                  `json:"sort_order"`
 	PrimaryModel         string                               `json:"primary_model"`
 	PrimaryStatus        string                               `json:"primary_status"`
@@ -65,11 +66,12 @@ type channelMonitorUserTimelinePoint struct {
 }
 
 type channelMonitorUserDetailResponse struct {
-	ID        int64                         `json:"id"`
-	Name      string                        `json:"name"`
-	Provider  string                        `json:"provider"`
-	GroupName string                        `json:"group_name"`
-	Models    []channelMonitorUserModelStat `json:"models"`
+	ID                  int64                         `json:"id"`
+	Name                string                        `json:"name"`
+	Provider            string                        `json:"provider"`
+	GroupName           string                        `json:"group_name"`
+	GroupRateMultiplier *float64                      `json:"group_rate_multiplier"`
+	Models              []channelMonitorUserModelStat `json:"models"`
 }
 
 type channelMonitorUserModelStat struct {
@@ -105,6 +107,7 @@ func userMonitorViewToItem(v *service.UserMonitorView) channelMonitorUserListIte
 		Name:                 v.Name,
 		Provider:             v.Provider,
 		GroupName:            v.GroupName,
+		GroupRateMultiplier:  v.GroupRateMultiplier,
 		SortOrder:            v.SortOrder,
 		PrimaryModel:         v.PrimaryModel,
 		PrimaryStatus:        v.PrimaryStatus,
@@ -130,11 +133,12 @@ func userMonitorDetailToResponse(d *service.UserMonitorDetail) *channelMonitorUs
 		})
 	}
 	return &channelMonitorUserDetailResponse{
-		ID:        d.ID,
-		Name:      d.Name,
-		Provider:  d.Provider,
-		GroupName: d.GroupName,
-		Models:    models,
+		ID:                  d.ID,
+		Name:                d.Name,
+		Provider:            d.Provider,
+		GroupName:           d.GroupName,
+		GroupRateMultiplier: d.GroupRateMultiplier,
+		Models:              models,
 	}
 }
 
