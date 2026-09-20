@@ -382,12 +382,17 @@ func (r *usageLogRepository) loadAPIKeys(ctx context.Context, ids []int64) (map[
 	if len(ids) == 0 {
 		return out, nil
 	}
-	models, err := r.client.APIKey.Query().Where(dbapikey.IDIn(ids...)).All(ctx)
+	// Usage responses only display key identity. Do not load raw key material
+	// into this read path, including for internal channel-monitor credentials.
+	models, err := r.client.APIKey.Query().
+		Where(dbapikey.IDIn(ids...)).
+		Select(dbapikey.FieldID, dbapikey.FieldName).
+		All(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, m := range models {
-		out[m.ID] = apiKeyEntityToService(m)
+		out[m.ID] = &service.APIKey{ID: m.ID, Name: m.Name}
 	}
 	return out, nil
 }

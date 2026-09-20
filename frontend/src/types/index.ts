@@ -1584,6 +1584,11 @@ export type UsageRequestType = 'unknown' | 'sync' | 'stream' | 'ws_v2' | 'cyber'
 export type ImageSizeSource = 'output' | 'input' | 'default' | 'legacy'
 export type ImageSizeBreakdown = Record<string, number>
 
+export interface UsageLogAPIKeySummary {
+  id: number
+  name: string
+}
+
 export interface UsageLog {
   id: number
   user_id: number
@@ -1647,7 +1652,7 @@ export interface UsageLog {
   created_at: string
 
   user?: User
-  api_key?: ApiKey
+  api_key?: UsageLogAPIKeySummary
   group?: Group
   subscription?: UserSubscription
 }

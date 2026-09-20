@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -276,6 +277,140 @@ func TestRunCheckForModel_Grok_RedactsXAIKeyFromUpstreamBody(t *testing.T) {
 	}
 	if !strings.Contains(res.Message, "xai-***REDACTED***") {
 		t.Fatalf("Grok error message should contain redaction marker, got %q", res.Message)
+	}
+}
+
+func TestRunCheckForModel_RedactsExactUnknownPrefixKeyFromUpstreamBody(t *testing.T) {
+	const key = "vendor-secret-with-unknown-prefix-123456"
+	h := &openAICaptureHandler{
+		status:      http.StatusUnauthorized,
+		rawResponse: `{"error":{"message":"credential ` + key + ` rejected"}}`,
+	}
+	endpoint := setupFakeOpenAI(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderCustom, endpoint, key, "custom-model", nil)
+
+	if res.Status != MonitorStatusError {
+		t.Fatalf("custom upstream failure should be recorded as error, got %s", res.Status)
+	}
+	if strings.Contains(res.Message, key) {
+		t.Fatalf("custom error message leaked the exact request key: %q", res.Message)
+	}
+	if !strings.Contains(res.Message, "***REDACTED***") {
+		t.Fatalf("custom error message should contain redaction marker, got %q", res.Message)
+	}
+}
+
+func TestRunCheckForModel_RedactsCustomHeaderValueFromUpstreamBody(t *testing.T) {
+	const headerSecret = "vendor-private-header-token-123456"
+	h := &openAICaptureHandler{
+		status:      http.StatusUnauthorized,
+		rawResponse: `{"error":{"message":"credential ` + headerSecret + ` rejected"}}`,
+	}
+	endpoint := setupFakeOpenAI(t, h)
+	opts := &CheckOptions{ExtraHeaders: map[string]string{
+		"X-Custom-Token": headerSecret,
+	}}
+
+	res := runCheckForModel(context.Background(), MonitorProviderCustom, endpoint, "custom-key", "custom-model", opts)
+
+	if res.Status != MonitorStatusError {
+		t.Fatalf("custom upstream failure should be recorded as error, got %s", res.Status)
+	}
+	if strings.Contains(res.Message, headerSecret) {
+		t.Fatalf("custom error message leaked a custom header credential: %q", res.Message)
+	}
+	if !strings.Contains(res.Message, "***REDACTED***") {
+		t.Fatalf("custom error message should contain redaction marker, got %q", res.Message)
+	}
+}
+
+func TestRunCheckForModel_RedactsCredentialBeforeErrorBodyTruncation(t *testing.T) {
+	const key = "unknown-prefix-secret-1234567890"
+	const truncationMarker = "...(body truncated)"
+	prefix := strings.Repeat("a", monitorErrorBodySnippetMaxBytes-len(truncationMarker)-8)
+	h := &openAICaptureHandler{
+		status:      http.StatusUnauthorized,
+		rawResponse: prefix + key + " rejected",
+	}
+	endpoint := setupFakeOpenAI(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderCustom, endpoint, key, "custom-model", nil)
+
+	if res.Status != MonitorStatusError {
+		t.Fatalf("custom upstream failure should be recorded as error, got %s", res.Status)
+	}
+	if strings.Contains(res.Message, key[:8]) {
+		t.Fatalf("custom error message leaked a key fragment at the truncation boundary: %q", res.Message)
+	}
+}
+
+func TestSanitizeErrorMessageWithSecretsRedactsEncodedCredential(t *testing.T) {
+	const key = `vendor<token>&"123`
+	encoded, err := json.Marshal(key)
+	if err != nil {
+		t.Fatalf("marshal credential: %v", err)
+	}
+	escaped := string(encoded[1 : len(encoded)-1])
+
+	got := sanitizeErrorMessageWithSecrets("credential "+escaped+" rejected", key)
+
+	if strings.Contains(got, escaped) || strings.Contains(got, "vendor") {
+		t.Fatalf("encoded credential was not redacted: %q", got)
+	}
+}
+
+func TestSanitizeErrorMessageWithSecretsRedactsOverlappingCredentialsLongestFirst(t *testing.T) {
+	const longSecret = "shared-prefix-private-suffix"
+
+	got := sanitizeErrorMessageWithSecrets("credential "+longSecret+" rejected", "shared-prefix", longSecret)
+
+	if strings.Contains(got, "private-suffix") || strings.Contains(got, longSecret) {
+		t.Fatalf("overlapping credential left a suffix behind: %q", got)
+	}
+}
+
+func TestMonitorHTTPClientsRefuseRedirects(t *testing.T) {
+	client := newSSRFSafeHTTPClient(time.Second)
+	if client.CheckRedirect == nil {
+		t.Fatal("external monitor client must install a redirect policy")
+	}
+	if err := client.CheckRedirect(&http.Request{}, nil); !errors.Is(err, http.ErrUseLastResponse) {
+		t.Fatalf("external monitor redirect policy returned %v", err)
+	}
+}
+
+func TestRunCheckForModel_DoesNotForwardCredentialAcrossRedirect(t *testing.T) {
+	const key = "redirect-secret-key"
+	targetRequests := 0
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetRequests++
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(target.Close)
+
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("x-api-key"); got != key {
+			t.Errorf("source credential = %q, want %q", got, key)
+		}
+		http.Redirect(w, r, target.URL+providerAnthropicPath, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(source.Close)
+
+	originalClient := monitorHTTPClient
+	monitorHTTPClient = &http.Client{
+		Timeout:       5 * time.Second,
+		CheckRedirect: refuseMonitorRedirect,
+	}
+	t.Cleanup(func() { monitorHTTPClient = originalClient })
+
+	res := runCheckForModel(context.Background(), MonitorProviderAnthropic, source.URL, key, "claude-test", nil)
+
+	if res.Status != MonitorStatusError || !strings.Contains(res.Message, "upstream HTTP 307") {
+		t.Fatalf("redirect should be reported as an upstream error, got status=%s message=%q", res.Status, res.Message)
+	}
+	if targetRequests != 0 {
+		t.Fatalf("redirect target received %d requests; credential could have been forwarded", targetRequests)
 	}
 }
 

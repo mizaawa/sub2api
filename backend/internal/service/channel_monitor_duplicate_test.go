@@ -148,7 +148,7 @@ func TestDuplicateChannelMonitorCopiesConfigurationAndResetsRuntimeState(t *test
 	require.Equal(t, source.Provider, duplicate.Provider)
 	require.Equal(t, source.APIMode, duplicate.APIMode)
 	require.Equal(t, source.Endpoint, duplicate.Endpoint)
-	require.Equal(t, "top-secret", duplicate.APIKey)
+	require.Empty(t, duplicate.APIKey, "management response must not carry the decrypted key")
 	require.Equal(t, "NEW:top-secret", stored.APIKey)
 	require.Equal(t, source.PrimaryModel, duplicate.PrimaryModel)
 	require.Equal(t, source.ExtraModels, duplicate.ExtraModels)
@@ -198,6 +198,18 @@ func TestDuplicateChannelMonitorRejectsUndecryptableAPIKey(t *testing.T) {
 	require.Equal(t, "OLD:broken", source.APIKey)
 }
 
+func TestDuplicateChannelMonitorRejectsMissingEncryptor(t *testing.T) {
+	source := &ChannelMonitor{ID: 42, Name: "legacy", APIKey: "OLD:secret"}
+	repo := &duplicateChannelMonitorRepoStub{source: source}
+	service := NewChannelMonitorService(repo, nil)
+
+	duplicate, err := service.Duplicate(context.Background(), source.ID, 77, "admin:77", "copy-no-encryptor")
+
+	require.Nil(t, duplicate)
+	require.ErrorIs(t, err, ErrChannelMonitorAPIKeyDecryptFailed)
+	require.Empty(t, repo.created)
+}
+
 func TestDuplicateChannelMonitorRecoversCommittedCopyForSameOperation(t *testing.T) {
 	source := &ChannelMonitor{
 		ID:               42,
@@ -220,7 +232,7 @@ func TestDuplicateChannelMonitorRecoversCommittedCopyForSameOperation(t *testing
 
 	require.Len(t, repo.created, 1, "same operation must not create a second monitor")
 	require.Equal(t, first.ID, retry.ID)
-	require.Equal(t, "top-secret", retry.APIKey)
+	require.Empty(t, retry.APIKey, "replayed management response must not carry the decrypted key")
 	require.Equal(t, first.DuplicateOperationID, retry.DuplicateOperationID)
 	require.NotContains(t, retry.ExtraHeaders, ChannelMonitorDuplicateOperationIDMetadataKey)
 

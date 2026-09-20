@@ -133,7 +133,8 @@ func (s *ChannelMonitorService) requireManagedGateway() error {
 // ---------- CRUD ----------
 
 // List 列表查询（支持 provider/enabled/search 过滤 + 分页）。
-// 返回的 ChannelMonitor.APIKey 已解密为明文，handler 层负责脱敏。
+// 管理读取永不返回密钥（明文或密文）；这里只验证密文是否仍可解密，
+// 供 UI 展示修复提示。只有 getForExecution 会把明文交给检测器。
 func (s *ChannelMonitorService) List(ctx context.Context, params ChannelMonitorListParams) ([]*ChannelMonitor, int64, error) {
 	if params.Page < 1 {
 		params.Page = 1
@@ -146,7 +147,7 @@ func (s *ChannelMonitorService) List(ctx context.Context, params ChannelMonitorL
 		return nil, 0, fmt.Errorf("list channel monitors: %w", err)
 	}
 	for _, it := range items {
-		s.decryptInPlace(it)
+		s.redactAPIKeyForRead(it)
 	}
 	return items, total, nil
 }
@@ -159,13 +160,13 @@ func (s *ChannelMonitorService) UpdateSortOrders(ctx context.Context, updates []
 	return nil
 }
 
-// Get 查询单个监控（解密 API Key）。
+// Get 查询单个监控。返回对象不携带密钥（明文或密文）。
 func (s *ChannelMonitorService) Get(ctx context.Context, id int64) (*ChannelMonitor, error) {
 	m, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	s.decryptInPlace(m)
+	s.redactAPIKeyForRead(m)
 	return m, nil
 }
 
@@ -257,9 +258,9 @@ func (s *ChannelMonitorService) Create(ctx context.Context, p ChannelMonitorCrea
 		}
 		return nil, fmt.Errorf("create channel monitor: %w", err)
 	}
-	// 不再调 s.Get 重走解密链：已知刚加密的明文，直接构造响应。
-	// 这样可避免 SecretEncryptor 解密失败时 APIKey 被静默清空的问题（见 Fix 4）。
-	m.APIKey = plainAPIKey
+	// API key is runtime-only secret material. CRUD responses and scheduler
+	// metadata must never carry either its plaintext or ciphertext.
+	m.APIKey = ""
 	if s.scheduler != nil {
 		s.scheduler.Schedule(m)
 	}
@@ -373,9 +374,9 @@ func (s *ChannelMonitorService) Duplicate(
 		return nil, fmt.Errorf("duplicate channel monitor: %w", err)
 	}
 
-	// Match Create/Update response semantics: repository receives ciphertext,
-	// while handlers receive plaintext only so they can return the masked form.
-	duplicate.APIKey = plainAPIKey
+	// Keep the generated key server-side. The repository already received the
+	// ciphertext and the scheduler only needs non-secret monitor metadata.
+	duplicate.APIKey = ""
 	return duplicate, nil
 }
 
@@ -398,7 +399,7 @@ func (s *ChannelMonitorService) RecoverDuplicate(
 	if monitor == nil {
 		return nil, nil
 	}
-	s.decryptInPlace(monitor)
+	s.redactAPIKeyForRead(monitor)
 	return monitor, nil
 }
 
@@ -418,6 +419,9 @@ func duplicateChannelMonitorOperationID(sourceID int64, actorScope, operationKey
 
 func (s *ChannelMonitorService) decryptAPIKeyForDuplicate(source *ChannelMonitor) (string, error) {
 	if source == nil || strings.TrimSpace(source.APIKey) == "" {
+		return "", ErrChannelMonitorAPIKeyDecryptFailed
+	}
+	if s.encryptor == nil {
 		return "", ErrChannelMonitorAPIKeyDecryptFailed
 	}
 	plain, err := s.encryptor.Decrypt(source.APIKey)
@@ -621,11 +625,13 @@ func (s *ChannelMonitorService) Update(ctx context.Context, id int64, p ChannelM
 		s.deleteManagedKeyFromCiphertext(ctx, originalEncryptedKey, existing.CreatedBy, existing.ID)
 	}
 
-	// 不再调 s.Get 重走解密链：避免二次解密带来的"密文被静默清空"风险（与 Create 一致）。
+	// Never return runtime credentials from the management path. When the key
+	// was not rotated, validate the stored ciphertext so the UI can still show
+	// the decrypt-failed state without receiving the plaintext.
 	if apiKeyUpdated {
-		existing.APIKey = newPlainAPIKey
+		existing.APIKey = ""
 	} else {
-		s.decryptInPlace(existing)
+		s.redactAPIKeyForRead(existing)
 	}
 	if s.scheduler != nil {
 		// Schedule 内部根据 Enabled 自动选择 Unschedule 或重建任务，
@@ -644,8 +650,8 @@ func sameOptionalInt64(a, b *int64) bool {
 
 // applyAPIKeyUpdate 处理 Update 中的 APIKey 字段：
 //   - 入参 raw 为 nil 或空白：不修改 existing.APIKey（仍为密文），返回 updated=false
-//   - 非空：加密后写入 existing.APIKey；同时把明文返回给调用方，
-//     供写库成功后塞回 existing 避免把密文吐回客户端
+//   - 非空：加密后写入 existing.APIKey；同时返回明文，仅供写库失败时清理
+//     新建的托管 key。成功响应会在 Update 返回前清空 existing.APIKey。
 func (s *ChannelMonitorService) applyAPIKeyUpdate(existing *ChannelMonitor, raw *string) (plain string, updated bool, err error) {
 	if raw == nil || strings.TrimSpace(*raw) == "" {
 		return "", false, nil
@@ -726,7 +732,7 @@ func (s *ChannelMonitorService) ListHistory(ctx context.Context, id int64, model
 // RunCheck 同步触发对一个监控的检测：并发跑 primary + extra 模型，
 // 写历史记录并更新 last_checked_at。返回每个模型的检测结果。
 func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*CheckResult, error) {
-	m, err := s.Get(ctx, id) // 已解密 APIKey
+	m, err := s.getForExecution(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -840,14 +846,15 @@ func (s *ChannelMonitorService) SetScheduler(sched MonitorScheduler) {
 	s.scheduler = sched
 }
 
-// ListEnabledMonitors 返回所有 enabled=true 的监控（解密后），供 runner 启动时建立任务表。
+// ListEnabledMonitors 返回所有 enabled=true 的监控元数据，供 runner 启动时建立任务表。
+// runner 每次执行会通过 RunCheck 单独读取密钥，因此这里也不暴露密钥。
 func (s *ChannelMonitorService) ListEnabledMonitors(ctx context.Context) ([]*ChannelMonitor, error) {
 	all, err := s.repo.ListEnabled(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, m := range all {
-		s.decryptInPlace(m)
+		s.redactAPIKeyForRead(m)
 	}
 	return all, nil
 }
@@ -957,11 +964,55 @@ func (s *ChannelMonitorService) cleanupOldRollups(ctx context.Context, today tim
 
 // ---------- helpers ----------
 
+// getForExecution is the only read path that returns a monitor carrying a
+// plaintext API key. Keep it private to prevent handlers from using it.
+func (s *ChannelMonitorService) getForExecution(ctx context.Context, id int64) (*ChannelMonitor, error) {
+	m, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	s.decryptInPlace(m)
+	return m, nil
+}
+
+// redactAPIKeyForRead validates an encrypted key for the admin health hint and
+// then clears it. Callers can inspect APIKeyDecryptFailed but can never receive
+// plaintext or ciphertext through a management/read response object.
+func (s *ChannelMonitorService) redactAPIKeyForRead(m *ChannelMonitor) {
+	if m == nil {
+		return
+	}
+	ciphertext := m.APIKey
+	m.APIKey = ""
+	m.APIKeyDecryptFailed = false
+	if strings.TrimSpace(ciphertext) == "" {
+		return
+	}
+	if s.encryptor == nil {
+		m.APIKeyDecryptFailed = true
+		slog.Warn("channel_monitor: secret encryptor unavailable while validating api key",
+			"monitor_id", m.ID)
+		return
+	}
+	if _, err := s.encryptor.Decrypt(ciphertext); err != nil {
+		m.APIKeyDecryptFailed = true
+		slog.Warn("channel_monitor: decrypt api key failed",
+			"monitor_id", m.ID, "error", err)
+	}
+}
+
 // decryptInPlace 把 ChannelMonitor.APIKey 从密文解密为明文。
 // 解密失败时把字段清空 + 设置 APIKeyDecryptFailed=true（不返回错误，避免阻断列表渲染）。
 // runner / RunCheck 必须读取该标志位并拒绝执行检测。
 func (s *ChannelMonitorService) decryptInPlace(m *ChannelMonitor) {
 	if m == nil || m.APIKey == "" {
+		return
+	}
+	if s.encryptor == nil {
+		m.APIKey = ""
+		m.APIKeyDecryptFailed = true
+		slog.Warn("channel_monitor: secret encryptor unavailable while decrypting api key",
+			"monitor_id", m.ID)
 		return
 	}
 	plain, err := s.encryptor.Decrypt(m.APIKey)

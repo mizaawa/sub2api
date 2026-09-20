@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -40,12 +41,17 @@ func newInternalMonitorHTTPClient(timeout time.Duration) *http.Client {
 		ResponseHeaderTimeout: monitorResponseHeaderTimeout,
 	}
 	return &http.Client{
-		Timeout:   timeout,
-		Transport: servertiming.WrapRoundTripper(tr),
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
+		Timeout:       timeout,
+		Transport:     servertiming.WrapRoundTripper(tr),
+		CheckRedirect: refuseMonitorRedirect,
 	}
+}
+
+// refuseMonitorRedirect keeps authentication and custom headers on the exact
+// endpoint selected for a monitor. Go may otherwise forward non-standard
+// credential headers such as x-api-key to a redirect target.
+func refuseMonitorRedirect(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
 }
 
 // newSSRFSafeHTTPClient 返回一个使用 safeDialContext 的 http.Client。
@@ -59,7 +65,11 @@ func newSSRFSafeHTTPClient(timeout time.Duration) *http.Client {
 		TLSHandshakeTimeout:   monitorTLSHandshakeTimeout,
 		ResponseHeaderTimeout: monitorResponseHeaderTimeout,
 	}
-	return &http.Client{Timeout: timeout, Transport: servertiming.WrapRoundTripper(tr)}
+	return &http.Client{
+		Timeout:       timeout,
+		Transport:     servertiming.WrapRoundTripper(tr),
+		CheckRedirect: refuseMonitorRedirect,
+	}
 }
 
 // CheckOptions 承载一次检测的自定义入参。
@@ -95,6 +105,7 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 
 	challenge := generateChallenge()
 	mode := bodyOverrideMode(opts)
+	requestSecrets := monitorRequestSecrets(apiKey, opts)
 
 	start := time.Now()
 	respText, rawBody, statusCode, err := callProvider(ctx, provider, endpoint, apiKey, model, challenge.Prompt, opts)
@@ -104,15 +115,20 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 
 	if err != nil {
 		res.Status = MonitorStatusError
-		res.Message = truncateMessage(sanitizeErrorMessage(err.Error()))
+		res.Message = truncateMessage(sanitizeErrorMessageWithSecrets(err.Error(), requestSecrets...))
 		return res
 	}
 	if statusCode < 200 || statusCode >= 300 {
 		// 错误路径：用 rawBody 而非 respText（gjson textPath 抽取在错误响应里通常为空，
 		// 会丢掉真正的上游错误信息，例如 `{"error":{"message":"No available accounts ..."}}`）。
 		res.Status = MonitorStatusError
-		bodySnippet := truncateForErrorBody(rawBody)
-		res.Message = truncateMessage(sanitizeErrorMessage(fmt.Sprintf("upstream HTTP %d: %s", statusCode, bodySnippet)))
+		// Sanitize the complete captured body before truncation. Truncating first
+		// could split an unknown-prefix credential and defeat exact redaction.
+		bodySnippet := truncateForErrorBody(sanitizeErrorMessageWithSecrets(rawBody, requestSecrets...))
+		res.Message = truncateMessage(sanitizeErrorMessageWithSecrets(
+			fmt.Sprintf("upstream HTTP %d: %s", statusCode, bodySnippet),
+			requestSecrets...,
+		))
 		return res
 	}
 
@@ -130,7 +146,10 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 
 	if !validateChallenge(respText, challenge.Expected) {
 		res.Status = MonitorStatusFailed
-		res.Message = truncateMessage(sanitizeErrorMessage(fmt.Sprintf("challenge mismatch (expected %s, got %q)", challenge.Expected, respText)))
+		res.Message = truncateMessage(sanitizeErrorMessageWithSecrets(
+			fmt.Sprintf("challenge mismatch (expected %s, got %q)", challenge.Expected, respText),
+			requestSecrets...,
+		))
 		return res
 	}
 
@@ -650,6 +669,55 @@ func sanitizeErrorMessage(msg string) string {
 		msg = p.pattern.ReplaceAllString(msg, p.replace)
 	}
 	return msg
+}
+
+// monitorRequestSecrets returns every credential-like value that was sent by
+// the checker. Extra header values are treated as secrets because custom
+// providers commonly use vendor-specific authentication header names.
+func monitorRequestSecrets(apiKey string, opts *CheckOptions) []string {
+	secrets := []string{apiKey}
+	if opts == nil {
+		return secrets
+	}
+	for _, value := range opts.ExtraHeaders {
+		if strings.TrimSpace(value) != "" {
+			secrets = append(secrets, value)
+		}
+	}
+	return secrets
+}
+
+// sanitizeErrorMessageWithSecrets removes the exact credentials used by this
+// check before applying format-based redaction. Exact matching covers internal
+// and legacy/custom keys whose prefixes are not known to monitorAPIKeyPatterns.
+func sanitizeErrorMessageWithSecrets(msg string, secrets ...string) string {
+	variantSet := make(map[string]struct{}, len(secrets)*4)
+	for _, secret := range secrets {
+		secret = strings.TrimSpace(secret)
+		if secret == "" {
+			continue
+		}
+		variants := []string{secret, url.QueryEscape(secret), url.PathEscape(secret)}
+		if encoded, err := json.Marshal(secret); err == nil && len(encoded) >= 2 {
+			variants = append(variants, string(encoded[1:len(encoded)-1]))
+		}
+		for _, variant := range variants {
+			if variant != "" {
+				variantSet[variant] = struct{}{}
+			}
+		}
+	}
+	variants := make([]string, 0, len(variantSet))
+	for variant := range variantSet {
+		variants = append(variants, variant)
+	}
+	// Replace longer values first so an overlapping short secret cannot leave
+	// the suffix of a longer credential behind.
+	sort.Slice(variants, func(i, j int) bool { return len(variants[i]) > len(variants[j]) })
+	for _, variant := range variants {
+		msg = strings.ReplaceAll(msg, variant, "***REDACTED***")
+	}
+	return sanitizeErrorMessage(msg)
 }
 
 // truncateMessage 把消息按 monitorMessageMaxBytes 截断，避免 DB 列溢出与日志过长。

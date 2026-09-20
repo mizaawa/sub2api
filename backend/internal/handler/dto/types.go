@@ -91,6 +91,14 @@ type APIKey struct {
 	Group *Group `json:"group,omitempty"`
 }
 
+// UsageAPIKey is the non-secret identity attached to usage records. Usage
+// responses only need a key's display identity and must never expose raw key
+// material or management settings.
+type UsageAPIKey struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
 type Group struct {
 	ID             int64   `json:"id"`
 	Name           string  `json:"name"`
@@ -548,7 +556,7 @@ type UsageLog struct {
 	CreatedAt time.Time `json:"created_at"`
 
 	User         *User             `json:"user,omitempty"`
-	APIKey       *APIKey           `json:"api_key,omitempty"`
+	APIKey       *UsageAPIKey      `json:"api_key,omitempty"`
 	Group        *Group            `json:"group,omitempty"`
 	Subscription *UserSubscription `json:"subscription,omitempty"`
 }

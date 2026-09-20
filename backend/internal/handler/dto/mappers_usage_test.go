@@ -253,6 +253,29 @@ func TestUsageLogFromService_PreservesHistoricalMissingImageSize(t *testing.T) {
 	require.NotContains(t, string(body), `"image_size":"2K"`)
 }
 
+func TestUsageLogFromService_NeverSerializesRawAPIKey(t *testing.T) {
+	t.Parallel()
+
+	const secret = "sk-managed-channel-monitor-canary"
+	log := &service.UsageLog{
+		APIKeyID: 42,
+		APIKey: &service.APIKey{
+			ID:      42,
+			Name:    "[channel-monitor] production",
+			Key:     secret,
+			Purpose: service.APIKeyPurposeChannelMonitor,
+		},
+	}
+
+	for _, payload := range []any{UsageLogFromService(log), UsageLogFromServiceAdmin(log)} {
+		body, err := json.Marshal(payload)
+		require.NoError(t, err)
+		require.NotContains(t, string(body), secret)
+		require.NotContains(t, string(body), `"key"`)
+		require.Contains(t, string(body), `"api_key":{"id":42,"name":"[channel-monitor] production"}`)
+	}
+}
+
 func f64Ptr(value float64) *float64 {
 	return &value
 }
