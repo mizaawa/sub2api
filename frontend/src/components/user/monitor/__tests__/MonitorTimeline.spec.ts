@@ -19,10 +19,19 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
-function point(status: MonitorTimelinePoint['status'], minute: number): MonitorTimelinePoint {
+function point(
+  status: MonitorTimelinePoint['status'],
+  minute: number,
+  latencyMs = {
+    operational: 9_999,
+    degraded: 10_000,
+    failed: 60_000,
+    error: 100,
+  }[status],
+): MonitorTimelinePoint {
   return {
     status,
-    latency_ms: 100 + minute,
+    latency_ms: latencyMs,
     ping_latency_ms: 20,
     checked_at: `2026-09-19T00:${String(minute).padStart(2, '0')}:00Z`,
   }
@@ -62,6 +71,27 @@ describe('MonitorTimeline', () => {
     const segments = wrapper.findAll('.monitor-status-bar__segment--empty')
     expect(segments).toHaveLength(6)
     expect(wrapper.get('[role="img"]').attributes('aria-label')).toBe('0 recent status checks')
+  })
+
+  it('recolors historical successful checks with the current latency rules', () => {
+    const wrapper = mount(MonitorTimeline, {
+      props: {
+        length: 3,
+        buckets: [
+          point('operational', 3, 60_000),
+          point('operational', 2, 10_000),
+          point('degraded', 1, 9_999),
+        ],
+      },
+    })
+
+    expect(wrapper.findAll('.monitor-status-bar__segment').map(segment =>
+      segment.classes().find(name => name.includes('--'))
+    )).toEqual([
+      'monitor-status-bar__segment--operational',
+      'monitor-status-bar__segment--degraded',
+      'monitor-status-bar__segment--failed',
+    ])
   })
 
   it('shows 120 checks by default', () => {

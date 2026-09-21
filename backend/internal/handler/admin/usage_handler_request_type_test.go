@@ -17,14 +17,15 @@ type adminUsageRepoCapture struct {
 	service.UsageLogRepository
 	listParams   pagination.PaginationParams
 	listFilters  usagestats.UsageLogFilters
+	listRows     []service.UsageLog
 	statsFilters usagestats.UsageLogFilters
 }
 
 func (s *adminUsageRepoCapture) ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters usagestats.UsageLogFilters) ([]service.UsageLog, *pagination.PaginationResult, error) {
 	s.listParams = params
 	s.listFilters = filters
-	return []service.UsageLog{}, &pagination.PaginationResult{
-		Total:    0,
+	return s.listRows, &pagination.PaginationResult{
+		Total:    int64(len(s.listRows)),
 		Page:     params.Page,
 		PageSize: params.PageSize,
 		Pages:    0,
@@ -128,6 +129,34 @@ func TestAdminUsageListInvalidExactTotal(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestAdminUsageListNeverSerializesRawAPIKey(t *testing.T) {
+	const secret = "sk-managed-admin-usage-canary"
+	repo := &adminUsageRepoCapture{
+		listRows: []service.UsageLog{{
+			ID:       1,
+			UserID:   42,
+			APIKeyID: 9,
+			APIKey: &service.APIKey{
+				ID:      9,
+				Name:    "[channel-monitor] admin monitor",
+				Key:     secret,
+				Purpose: service.APIKeyPurposeChannelMonitor,
+			},
+		}},
+	}
+	router := newAdminUsageRequestTypeTestRouter(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	require.NotContains(t, body, secret)
+	require.NotContains(t, body, `"key"`)
+	require.Contains(t, body, `"api_key":{"id":9,"name":"[channel-monitor] admin monitor"}`)
 }
 
 func TestAdminUsageStatsRequestTypePriority(t *testing.T) {

@@ -4,6 +4,7 @@ package admin
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -51,6 +52,53 @@ func TestUpdateSettingsFullPayloadStillClearsSentEmptyFields(t *testing.T) {
 
 	require.Equal(t, "", repo.values[service.SettingKeySiteName],
 		"an explicitly sent empty value is a deliberate clear, not an omission")
+}
+
+func TestUpdateSettingsChannelMonitorAnnouncementOmittedKeepsStoredValue(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
+		service.SettingKeyChannelMonitorAnnouncement: "现有公告",
+	})
+
+	rec := doUpdateSettings(t, h, map[string]any{"risk_control_enabled": true}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "现有公告", repo.values[service.SettingKeyChannelMonitorAnnouncement])
+}
+
+func TestUpdateSettingsChannelMonitorAnnouncementTrimsAndCanClear(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
+		service.SettingKeyChannelMonitorAnnouncement: "现有公告",
+	})
+
+	rec := doUpdateSettings(t, h, map[string]any{
+		"channel_monitor_announcement": "  新公告\n第二行  ",
+	}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "新公告\n第二行", repo.values[service.SettingKeyChannelMonitorAnnouncement])
+
+	rec = doUpdateSettings(t, h, map[string]any{
+		"channel_monitor_announcement": " \r\n ",
+	}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "", repo.values[service.SettingKeyChannelMonitorAnnouncement])
+}
+
+func TestUpdateSettingsChannelMonitorAnnouncementUnicodeLimit(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
+		service.SettingKeyChannelMonitorAnnouncement: "现有公告",
+	})
+
+	rec := doUpdateSettings(t, h, map[string]any{
+		"channel_monitor_announcement": strings.Repeat("渠", maxChannelMonitorAnnouncementRunes),
+	}, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, strings.Repeat("渠", maxChannelMonitorAnnouncementRunes), repo.values[service.SettingKeyChannelMonitorAnnouncement])
+
+	rec = doUpdateSettings(t, h, map[string]any{
+		"channel_monitor_announcement": strings.Repeat("渠", maxChannelMonitorAnnouncementRunes+1),
+	}, nil)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "max 4000 Unicode characters")
+	require.Equal(t, strings.Repeat("渠", maxChannelMonitorAnnouncementRunes), repo.values[service.SettingKeyChannelMonitorAnnouncement])
 }
 
 // smtp_from_email is the one request field whose JSON name differs from its

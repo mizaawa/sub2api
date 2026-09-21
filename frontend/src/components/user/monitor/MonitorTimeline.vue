@@ -21,6 +21,7 @@ import { useI18n } from 'vue-i18n'
 import type { MonitorTimelinePoint } from '@/api/channelMonitor'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import { MONITOR_TIMELINE_POINTS } from '@/constants/channelMonitor'
+import { resolveMonitorStatus } from '@/utils/channelMonitorHealth'
 
 type TimelineStatus = 'operational' | 'degraded' | 'failed' | 'error' | 'empty'
 type ReportedTimelineStatus = Exclude<TimelineStatus, 'empty'>
@@ -52,7 +53,7 @@ const timelineAriaLabel = computed(() => {
   const label = t('channelStatus.timelineLabel', { n: realPointCount.value })
   const counts = new Map<ReportedTimelineStatus, number>()
   for (const point of props.buckets.slice(0, safeLength.value)) {
-    const status = normalizeStatus(point.status)
+    const status = normalizeStatus(point)
     if (status !== 'empty') counts.set(status, (counts.get(status) ?? 0) + 1)
   }
   if (counts.size === 0) return label
@@ -80,18 +81,19 @@ const displayBars = computed<TimelineBar[]>(() => {
   )
 
   for (const point of points) {
-    const status = normalizeStatus(point.status)
+    const status = normalizeStatus(point)
     const latency = point.latency_ms == null ? '' : ` · ${formatLatency(point.latency_ms)}ms`
     bars.push({
       status,
-      title: `${formatRelativeTime(point.checked_at)} · ${statusLabel(point.status)}${latency}`,
+      title: `${formatRelativeTime(point.checked_at)} · ${statusLabel(status === 'empty' ? '' : status)}${latency}`,
     })
   }
 
   return bars
 })
 
-function normalizeStatus(status: string): TimelineStatus {
+function normalizeStatus(point: MonitorTimelinePoint): TimelineStatus {
+  const status = resolveMonitorStatus(point.status, point.latency_ms)
   if (
     status === 'operational' ||
     status === 'degraded' ||

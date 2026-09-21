@@ -370,6 +370,7 @@ export const useAppStore = defineStore('app', () => {
         balance_low_notify_threshold: 0,
         channel_monitor_enabled: true,
         channel_monitor_default_interval_seconds: 60,
+        channel_monitor_announcement: '',
         available_channels_enabled: false,
         leaderboard_enabled: false,
         model_plaza_enabled: false,

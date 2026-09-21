@@ -12,6 +12,7 @@ const {
   stopAutoRefresh,
   startAutoRefresh,
   resetCountdown,
+  publicSettings,
 } = vi.hoisted(() => ({
   listMonitors: vi.fn(),
   showError: vi.fn(),
@@ -19,6 +20,10 @@ const {
   stopAutoRefresh: vi.fn(),
   startAutoRefresh: vi.fn(),
   resetCountdown: vi.fn(),
+  publicSettings: {
+    channel_monitor_enabled: true,
+    channel_monitor_announcement: 'Scheduled maintenance tonight.\nBrief interruptions may occur.',
+  },
 }))
 
 vi.mock('@/api/channelMonitor', () => ({
@@ -27,7 +32,7 @@ vi.mock('@/api/channelMonitor', () => ({
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    cachedPublicSettings: { channel_monitor_enabled: true, site_name: 'Monitor Test Site' },
+    cachedPublicSettings: publicSettings,
     siteName: 'Fallback Site',
     showError,
   }),
@@ -56,7 +61,7 @@ vi.mock('vue-i18n', async () => {
   const translations: Record<string, string> = {
     'channelStatus.title': 'Channel Status',
     'channelStatus.poweredBy': 'Powered by',
-    'channelStatus.metricsDisclaimer': 'Availability metrics are aggregated from channel monitoring checks.',
+    'channelStatus.announcementTitle': 'Channel status announcement',
     'channelStatus.emptyProvider': 'No monitored channels configured',
     'channelStatus.uptimeUnavailable': '-- uptime',
     'channelStatus.providers.openai': 'OpenAI',
@@ -134,6 +139,8 @@ describe('ChannelStatusView', () => {
     ]) {
       mock.mockReset()
     }
+    publicSettings.channel_monitor_announcement =
+      'Scheduled maintenance tonight.\nBrief interruptions may occur.'
   })
 
   it('groups monitors into five fixed provider sections and renders the status-page contract', async () => {
@@ -205,10 +212,12 @@ describe('ChannelStatusView', () => {
     expect(wrapper.text()).not.toContain('7 days')
     expect(wrapper.text()).not.toContain('System status')
     const notice = wrapper.get('[data-testid="channel-status-notice"]')
-    expect(notice.get('h1').text()).toBe('Monitor Test Site')
-    expect(notice.text()).toContain('Availability metrics are aggregated from channel monitoring checks.')
+    expect(notice.get('h1').text()).toBe('Channel status announcement')
+    expect(notice.text()).toContain('Scheduled maintenance tonight.')
+    expect(notice.text()).toContain('Brief interruptions may occur.')
+    expect(notice.classes()).toEqual(expect.arrayContaining(['border-amber-300', 'bg-amber-50']))
     expect(wrapper.get('[data-testid="channel-status-grid"]').text()).not.toContain(
-      'Availability metrics are aggregated from channel monitoring checks.'
+      'Scheduled maintenance tonight.'
     )
     expect(wrapper.get('[data-testid="monitor-status-row-1"]').findAll('.monitor-status-bar__segment')).toHaveLength(120)
     const poweredBy = wrapper.get('a[href="https://mizaawa.com"]')
@@ -219,6 +228,17 @@ describe('ChannelStatusView', () => {
     expect(listMonitors).toHaveBeenCalledTimes(1)
     expect(listMonitors).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) })
     expect(setAutoRefreshEnabled).toHaveBeenCalledWith(true)
+    wrapper.unmount()
+  })
+
+  it('hides the announcement panel when the configured content is blank', async () => {
+    publicSettings.channel_monitor_announcement = '  \n  '
+    listMonitors.mockResolvedValue({ items: [] })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="channel-status-notice"]').exists()).toBe(false)
     wrapper.unmount()
   })
 
@@ -242,6 +262,33 @@ describe('ChannelStatusView', () => {
     await openAIToggle.trigger('click')
     expect(openAIToggle.attributes('aria-expanded')).toBe('true')
     expect(wrapper.get('#monitor-provider-content-openai').attributes('style') || '').not.toContain('display: none')
+    wrapper.unmount()
+  })
+
+  it('keeps the leading status icon in sync with the current latency rules', async () => {
+    listMonitors.mockResolvedValue({
+      items: [
+        makeMonitor({ id: 1, name: 'Fast', primary_status: 'degraded', primary_latency_ms: 9_999 }),
+        makeMonitor({ id: 2, name: 'Slow', primary_status: 'operational', primary_latency_ms: 10_000 }),
+        makeMonitor({ id: 3, name: 'Too Slow', primary_status: 'operational', primary_latency_ms: 60_000 }),
+        makeMonitor({ id: 4, name: 'Disconnected', primary_status: 'error', primary_latency_ms: null }),
+      ],
+    })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    const statusIcon = (id: number) =>
+      wrapper.get(`[data-testid="monitor-status-row-${id}"] [role="img"]`)
+
+    expect(statusIcon(1).classes()).toContain('bg-emerald-500')
+    expect(statusIcon(1).attributes('title')).toBe('Operational')
+    expect(statusIcon(2).classes()).toContain('bg-amber-500')
+    expect(statusIcon(2).attributes('title')).toBe('Degraded')
+    expect(statusIcon(3).classes()).toContain('bg-red-500')
+    expect(statusIcon(3).attributes('title')).toBe('Failed')
+    expect(statusIcon(4).classes()).toContain('bg-red-500')
+    expect(statusIcon(4).attributes('title')).toBe('Error')
     wrapper.unmount()
   })
 

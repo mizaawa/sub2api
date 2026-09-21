@@ -479,7 +479,7 @@ export default {
     uptime: '{value}% uptime',
     uptimeUnavailable: '-- uptime',
     timelineLabel: '{n} recent status checks',
-    metricsDisclaimer: 'Availability metrics are aggregated from channel monitoring checks. Actual availability may vary by model, endpoint, region, and request type.',
+    announcementTitle: 'Channel status announcement',
     providers: {
       openai: 'OpenAI',
       anthropic: 'Anthropic',

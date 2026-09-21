@@ -101,6 +101,23 @@ func TestSettingService_GetPublicSettings_ExposesCompactHomeEnabled(t *testing.T
 	require.False(t, missingSettings.CompactHomeEnabled)
 }
 
+func TestSettingService_GetPublicSettings_ExposesChannelMonitorAnnouncement(t *testing.T) {
+	repo := &settingPublicRepoStub{values: map[string]string{
+		SettingKeyChannelMonitorAnnouncement: "  渠道状态正常  ",
+	}}
+	svc := NewSettingService(repo, &config.Config{})
+
+	settings, err := svc.GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "渠道状态正常", settings.ChannelMonitorAnnouncement)
+
+	injected, err := svc.GetPublicSettingsForInjection(context.Background())
+	require.NoError(t, err)
+	payload, ok := injected.(*PublicSettingsInjectionPayload)
+	require.True(t, ok)
+	require.Equal(t, "渠道状态正常", payload.ChannelMonitorAnnouncement)
+}
+
 func TestSettingService_GetPublicSettings_ExposesForceEmailOnThirdPartySignup(t *testing.T) {
 	repo := &settingPublicRepoStub{
 		values: map[string]string{

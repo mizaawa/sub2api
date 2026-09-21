@@ -22,6 +22,9 @@ export default {
           enabledHint: '关闭后后台不再执行定时检测，已有数据保留。',
           defaultInterval: '默认检测间隔（秒）',
           defaultIntervalHint: '新建渠道监控时表单的默认值，可被单个渠道覆盖。范围 15 – 3600 秒。',
+          announcement: '渠道监控公告设置',
+          announcementPlaceholder: '输入要在渠道状态页展示的公告内容',
+          announcementHint: '显示在用户渠道状态页顶部；留空则不显示。仅支持纯文本，最多 4000 个字符。',
         },
         availableChannels: {
           title: '可用渠道',

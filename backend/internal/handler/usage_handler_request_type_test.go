@@ -231,6 +231,34 @@ func TestUserUsageListKeepsUserBillingAndIPWithoutAdminCostFields(t *testing.T) 
 	require.NotContains(t, body, `"account":`)
 }
 
+func TestUserUsageListNeverSerializesRawAPIKey(t *testing.T) {
+	const secret = "sk-managed-user-usage-canary"
+	repo := &userUsageRepoCapture{
+		listRows: []service.UsageLog{{
+			ID:       1,
+			UserID:   42,
+			APIKeyID: 7,
+			APIKey: &service.APIKey{
+				ID:      7,
+				Name:    "[channel-monitor] user monitor",
+				Key:     secret,
+				Purpose: service.APIKeyPurposeChannelMonitor,
+			},
+		}},
+	}
+	router := newUserUsageRequestTypeTestRouter(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/usage", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	require.NotContains(t, body, secret)
+	require.NotContains(t, body, `"key"`)
+	require.Contains(t, body, `"api_key":{"id":7,"name":"[channel-monitor] user monitor"}`)
+}
+
 func TestUserUsageStatsUsesScopedFilters(t *testing.T) {
 	accountCost := 0.12
 	repo := &userUsageRepoCapture{

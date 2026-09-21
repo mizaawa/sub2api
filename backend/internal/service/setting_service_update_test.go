@@ -238,6 +238,18 @@ func TestSettingService_UpdateSettings_PersistsCompactHomeEnabled(t *testing.T) 
 	require.Equal(t, "true", repo.updates[SettingKeyCompactHomeEnabled])
 }
 
+func TestSettingService_UpdateSettings_PersistsTrimmedChannelMonitorAnnouncement(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		ChannelMonitorAnnouncement: "  渠道维护中\n请稍后重试  ",
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, "渠道维护中\n请稍后重试", repo.updates[SettingKeyChannelMonitorAnnouncement])
+}
+
 func TestSettingService_UpdateSettings_DefaultSubscriptions_ValidGroup(t *testing.T) {
 	repo := &settingUpdateRepoStub{}
 	groupReader := &defaultSubGroupReaderStub{

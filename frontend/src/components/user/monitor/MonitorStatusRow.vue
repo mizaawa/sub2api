@@ -9,8 +9,8 @@
           role="img"
           class="grid h-5 w-5 flex-shrink-0 place-items-center rounded-full text-white"
           :class="statusIconClass"
-          :aria-label="statusLabel(item.primary_status)"
-          :title="statusLabel(item.primary_status)"
+          :aria-label="statusLabel(currentStatus)"
+          :title="statusLabel(currentStatus)"
         >
           <Icon :name="statusIcon" size="xs" :stroke-width="2.5" />
         </span>
@@ -49,6 +49,7 @@ import Icon from '@/components/icons/Icon.vue'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import { MONITOR_TIMELINE_POINTS } from '@/constants/channelMonitor'
 import { formatMultiplier } from '@/utils/formatters'
+import { resolveMonitorStatus } from '@/utils/channelMonitorHealth'
 import MonitorTimeline from './MonitorTimeline.vue'
 
 const props = defineProps<{
@@ -64,8 +65,12 @@ const groupRateLabel = computed(() => {
   return `${formatMultiplier(rate)}x`
 })
 
+const currentStatus = computed(() =>
+  resolveMonitorStatus(props.item.primary_status, props.item.primary_latency_ms)
+)
+
 const statusIcon = computed<'check' | 'exclamationTriangle' | 'x' | 'infoCircle'>(() => {
-  switch (props.item.primary_status) {
+  switch (currentStatus.value) {
     case 'operational':
       return 'check'
     case 'degraded':
@@ -79,7 +84,7 @@ const statusIcon = computed<'check' | 'exclamationTriangle' | 'x' | 'infoCircle'
 })
 
 const statusIconClass = computed(() => {
-  switch (props.item.primary_status) {
+  switch (currentStatus.value) {
     case 'operational':
       return 'bg-emerald-500'
     case 'degraded':

@@ -228,6 +228,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyAccountQuotaNotifyEnabled,
 		SettingKeyChannelMonitorEnabled,
 		SettingKeyChannelMonitorDefaultIntervalSeconds,
+		SettingKeyChannelMonitorAnnouncement,
 		SettingKeyAvailableChannelsEnabled,
 		SettingKeyLeaderboardEnabled,
 		SettingKeyModelPlazaEnabled,
@@ -350,6 +351,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 
 		ChannelMonitorEnabled:                !isFalseSettingValue(settings[SettingKeyChannelMonitorEnabled]),
 		ChannelMonitorDefaultIntervalSeconds: parseChannelMonitorInterval(settings[SettingKeyChannelMonitorDefaultIntervalSeconds]),
+		ChannelMonitorAnnouncement:           strings.TrimSpace(settings[SettingKeyChannelMonitorAnnouncement]),
 
 		AvailableChannelsEnabled: settings[SettingKeyAvailableChannelsEnabled] == "true",
 		LeaderboardEnabled:       settings[SettingKeyLeaderboardEnabled] == "true",
@@ -566,15 +568,16 @@ type PublicSettingsInjectionPayload struct {
 	// Feature flags — MUST match the opt-in/opt-out registry in
 	// frontend/src/utils/featureFlags.ts. Missing a field here is the bug
 	// that hid the "可用渠道" menu on page refresh.
-	ChannelMonitorEnabled                bool `json:"channel_monitor_enabled"`
-	ChannelMonitorDefaultIntervalSeconds int  `json:"channel_monitor_default_interval_seconds"`
-	AvailableChannelsEnabled             bool `json:"available_channels_enabled"`
-	LeaderboardEnabled                   bool `json:"leaderboard_enabled"`
-	ModelPlazaEnabled                    bool `json:"model_plaza_enabled"`
-	ModelPlazaRequireAuth                bool `json:"model_plaza_require_auth"`
-	AffiliateEnabled                     bool `json:"affiliate_enabled"`
-	RiskControlEnabled                   bool `json:"risk_control_enabled"`
-	AllowUserViewErrorRequests           bool `json:"allow_user_view_error_requests"`
+	ChannelMonitorEnabled                bool   `json:"channel_monitor_enabled"`
+	ChannelMonitorDefaultIntervalSeconds int    `json:"channel_monitor_default_interval_seconds"`
+	ChannelMonitorAnnouncement           string `json:"channel_monitor_announcement"`
+	AvailableChannelsEnabled             bool   `json:"available_channels_enabled"`
+	LeaderboardEnabled                   bool   `json:"leaderboard_enabled"`
+	ModelPlazaEnabled                    bool   `json:"model_plaza_enabled"`
+	ModelPlazaRequireAuth                bool   `json:"model_plaza_require_auth"`
+	AffiliateEnabled                     bool   `json:"affiliate_enabled"`
+	RiskControlEnabled                   bool   `json:"risk_control_enabled"`
+	AllowUserViewErrorRequests           bool   `json:"allow_user_view_error_requests"`
 }
 
 // GetPublicSettingsForInjection returns public settings in a format suitable for HTML injection.
@@ -645,6 +648,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 
 		ChannelMonitorEnabled:                settings.ChannelMonitorEnabled,
 		ChannelMonitorDefaultIntervalSeconds: settings.ChannelMonitorDefaultIntervalSeconds,
+		ChannelMonitorAnnouncement:           settings.ChannelMonitorAnnouncement,
 		AvailableChannelsEnabled:             settings.AvailableChannelsEnabled,
 		LeaderboardEnabled:                   settings.LeaderboardEnabled,
 		ModelPlazaEnabled:                    settings.ModelPlazaEnabled,

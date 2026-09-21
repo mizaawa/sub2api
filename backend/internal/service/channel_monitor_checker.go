@@ -156,9 +156,14 @@ func runCheckForModel(ctx context.Context, provider, endpoint, apiKey, model str
 	return finalizeOperationalOrDegraded(res, latency, latencyMs)
 }
 
-// finalizeOperationalOrDegraded 负责走到最后一步的 operational/degraded 判定。
+// finalizeOperationalOrDegraded 负责走到最后一步的耗时状态判定。
 // 拆出来是为了让 runCheckForModel 不超过 30 行。
 func finalizeOperationalOrDegraded(res *CheckResult, latency time.Duration, latencyMs int) *CheckResult {
+	if latency >= monitorFailedThreshold {
+		res.Status = MonitorStatusFailed
+		res.Message = truncateMessage(fmt.Sprintf("response exceeded latency limit: %dms", latencyMs))
+		return res
+	}
 	if latency >= monitorDegradedThreshold {
 		res.Status = MonitorStatusDegraded
 		res.Message = truncateMessage(fmt.Sprintf("slow response: %dms", latencyMs))

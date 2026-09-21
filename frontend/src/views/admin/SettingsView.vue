@@ -6871,6 +6871,23 @@
                 {{ t('admin.settings.features.channelMonitor.defaultIntervalHint') }}
               </p>
             </div>
+
+            <div>
+              <label class="input-label" for="channel-monitor-announcement">
+                {{ t('admin.settings.features.channelMonitor.announcement') }}
+              </label>
+              <textarea
+                id="channel-monitor-announcement"
+                :value="form.channel_monitor_announcement"
+                rows="4"
+                class="input min-h-24 resize-y"
+                :placeholder="t('admin.settings.features.channelMonitor.announcementPlaceholder')"
+                @input="updateChannelMonitorAnnouncement"
+              ></textarea>
+              <p class="mt-1 text-xs text-gray-400">
+                {{ t('admin.settings.features.channelMonitor.announcementHint') }}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -9537,6 +9554,7 @@ const form = reactive<SettingsForm>({
   // Channel Monitor feature switch
   channel_monitor_enabled: true,
   channel_monitor_default_interval_seconds: 60,
+  channel_monitor_announcement: "",
   // Available Channels feature switch
   available_channels_enabled: false,
   leaderboard_enabled: false,
@@ -9551,6 +9569,15 @@ const form = reactive<SettingsForm>({
   // Allow user view error requests
   allow_user_view_error_requests: false,
 });
+
+const maxChannelMonitorAnnouncementRunes = 4000;
+
+function updateChannelMonitorAnnouncement(event: Event): void {
+  const target = event.target as HTMLTextAreaElement;
+  const value = Array.from(target.value).slice(0, maxChannelMonitorAnnouncementRunes).join("");
+  target.value = value;
+  form.channel_monitor_announcement = value;
+}
 
 // 人机验证 UI 状态：单卡片「总开关 + 服务商单选」，落库仍是三个独立
 // enabled 键（与上游一致），由下面的映射保证同一时间至多一家启用。
@@ -11175,6 +11202,7 @@ async function saveSettings() {
       channel_monitor_enabled: form.channel_monitor_enabled,
       channel_monitor_default_interval_seconds:
         Number(form.channel_monitor_default_interval_seconds) || 60,
+      channel_monitor_announcement: form.channel_monitor_announcement.trim(),
       // Available Channels feature switch
       available_channels_enabled: form.available_channels_enabled,
       leaderboard_enabled: form.leaderboard_enabled,

@@ -393,6 +393,8 @@ const (
 	// SettingKeyChannelMonitorEnabled is a DB-backed soft switch for the channel monitor feature.
 	// When false: runner skips scheduling and user-facing endpoints return an empty list.
 	SettingKeyChannelMonitorEnabled = "channel_monitor_enabled"
+	// SettingKeyChannelMonitorAnnouncement is the public plain-text notice shown on the channel status page.
+	SettingKeyChannelMonitorAnnouncement = "channel_monitor_announcement"
 
 	// SettingKeyChannelMonitorDefaultIntervalSeconds controls the default interval (seconds)
 	// pre-filled when creating a new channel monitor from the admin UI. Range: [15, 3600].

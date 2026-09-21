@@ -22,6 +22,9 @@ export default {
           enabledHint: 'Disabling stops background checks; existing history is preserved.',
           defaultInterval: 'Default check interval (seconds)',
           defaultIntervalHint: 'Pre-fills the interval when creating a new monitor; each monitor can override it. Range 15 – 3600.',
+          announcement: 'Channel monitor announcement',
+          announcementPlaceholder: 'Enter the announcement shown on the channel status page',
+          announcementHint: 'Shown at the top of the user channel status page. Leave blank to hide it. Plain text only, up to 4,000 characters.',
         },
         availableChannels: {
           title: 'Available Channels',

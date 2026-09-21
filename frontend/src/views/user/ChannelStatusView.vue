@@ -2,18 +2,19 @@
   <AppLayout>
     <div class="mx-auto w-full max-w-7xl pb-8">
       <aside
-        class="mb-4 rounded-lg border border-gray-200 border-l-4 border-l-amber-400 bg-white px-4 py-3 shadow-sm sm:px-5"
+        v-if="announcement"
+        class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 shadow-sm sm:px-5 dark:border-amber-700 dark:bg-amber-950/40"
         aria-labelledby="channel-status-notice-title"
         data-testid="channel-status-notice"
       >
         <h1
           id="channel-status-notice-title"
-          class="text-sm font-semibold text-gray-950"
+          class="text-sm font-semibold text-amber-950 dark:text-amber-100"
         >
-          {{ siteName }}
+          {{ t('channelStatus.announcementTitle') }}
         </h1>
-        <p class="mt-1 text-sm leading-6 text-gray-600">
-          {{ t('channelStatus.metricsDisclaimer') }}
+        <p class="mt-1 whitespace-pre-line text-sm leading-6 text-amber-900/80 dark:text-amber-200/90">
+          {{ announcement }}
         </p>
       </aside>
 
@@ -55,8 +56,8 @@ import { useAutoRefresh } from '@/composables/useAutoRefresh'
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const siteName = computed(() =>
-  appStore.cachedPublicSettings?.site_name?.trim() || appStore.siteName?.trim() || 'Sub2API'
+const announcement = computed(() =>
+  appStore.cachedPublicSettings?.channel_monitor_announcement?.trim() || ''
 )
 
 const items = ref<UserMonitorView[]>([])

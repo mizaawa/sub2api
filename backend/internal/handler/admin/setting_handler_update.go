@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
@@ -19,6 +20,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 )
+
+const maxChannelMonitorAnnouncementRunes = 4000
 
 // UpdateSettingsRequest 更新设置请求
 type UpdateSettingsRequest struct {
@@ -327,8 +330,9 @@ type UpdateSettingsRequest struct {
 	PaymentAlipayMobilePrecreateDeepLink *bool `json:"payment_alipay_mobile_precreate_deep_link"`
 
 	// Channel Monitor feature switch
-	ChannelMonitorEnabled                *bool `json:"channel_monitor_enabled"`
-	ChannelMonitorDefaultIntervalSeconds *int  `json:"channel_monitor_default_interval_seconds"`
+	ChannelMonitorEnabled                *bool   `json:"channel_monitor_enabled"`
+	ChannelMonitorDefaultIntervalSeconds *int    `json:"channel_monitor_default_interval_seconds"`
+	ChannelMonitorAnnouncement           *string `json:"channel_monitor_announcement"`
 
 	// Available Channels feature switch (user-facing)
 	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
@@ -489,6 +493,14 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+	channelMonitorAnnouncement := previousSettings.ChannelMonitorAnnouncement
+	if req.ChannelMonitorAnnouncement != nil {
+		channelMonitorAnnouncement = strings.TrimSpace(*req.ChannelMonitorAnnouncement)
+		if utf8.RuneCountInString(channelMonitorAnnouncement) > maxChannelMonitorAnnouncementRunes {
+			response.BadRequest(c, "Channel monitor announcement is too long (max 4000 Unicode characters)")
+			return
+		}
 	}
 
 	// 两个安全开关的请求字段为指针：省略字段=保持现值，避免旧客户端/脚本
@@ -1863,6 +1875,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ChannelMonitorDefaultIntervalSeconds
 		}(),
+		ChannelMonitorAnnouncement: channelMonitorAnnouncement,
 		AvailableChannelsEnabled: func() bool {
 			if req.AvailableChannelsEnabled != nil {
 				return *req.AvailableChannelsEnabled
@@ -2313,6 +2326,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 		ChannelMonitorEnabled:                updatedSettings.ChannelMonitorEnabled,
 		ChannelMonitorDefaultIntervalSeconds: updatedSettings.ChannelMonitorDefaultIntervalSeconds,
+		ChannelMonitorAnnouncement:           updatedSettings.ChannelMonitorAnnouncement,
 
 		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
 		LeaderboardEnabled:       updatedSettings.LeaderboardEnabled,

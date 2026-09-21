@@ -522,6 +522,9 @@ const baseSettingsResponse = {
   subscription_expiry_notify_enabled: true,
   account_quota_notify_enabled: false,
   account_quota_notify_emails: [],
+  channel_monitor_enabled: true,
+  channel_monitor_default_interval_seconds: 60,
+  channel_monitor_announcement: "",
   disable_temp_unschedulable: false,
   // 平台限额嵌套字段（新后端契约）
   default_platform_quotas: {
@@ -590,6 +593,16 @@ async function openUsersTab(wrapper: ReturnType<typeof mountView>) {
 
   expect(usersTabButton).toBeDefined();
   await usersTabButton?.trigger("click");
+  await flushPromises();
+}
+
+async function openFeaturesTab(wrapper: ReturnType<typeof mountView>) {
+  const featuresTabButton = wrapper
+    .findAll("button")
+    .find((node) => node.text().includes("admin.settings.tabs.features"));
+
+  expect(featuresTabButton).toBeDefined();
+  await featuresTabButton?.trigger("click");
   await flushPromises();
 }
 
@@ -700,6 +713,30 @@ describe("admin SettingsView payment visible method controls", () => {
 
     expect(updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({ compact_home_enabled: true }),
+    );
+  });
+
+  it("loads and saves the channel status announcement from the features tab", async () => {
+    getSettings.mockResolvedValue({
+      ...baseSettingsResponse,
+      channel_monitor_announcement: "Existing channel notice",
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openFeaturesTab(wrapper);
+
+    const announcement = wrapper.get("#channel-monitor-announcement");
+    expect((announcement.element as HTMLTextAreaElement).value).toBe("Existing channel notice");
+
+    await announcement.setValue("😀".repeat(4001));
+    expect(Array.from((announcement.element as HTMLTextAreaElement).value)).toHaveLength(4000);
+
+    await announcement.setValue("  Updated channel notice  ");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ channel_monitor_announcement: "Updated channel notice" }),
     );
   });
 

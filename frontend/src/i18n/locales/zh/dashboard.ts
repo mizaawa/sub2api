@@ -484,7 +484,7 @@ export default {
     uptime: '{value}% 可用率',
     uptimeUnavailable: '-- 可用率',
     timelineLabel: '最近 {n} 次状态记录',
-    metricsDisclaimer: '可用率指标由渠道监控检查汇总得出。实际可用性可能因模型、接口端点、地区和请求类型而异。',
+    announcementTitle: '渠道状态公告',
     providers: {
       openai: 'OpenAI',
       anthropic: 'Anthropic',

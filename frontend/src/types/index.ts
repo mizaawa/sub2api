@@ -264,6 +264,7 @@ export interface PublicSettings {
   balance_low_notify_threshold: number
   channel_monitor_enabled: boolean
   channel_monitor_default_interval_seconds: number
+  channel_monitor_announcement: string
   available_channels_enabled: boolean
   leaderboard_enabled: boolean
   model_plaza_enabled: boolean
