@@ -41,7 +41,7 @@ func (s compositeRouteRepoStub) DeleteByGroup(ctx context.Context, groupID int64
 	return nil
 }
 
-func TestCompositeRouteResolverExplicitExactRouteRewritesModel(t *testing.T) {
+func TestCompositeRouteResolverAlwaysUsesCustomAndPreservesModel(t *testing.T) {
 	resolver := NewCompositeRouteResolver(compositeRouteRepoStub{
 		routes: []CompositeModelRoute{
 			{
@@ -62,11 +62,10 @@ func TestCompositeRouteResolverExplicitExactRouteRewritesModel(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, decision.Matched)
-	require.Equal(t, CompositeRouteSourceExplicit, decision.Source)
-	require.Equal(t, PlatformOpenAI, decision.TargetPlatform)
-	require.Equal(t, "gpt-5", decision.UpstreamModel)
-	require.NotNil(t, decision.Route)
-	require.Equal(t, int64(10), decision.Route.ID)
+	require.Equal(t, CompositeRouteSourceDetector, decision.Source)
+	require.Equal(t, PlatformCustom, decision.TargetPlatform)
+	require.Equal(t, "openrouter/gpt-5", decision.UpstreamModel)
+	require.Nil(t, decision.Route)
 }
 
 func TestCompositeRouteResolverPrefersEndpointSpecificLongestPrefix(t *testing.T) {
@@ -100,11 +99,10 @@ func TestCompositeRouteResolverPrefersEndpointSpecificLongestPrefix(t *testing.T
 
 	require.NoError(t, err)
 	require.True(t, decision.Matched)
-	require.Equal(t, CompositeRouteSourceExplicit, decision.Source)
-	require.Equal(t, PlatformOpenAI, decision.TargetPlatform)
-	require.Equal(t, "gpt-family", decision.UpstreamModel)
-	require.NotNil(t, decision.Route)
-	require.Equal(t, int64(2), decision.Route.ID)
+	require.Equal(t, CompositeRouteSourceDetector, decision.Source)
+	require.Equal(t, PlatformCustom, decision.TargetPlatform)
+	require.Equal(t, "router/gpt-5", decision.UpstreamModel)
+	require.Nil(t, decision.Route)
 }
 
 // TestCompositeRouteResolverPrefixEmptyUpstreamPassesThroughRequestedModel 验证：
@@ -131,8 +129,8 @@ func TestCompositeRouteResolverPrefixEmptyUpstreamPassesThroughRequestedModel(t 
 		decision, err := resolver.Resolve(context.Background(), 7, model, CompositeRouteEndpointChatCompletions)
 		require.NoError(t, err)
 		require.True(t, decision.Matched, "model %q should match prefix route", model)
-		require.Equal(t, CompositeRouteSourceExplicit, decision.Source)
-		require.Equal(t, PlatformOpenAI, decision.TargetPlatform)
+		require.Equal(t, CompositeRouteSourceDetector, decision.Source)
+		require.Equal(t, PlatformCustom, decision.TargetPlatform)
 		require.Equal(t, model, decision.UpstreamModel, "model %q should pass through verbatim", model)
 	}
 }
@@ -160,7 +158,7 @@ func TestCompositeRouteResolverPrefixExplicitUpstreamStillFixed(t *testing.T) {
 		decision, err := resolver.Resolve(context.Background(), 7, model, CompositeRouteEndpointChatCompletions)
 		require.NoError(t, err)
 		require.True(t, decision.Matched)
-		require.Equal(t, "deepseek-chat", decision.UpstreamModel)
+		require.Equal(t, model, decision.UpstreamModel)
 	}
 }
 
@@ -186,7 +184,7 @@ func TestCompositeRouteResolverIgnoresDisabledRoutesAndFallsBackToDetector(t *te
 	require.NoError(t, err)
 	require.True(t, decision.Matched)
 	require.Equal(t, CompositeRouteSourceDetector, decision.Source)
-	require.Equal(t, PlatformOpenAI, decision.TargetPlatform)
+	require.Equal(t, PlatformCustom, decision.TargetPlatform)
 	require.Equal(t, "gpt-5", decision.UpstreamModel)
 	require.Nil(t, decision.Route)
 }
@@ -247,10 +245,10 @@ func TestCompositeRouteResolverExplicitRoutesCoverBucketTwoProviders(t *testing.
 		wantPlatform string
 		wantUpstream string
 	}{
-		{"all/gpt-5", CompositeRouteEndpointResponses, PlatformOpenAI, "gpt-5"},
-		{"all/claude-sonnet", CompositeRouteEndpointMessages, PlatformAnthropic, "claude-sonnet-4-6"},
-		{"all/gemini-pro", CompositeRouteEndpointGemini, PlatformGemini, "gemini-2.5-pro"},
-		{"all/grok", CompositeRouteEndpointResponses, PlatformGrok, "grok-4.3"},
+		{"all/gpt-5", CompositeRouteEndpointResponses, PlatformCustom, "all/gpt-5"},
+		{"all/claude-sonnet", CompositeRouteEndpointMessages, PlatformCustom, "all/claude-sonnet"},
+		{"all/gemini-pro", CompositeRouteEndpointGemini, PlatformCustom, "all/gemini-pro"},
+		{"all/grok", CompositeRouteEndpointResponses, PlatformCustom, "all/grok"},
 	}
 
 	for _, tt := range tests {
@@ -259,7 +257,7 @@ func TestCompositeRouteResolverExplicitRoutesCoverBucketTwoProviders(t *testing.
 
 			require.NoError(t, err)
 			require.True(t, decision.Matched)
-			require.Equal(t, CompositeRouteSourceExplicit, decision.Source)
+			require.Equal(t, CompositeRouteSourceDetector, decision.Source)
 			require.Equal(t, tt.wantPlatform, decision.TargetPlatform)
 			require.Equal(t, tt.wantUpstream, decision.UpstreamModel)
 		})

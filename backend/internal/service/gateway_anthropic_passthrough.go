@@ -267,7 +267,15 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 	var firstTokenMs *int
 	var clientDisconnect bool
 	if input.RequestStream {
-		streamResult, err := s.handleStreamingResponseAnthropicAPIKeyPassthrough(ctx, resp, c, account, input.StartTime, input.RequestModel)
+		streamResult, err := s.handleStreamingResponseAnthropicAPIKeyPassthrough(
+			ctx,
+			resp,
+			c,
+			account,
+			input.StartTime,
+			input.OriginalModel,
+			input.RequestModel,
+		)
 		if err != nil {
 			// 流中断时保留已观测到的 usage 与错误一起返回，避免上游已计量的请求
 			// 完全漏记漏计费（issue #5148）。
@@ -280,7 +288,14 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		firstTokenMs = streamResult.firstTokenMs
 		clientDisconnect = streamResult.clientDisconnect
 	} else {
-		usage, err = s.handleNonStreamingResponseAnthropicAPIKeyPassthrough(ctx, resp, c, account)
+		usage, err = s.handleNonStreamingResponseAnthropicAPIKeyPassthrough(
+			ctx,
+			resp,
+			c,
+			account,
+			input.OriginalModel,
+			input.RequestModel,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -379,12 +394,14 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	c *gin.Context,
 	account *Account,
 	startTime time.Time,
-	model string,
+	originalModel string,
+	mappedModel string,
 ) (*streamingResult, error) {
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
 	}
+	responseModelOverride := anthropicPassthroughResponseModelOverride(c, s.settingService, originalModel, mappedModel)
 	if s.rateLimitService != nil {
 		s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
 	}
@@ -539,6 +556,10 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
 				observer.ObserveAnthropic([]byte(trimmed))
+				if responseModelOverride != "" {
+					rewritten := rewriteAnthropicResponseModel([]byte(data), responseModelOverride)
+					line = line[:len(line)-len(data)] + string(rewritten)
+				}
 				if anthropicStreamEventIsTerminal("", trimmed) {
 					sawTerminalEvent = true
 				}
@@ -581,9 +602,9 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			if clientDisconnected {
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, fmt.Errorf("stream usage incomplete after timeout")
 			}
-			logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Stream data interval timeout: account=%d model=%s interval=%s", account.ID, model, streamInterval)
+			logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Stream data interval timeout: account=%d model=%s interval=%s", account.ID, mappedModel, streamInterval)
 			if s.rateLimitService != nil {
-				s.rateLimitService.HandleStreamTimeout(ctx, account, model)
+				s.rateLimitService.HandleStreamTimeout(ctx, account, mappedModel)
 			}
 			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream data interval timeout")
 
@@ -623,6 +644,23 @@ func extractAnthropicSSEDataLine(line string) (string, bool) {
 		start++
 	}
 	return line[start:], true
+}
+
+func anthropicPassthroughResponseModelOverride(
+	c *gin.Context,
+	settingService *SettingService,
+	originalModel string,
+	mappedModel string,
+) string {
+	ctx := ginRequestContext(c)
+	if !responseModelAuditBypassOn(ctx, settingService) {
+		return ""
+	}
+	model := downstreamRequestedModel(ctx, originalModel)
+	if strings.TrimSpace(model) == "" {
+		model = mappedModel
+	}
+	return strings.TrimSpace(model)
 }
 
 func (s *GatewayService) parseSSEUsagePassthrough(data string, usage *ClaudeUsage) {
@@ -901,6 +939,8 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	resp *http.Response,
 	c *gin.Context,
 	account *Account,
+	originalModel string,
+	mappedModel string,
 ) (*ClaudeUsage, error) {
 	if s.rateLimitService != nil {
 		s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
@@ -929,6 +969,9 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 		if err != nil {
 			return nil, err
 		}
+	}
+	if responseModelOverride := anthropicPassthroughResponseModelOverride(c, s.settingService, originalModel, mappedModel); responseModelOverride != "" {
+		body = rewriteAnthropicResponseModel(body, responseModelOverride)
 	}
 
 	writeAnthropicPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)

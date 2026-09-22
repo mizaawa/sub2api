@@ -178,6 +178,15 @@ func (s *adminServiceImpl) DuplicateGroup(ctx context.Context, id int64, actorSc
 	if err != nil {
 		return nil, err
 	}
+	if source.Platform == PlatformComposite {
+		accountIDs, getErr := s.groupRepo.GetAccountIDsByGroupIDs(ctx, []int64{source.ID})
+		if getErr != nil {
+			return nil, fmt.Errorf("get Custom group accounts for duplicate: %w", getErr)
+		}
+		if validateErr := validateCustomGroupAccountPlatforms(ctx, s.accountRepo, source.Platform, accountIDs); validateErr != nil {
+			return nil, validateErr
+		}
+	}
 	if s.groupDuplicateRepo == nil {
 		return nil, errors.New("group duplicate repository is not configured")
 	}

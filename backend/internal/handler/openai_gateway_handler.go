@@ -167,20 +167,27 @@ func wrapUsageRecordTaskContext(parent context.Context, task service.UsageRecord
 }
 
 func openAICompatibleRequestPlatform(ctx context.Context, apiKey *service.APIKey) string {
+	if apiKey != nil && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
+		return service.PlatformCustom
+	}
 	if platform, ok := service.ResolvedTargetPlatformFromContext(ctx); ok {
-		if platform == service.PlatformGrok {
-			return service.PlatformGrok
+		switch platform {
+		case service.PlatformGrok, service.PlatformCustom:
+			return platform
 		}
 		return service.PlatformOpenAI
 	}
-	if apiKey != nil && apiKey.Group != nil && apiKey.Group.Platform == service.PlatformGrok {
-		return service.PlatformGrok
+	if apiKey != nil && apiKey.Group != nil {
+		switch apiKey.Group.Platform {
+		case service.PlatformGrok, service.PlatformCustom:
+			return apiKey.Group.Platform
+		}
 	}
 	return service.PlatformOpenAI
 }
 
 func openAIResponsesRequiredCapability(requireNativeResponses bool, platform string) service.OpenAIEndpointCapability {
-	if requireNativeResponses && platform == service.PlatformOpenAI {
+	if requireNativeResponses && (platform == service.PlatformOpenAI || platform == service.PlatformCustom) {
 		return service.OpenAIEndpointCapabilityResponses
 	}
 	return service.OpenAIEndpointCapabilityChatCompletions
@@ -198,14 +205,14 @@ func allowOpenAICompatibleMessagesDispatch(apiKey *service.APIKey) bool {
 	if apiKey == nil || apiKey.Group == nil {
 		return true
 	}
-	if apiKey.Group.Platform == service.PlatformGrok {
+	if apiKey.Group.Platform == service.PlatformGrok || apiKey.Group.Platform == service.PlatformCustom || apiKey.Group.Platform == service.PlatformComposite {
 		return true
 	}
 	return apiKey.Group.AllowMessagesDispatch
 }
 
 func openAICompatibleTextTargetAllowed(c *gin.Context, apiKey *service.APIKey, model string) bool {
-	return compositeTargetPlatformAllowed(c, apiKey, model, service.PlatformOpenAI, service.PlatformGrok)
+	return compositeTargetPlatformAllowed(c, apiKey, model, service.PlatformOpenAI, service.PlatformCustom, service.PlatformGrok)
 }
 
 // NewOpenAIGatewayHandler creates a new OpenAIGatewayHandler
@@ -296,9 +303,15 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	setOpsRequestContext(c, "", false)
 	sessionHashBody := body
-	body, ok = h.normalizeOpenAIResponsesCompactRequest(c, reqLog, body)
-	if !ok {
-		return
+	// Custom requests are passed to the configured upstream as-is. The compact
+	// normalizer is an OpenAI/Codex compatibility transform and must not touch
+	// arbitrary Custom payloads.
+	requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
+	if requestPlatform != service.PlatformCustom {
+		body, ok = h.normalizeOpenAIResponsesCompactRequest(c, reqLog, body)
+		if !ok {
+			return
+		}
 	}
 	// body-signal compact：上游 unary 等待期间向下游发 SSE 注释行心跳，防止
 	// 反向代理空闲超时掐断长压缩连接（#3887）。首拍延迟一个心跳间隔，快速
@@ -321,24 +334,26 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	}
 	reqModel := modelResult.String()
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
-	if !compositeTargetPlatformAllowed(c, apiKey, reqModel, service.PlatformOpenAI, service.PlatformGrok) {
+	if !compositeTargetPlatformAllowed(c, apiKey, reqModel, service.PlatformOpenAI, service.PlatformCustom, service.PlatformGrok) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
 		return
 	}
-	if cappedBody, changed := applyOpenAIReasoningEffortPolicyForRequest(c, apiKey, body); changed {
-		body = cappedBody
-	}
-	if normalizedBody, changed := normalizeCodexAutomationBootstrap(body); changed {
-		body = normalizedBody
-		reqLog.Info("openai.codex_automation_bootstrap_normalized",
-			zap.String("normalization", "call_output_to_user_message"),
-		)
-	}
-	if normalizedBody, changed := normalizeCodexDelegationBootstrap(body); changed {
-		body = normalizedBody
-		reqLog.Info("openai.codex_delegation_bootstrap_normalized",
-			zap.String("normalization", "call_output_to_user_message"),
-		)
+	if requestPlatform != service.PlatformCustom {
+		if cappedBody, changed := applyOpenAIReasoningEffortPolicyForRequest(c, apiKey, body); changed {
+			body = cappedBody
+		}
+		if normalizedBody, changed := normalizeCodexAutomationBootstrap(body); changed {
+			body = normalizedBody
+			reqLog.Info("openai.codex_automation_bootstrap_normalized",
+				zap.String("normalization", "call_output_to_user_message"),
+			)
+		}
+		if normalizedBody, changed := normalizeCodexDelegationBootstrap(body); changed {
+			body = normalizedBody
+			reqLog.Info("openai.codex_delegation_bootstrap_normalized",
+				zap.String("normalization", "call_output_to_user_message"),
+			)
+		}
 	}
 
 	reqStream, ok := parseOpenAICompatibleStream(body)
@@ -418,11 +433,16 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
-	forwardBody := openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
+	forwardBody := body
+	if requestPlatform != service.PlatformCustom {
+		forwardBody = openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
+	}
 	seedOpenAIForwardImageIntentHint(c, channelMapping.Mapped, imageIntent)
 
-	// 提前校验 function_call_output 是否具备可关联上下文，避免上游 400。
-	if !h.validateFunctionCallOutputRequest(c, body, reqLog) {
+	// Custom requests are protocol-transparent. Let the configured upstream
+	// decide whether a function_call_output is valid for its own Responses
+	// implementation instead of applying OpenAI-specific local semantics.
+	if requestPlatform != service.PlatformCustom && !h.validateFunctionCallOutputRequest(c, body, reqLog) {
 		return
 	}
 
@@ -433,7 +453,6 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	// Get subscription info (may be nil)
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -1027,8 +1046,15 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 	bindOpenAIReasoningEffortPolicyForMessagesRequest(c, apiKey, body)
+	requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
 	routingModel := service.NormalizeOpenAICompatRequestedModel(reqModel)
 	preferredMappedModel := resolveOpenAIMessagesDispatchMappedModel(apiKey, reqModel)
+	if requestPlatform == service.PlatformCustom {
+		// Custom model IDs are opaque to the gateway. Keep the exact client model
+		// for scheduler lookup and let the selected upstream validate it.
+		routingModel = reqModel
+		preferredMappedModel = ""
+	}
 	reqStream := gjson.GetBytes(body, "stream").Bool()
 
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
@@ -1051,7 +1077,6 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
@@ -1176,8 +1201,12 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		forwardStart := time.Now()
 
 		defaultMappedModel := strings.TrimSpace(effectiveMappedModel)
-		// 应用渠道模型映射到请求体
-		forwardBody := mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
+		// Custom requests keep the client body/model unchanged. Other platforms
+		// retain the established channel mapping behavior.
+		forwardBody := body
+		if requestPlatform != service.PlatformCustom {
+			forwardBody = mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
+		}
 		writerSizeBeforeForward := c.Writer.Size()
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
@@ -2127,6 +2156,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	if !h.ensureResponsesDependencies(c, reqLog) {
 		return
 	}
+	// Custom accounts expose ordinary HTTP API-key endpoints. They do not
+	// advertise OpenAI Responses WebSocket transport, so reject the upgrade
+	// before accepting it instead of letting the scheduler fail ambiguously.
+	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformCustom {
+		h.errorResponse(c, http.StatusNotImplemented, "not_supported", "Custom groups support HTTP Responses, Chat Completions, Messages, and video endpoints only")
+		return
+	}
 	service.SetOpenAIHTTPResponseOwner(c, subject.UserID, apiKey.ID)
 	reqLog.Info("openai.websocket_ingress_started")
 	clientIP := ip.GetClientIP(c)
@@ -2215,6 +2251,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	}
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	ctx = c.Request.Context()
+	if requestPlatform := openAICompatibleRequestPlatform(ctx, apiKey); requestPlatform == service.PlatformCustom {
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "Custom groups do not support Responses WebSocket; use the HTTP Responses endpoint")
+		return
+	}
 	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
 		platform, ok := service.ResolvedTargetPlatformFromContext(ctx)
 		if !ok || (platform != service.PlatformOpenAI && platform != service.PlatformGrok) {
@@ -3059,6 +3099,10 @@ func (h *OpenAIGatewayHandler) handleConcurrencyError(c *gin.Context, err error,
 func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
 	if failoverErr == nil {
 		h.handleFailoverExhaustedSimple(c, http.StatusBadGateway, streamStarted)
+		return
+	}
+	if failoverErr.RawResponsePassthrough && !streamStarted && h.gatewayService != nil &&
+		h.gatewayService.WriteCustomRawUpstreamResponse(c, failoverErr.StatusCode, failoverErr.ResponseHeaders, failoverErr.ResponseBody) {
 		return
 	}
 	if failoverErr.IsOpenAIRequestBodyTooLarge() {

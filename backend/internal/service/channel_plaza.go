@@ -28,8 +28,8 @@ type PlazaModel struct {
 // PlazaGroup 模型广场中以分组为顶层的条目。
 //
 // 与 AvailableGroupRef 相比多了 Description 与 Models；Models 来自该分组关联渠道的
-// 支持模型（普通分组按分组平台隔离，Composite 分组展开关联渠道已配置的
-// 具体平台），与「可用渠道」页口径一致。
+// 支持模型（普通分组按分组平台隔离；持久化为 Composite 的 Custom 分组仅
+// 展示 Custom 平台定价），与「可用渠道」页口径一致。
 type PlazaGroup struct {
 	ID                 int64
 	Name               string
@@ -132,7 +132,7 @@ func (s *ChannelService) ListPlazaGroups(ctx context.Context) ([]PlazaGroup, err
 			for j := range supported {
 				m := supported[j]
 				if pg.Platform == PlatformComposite {
-					if !isConcreteRequestPlatform(m.Platform) {
+					if m.Platform != PlatformCustom {
 						continue
 					}
 				} else if m.Platform != pg.Platform {

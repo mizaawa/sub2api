@@ -104,6 +104,7 @@ export default {
         gemini: 'Gemini',
         antigravity: 'Antigravity',
         grok: 'Grok',
+        custom: 'Custom',
       },
       types: {
         oauth: 'OAuth',
@@ -114,6 +115,7 @@ export default {
         antigravityOauth: 'Antigravity OAuth',
         grokOauth: 'Grok OAuth',
         antigravityApikey: 'Connect via Base URL + API Key',
+        customApiKey: 'Connect via Base URL + API Key',
         upstream: 'Upstream',
         upstreamDesc: 'Connect via Base URL + API Key'
       },
@@ -500,6 +502,11 @@ export default {
       apiKeyRequired: 'API Key *',
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: 'Your Claude Console API Key',
+      customBaseUrlRequired: 'Base URL is required for Custom accounts',
+      custom: {
+        baseUrlHint: 'Enter the OpenAI-, Anthropic-, or video-compatible upstream Base URL',
+        apiKeyHint: 'Enter the API Key issued by the custom upstream service',
+      },
       // OpenAI specific hints
       openai: {
         baseUrlHint: 'Leave default for official OpenAI API',

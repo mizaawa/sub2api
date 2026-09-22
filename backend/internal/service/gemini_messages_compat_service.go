@@ -98,10 +98,10 @@ func NewGeminiMessagesCompatService(
 }
 
 func (s *GeminiMessagesCompatService) clientResponseModel(ctx context.Context, originalModel, mappedModel string) string {
-	if s == nil || s.settingService == nil || s.settingService.ResponseModelAuditBypassEnabled(ctx) {
-		return originalModel
+	if s == nil {
+		return downstreamRequestedModel(ctx, originalModel)
 	}
-	return mappedModel
+	return downstreamResponseModel(ctx, s.settingService, originalModel, mappedModel)
 }
 
 // GetTokenProvider returns the token provider for OAuth accounts

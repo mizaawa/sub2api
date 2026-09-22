@@ -338,4 +338,35 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(createOpenAICodexPATMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(false)
   })
+
+  it('creates Custom accounts through the only available API Key path and requires Base URL', async () => {
+    createAccountMock.mockResolvedValue({ id: 42, platform: 'custom', type: 'apikey' })
+    const wrapper = mountModal()
+
+    await wrapper.get('[data-testid="account-platform-custom"]').trigger('click')
+    await flushPromises()
+
+    const typeChooser = wrapper.get('[data-tour="account-form-type"]')
+    expect(typeChooser.findAll('button')).toHaveLength(1)
+    expect(typeChooser.get('[data-testid="custom-account-type-api-key"]').text()).toContain('API Key')
+
+    await wrapper.get('[data-tour="account-form-name"]').setValue('Custom video upstream')
+    await wrapper.get('input[type="password"]').setValue('sk-custom')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).not.toHaveBeenCalled()
+
+    await wrapper.get('input[placeholder="https://api.example.com/v1"]').setValue('https://8yes.cc/v1')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledWith(expect.objectContaining({
+      platform: 'custom',
+      type: 'apikey',
+      credentials: expect.objectContaining({
+        base_url: 'https://8yes.cc/v1',
+        api_key: 'sk-custom',
+      }),
+    }))
+  })
 })

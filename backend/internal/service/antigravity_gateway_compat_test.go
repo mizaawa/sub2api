@@ -505,6 +505,46 @@ func TestAntigravityCompatChatStreamMapsToolCallAndUsage(t *testing.T) {
 	require.Equal(t, 1, strings.Count(recorder.Body.String(), "data: [DONE]"))
 }
 
+func TestAntigravityCompatStreaming_ResponseModelAuditBypass(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name           string
+		enabled        bool
+		expectedClient string
+	}{
+		{name: "enabled restores public request model", enabled: true, expectedClient: "public-model"},
+		{name: "disabled preserves outer upstream model", enabled: false, expectedClient: "runtime-alias"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize}, nil)
+			svc.settingService = newResponseModelAuditTestSettingService(tc.enabled)
+			c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/chat/completions", nil)
+			requestCtx := WithRequestedPublicModel(c.Request.Context(), "public-model")
+			c.Request = c.Request.WithContext(requestCtx)
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body: io.NopCloser(strings.NewReader(
+					`data: {"modelVersion":"runtime-alias","response":{"responseId":"resp_model","candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}}` + "\n\n",
+				)),
+			}
+
+			result, err := svc.handleChatCompletionsStreamingFromAntigravity(
+				c,
+				resp,
+				time.Now(),
+				"channel-model",
+				false,
+			)
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Contains(t, recorder.Body.String(), `"model":"`+tc.expectedClient+`"`)
+			require.Equal(t, "runtime-alias", observedUpstreamResponseModel(c))
+		})
+	}
+}
+
 func TestAntigravityCompatFirstEventTimeoutTriggersFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := newAntigravityCompatService(

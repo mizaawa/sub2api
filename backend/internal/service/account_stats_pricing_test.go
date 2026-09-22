@@ -182,6 +182,13 @@ func TestFindPricingForModel(t *testing.T) {
 	}
 }
 
+func TestIsPlatformMatch_CustomCompositeAlias(t *testing.T) {
+	require.True(t, isPlatformMatch(PlatformComposite, PlatformCustom))
+	require.True(t, isPlatformMatch(PlatformCustom, PlatformComposite))
+	require.True(t, isPlatformMatch(" COMPOSITE ", " CUSTOM "))
+	require.False(t, isPlatformMatch(PlatformComposite, PlatformOpenAI))
+}
+
 // ---------------------------------------------------------------------------
 // calculateStatsCost
 // ---------------------------------------------------------------------------
@@ -315,6 +322,87 @@ func TestCalculateStatsCost_ImageBilling(t *testing.T) {
 	require.NotNil(t, result)
 	// 0.10 * 2 = 0.20
 	require.InDelta(t, 0.20, *result, 1e-12)
+}
+
+func TestCalculateStatsCost_VideoBillingUsesGeneratedSeconds(t *testing.T) {
+	pricing := &ChannelModelPricing{
+		BillingMode:     BillingModeVideo,
+		PerRequestPrice: testPtrFloat64(0.25),
+	}
+	result := calculateStatsCostWithUnits(pricing, UsageTokens{}, accountStatsRequestUnits{
+		requestCount: 2,
+		videoSeconds: 8,
+	})
+	require.NotNil(t, result)
+	require.InDelta(t, 2.0, *result, 1e-12)
+}
+
+func TestCalculateStatsCost_VideoBillingUsesResolutionTier(t *testing.T) {
+	pricing := &ChannelModelPricing{
+		BillingMode:     BillingModeVideo,
+		PerRequestPrice: testPtrFloat64(0.25),
+		Intervals: []PricingInterval{
+			{TierLabel: "480p", PerRequestPrice: testPtrFloat64(0.25)},
+			{TierLabel: "720P", PerRequestPrice: testPtrFloat64(0.75)},
+		},
+	}
+	result := calculateStatsCostWithUnits(pricing, UsageTokens{}, accountStatsRequestUnits{
+		requestCount:    1,
+		videoCount:      1,
+		videoSeconds:    8,
+		videoResolution: "720p",
+	})
+	require.NotNil(t, result)
+	require.InDelta(t, 6.0, *result, 1e-12)
+}
+
+func TestCalculateStatsCost_PerRequestVideoUsesClipCount(t *testing.T) {
+	pricing := &ChannelModelPricing{
+		BillingMode:     BillingModePerRequest,
+		PerRequestPrice: testPtrFloat64(0.25),
+	}
+	result := calculateStatsCostWithUnits(pricing, UsageTokens{}, accountStatsRequestUnits{
+		requestCount: 2,
+		videoSeconds: 8,
+	})
+	require.NotNil(t, result)
+	require.InDelta(t, 0.5, *result, 1e-12)
+}
+
+func TestCalculateStatsCost_PerRequestVideoUsesResolutionTier(t *testing.T) {
+	pricing := &ChannelModelPricing{
+		BillingMode:     BillingModePerRequest,
+		PerRequestPrice: testPtrFloat64(4),
+		Intervals: []PricingInterval{
+			{TierLabel: "4k", PerRequestPrice: testPtrFloat64(10)},
+		},
+	}
+	result := calculateStatsCostWithUnits(pricing, UsageTokens{}, accountStatsRequestUnits{
+		requestCount:    2,
+		videoCount:      2,
+		videoSeconds:    16,
+		videoResolution: "4K",
+	})
+	require.NotNil(t, result)
+	require.InDelta(t, 20.0, *result, 1e-12)
+}
+
+func TestCalculateStatsCost_VideoTierFallsBackToDefaultPrice(t *testing.T) {
+	pricing := &ChannelModelPricing{
+		BillingMode:     BillingModeVideo,
+		PerRequestPrice: testPtrFloat64(0.25),
+		Intervals: []PricingInterval{
+			{TierLabel: "720p", PerRequestPrice: testPtrFloat64(0.75)},
+		},
+	}
+	result := calculateStatsCostWithUnits(pricing, UsageTokens{}, accountStatsRequestUnits{
+		requestCount:    1,
+		videoCount:      1,
+		videoSeconds:    4,
+		videoResolution: "1080p",
+	})
+	require.NotNil(t, result)
+	require.InDelta(t, 1.0, *result, 1e-12)
 }
 
 func TestCalculateStatsCost_ImageBilling_PriceNil(t *testing.T) {

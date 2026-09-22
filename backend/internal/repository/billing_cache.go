@@ -422,12 +422,19 @@ func parseUserPlatformQuotaHash(m map[string]string) *service.UserPlatformQuotaC
 		n, _ := strconv.ParseInt(s, 10, 64)
 		return n
 	}
+	snapshotSec := parseInt64(m["snapshot_at_sec"])
+	snapshotUsec := parseInt64(m["snapshot_at_usec"])
+	var snapshotAt time.Time
+	if snapshotSec > 0 {
+		snapshotAt = time.Unix(snapshotSec, snapshotUsec*int64(time.Microsecond)).UTC()
+	}
 	return &service.UserPlatformQuotaCacheEntry{
 		DailyUsageUSD:      parseFloat(m["daily_usage"]),
 		WeeklyUsageUSD:     parseFloat(m["weekly_usage"]),
 		MonthlyUsageUSD:    parseFloat(m["monthly_usage"]),
 		Version:            parseInt64(m["version"]),
 		SchemaVersion:      parseInt64(m["schema_version"]),
+		SnapshotAt:         snapshotAt,
 		DailyLimitUSD:      parseFloatPtr(m["daily_limit"]),
 		WeeklyLimitUSD:     parseFloatPtr(m["weekly_limit"]),
 		MonthlyLimitUSD:    parseFloatPtr(m["monthly_limit"]),
@@ -457,6 +464,10 @@ func (c *billingCache) SetUserPlatformQuotaCache(ctx context.Context, userID int
 	}
 	key := userPlatformQuotaCacheKey(userID, platform)
 	pipe := c.rdb.TxPipeline()
+	snapshotAt := entry.SnapshotAt
+	if snapshotAt.IsZero() {
+		snapshotAt = time.Now().UTC()
+	}
 
 	// 浮点可空字段：nil → 空字符串（读取时 parseFloatPtr 返回 nil，表示无限额）
 	fmtFloatPtr := func(p *float64) string {
@@ -479,6 +490,8 @@ func (c *billingCache) SetUserPlatformQuotaCache(ctx context.Context, userID int
 		"monthly_usage", entry.MonthlyUsageUSD,
 		"version", entry.Version,
 		"schema_version", entry.SchemaVersion,
+		"snapshot_at_sec", snapshotAt.Unix(),
+		"snapshot_at_usec", snapshotAt.Nanosecond()/int(time.Microsecond),
 		"daily_limit", fmtFloatPtr(entry.DailyLimitUSD),
 		"weekly_limit", fmtFloatPtr(entry.WeeklyLimitUSD),
 		"monthly_limit", fmtFloatPtr(entry.MonthlyLimitUSD),
@@ -518,6 +531,8 @@ redis.call("HINCRBYFLOAT", KEYS[1], "daily_usage", ARGV[1])
 redis.call("HINCRBYFLOAT", KEYS[1], "weekly_usage", ARGV[1])
 redis.call("HINCRBYFLOAT", KEYS[1], "monthly_usage", ARGV[1])
 redis.call("HINCRBY", KEYS[1], "version", 1)
+local snapshot_time = redis.call("TIME")
+redis.call("HSET", KEYS[1], "snapshot_at_sec", snapshot_time[1], "snapshot_at_usec", snapshot_time[2])
 redis.call("EXPIRE", KEYS[1], ARGV[2])
 if ARGV[4] ~= "" then
     redis.call("SADD", KEYS[2], ARGV[4])

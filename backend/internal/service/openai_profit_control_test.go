@@ -71,6 +71,16 @@ func TestResolveOpenAIProfitControlGate(t *testing.T) {
 		require.InDelta(t, 0.5*(1-0.35), gate.threshold, 1e-12)
 	})
 
+	t.Run("custom group stored as composite installs gate", func(t *testing.T) {
+		group := profitControlTestGroup(groupID, 0.3, 0.05)
+		group.Platform = PlatformComposite
+		group.RateMultiplier = 0.5
+		gate := svc.resolveOpenAIProfitControlGate(profitControlTestCtx(group), &groupID)
+		require.NotNil(t, gate)
+		require.Equal(t, PlatformComposite, gate.platform)
+		require.InDelta(t, 0.5*(1-0.35), gate.threshold, 1e-12)
+	})
+
 	t.Run("ctx group id mismatch without snapshot yields no gate", func(t *testing.T) {
 		group := profitControlTestGroup(groupID+1, 0.3, 0)
 		require.Nil(t, svc.resolveOpenAIProfitControlGate(profitControlTestCtx(group), &groupID))
@@ -180,6 +190,28 @@ func TestOpenAIProfitControlVetoReason(t *testing.T) {
 	})
 }
 
+func TestCustomAccountCompatibilityHonorsProfitControlGate(t *testing.T) {
+	rate := 0.8
+	account := &Account{
+		Platform:       PlatformCustom,
+		Type:           AccountTypeAPIKey,
+		Credentials:    map[string]any{"api_key": "sk-custom", "base_url": "https://custom.example.com"},
+		RateMultiplier: &rate,
+	}
+	scheduler := &defaultOpenAIAccountScheduler{}
+	ctx := context.WithValue(context.Background(), openAIProfitControlGateCtxKey{}, &openAIProfitControlGate{threshold: 0.5})
+
+	compatible, reason := scheduler.isAccountRequestCompatibleReason(ctx, account, OpenAIAccountScheduleRequest{RequestedModel: "upstream-owned-model"})
+
+	require.False(t, compatible)
+	require.Equal(t, openAIProfitFilterReasonThreshold, reason)
+
+	rate = 0.4
+	compatible, reason = scheduler.isAccountRequestCompatibleReason(ctx, account, OpenAIAccountScheduleRequest{RequestedModel: "upstream-owned-model"})
+	require.True(t, compatible)
+	require.Empty(t, reason)
+}
+
 func TestProfitControlSchedulerFiltersCandidates(t *testing.T) {
 	resetOpenAIAdvancedSchedulerSettingCacheForTest()
 	defer resetOpenAIAdvancedSchedulerSettingCacheForTest()
@@ -262,12 +294,12 @@ func TestProfitControlSchedulerFiltersCandidates(t *testing.T) {
 
 func TestValidateProfitControlConfig(t *testing.T) {
 	require.NoError(t, ValidateProfitControlConfig(PlatformAnthropic, false, 0, 0))
-	for _, platform := range []string{PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformGrok, PlatformAntigravity} {
+	for _, platform := range []string{PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformGrok, PlatformAntigravity, PlatformCustom, PlatformComposite} {
 		require.NoError(t, ValidateProfitControlConfig(platform, true, 0.3, 0.05))
 		require.NoError(t, ValidateProfitControlConfig(platform, true, 0, 0))
 	}
 
-	require.Error(t, ValidateProfitControlConfig(PlatformComposite, true, 0.3, 0))
+	require.Error(t, ValidateProfitControlConfig("unsupported", true, 0.3, 0))
 	require.Error(t, ValidateProfitControlConfig(PlatformOpenAI, true, -0.1, 0))
 	require.Error(t, ValidateProfitControlConfig(PlatformOpenAI, true, 1.0, 0))
 	require.Error(t, ValidateProfitControlConfig(PlatformOpenAI, true, 0, 1.0))
@@ -276,14 +308,14 @@ func TestValidateProfitControlConfig(t *testing.T) {
 
 func TestNormalizeProfitControlConfig(t *testing.T) {
 	t.Run("unsupported platform resets everything", func(t *testing.T) {
-		enabled, margin, buffer := NormalizeProfitControlConfig(PlatformComposite, true, 0.3, 0.1)
+		enabled, margin, buffer := NormalizeProfitControlConfig("unsupported", true, 0.3, 0.1)
 		require.False(t, enabled)
 		require.Zero(t, margin)
 		require.Zero(t, buffer)
 	})
 
-	t.Run("all five platforms retain configuration", func(t *testing.T) {
-		for _, platform := range []string{PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformGrok, PlatformAntigravity} {
+	t.Run("supported platforms retain configuration", func(t *testing.T) {
+		for _, platform := range []string{PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformGrok, PlatformAntigravity, PlatformCustom, PlatformComposite} {
 			enabled, margin, buffer := NormalizeProfitControlConfig(platform, true, 0.3, 0.1)
 			require.True(t, enabled)
 			require.InDelta(t, 0.3, margin, 1e-12)

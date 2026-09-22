@@ -30,7 +30,15 @@ export type ProfitControlFormState = {
 };
 
 export const isProfitControlPlatform = (platform: string): boolean =>
-  ["openai", "anthropic", "gemini", "grok", "antigravity"].includes(platform);
+  [
+    "openai",
+    "anthropic",
+    "gemini",
+    "grok",
+    "antigravity",
+    "custom",
+    "composite",
+  ].includes(platform);
 
 // 提交前校验：margin/buffer 各自 ∈ [0,1)，且相加 < 1（否则阈值 <= 0，
 // 所有可核价账号都会被排除）。返回 null 表示通过，否则返回错误信息的 i18n key

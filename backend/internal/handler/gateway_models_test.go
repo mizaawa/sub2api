@@ -61,12 +61,9 @@ func newGatewayModelsHandlerForTest(repo service.AccountRepository) *GatewayHand
 	}
 }
 
-func TestDefaultModelIDsForCompositeIncludesAntigravityDefaults(t *testing.T) {
-	antigravityIDs := defaultModelIDsForPlatform(service.PlatformAntigravity)
-	require.NotEmpty(t, antigravityIDs)
-
-	compositeIDs := defaultModelIDsForPlatform(service.PlatformComposite)
-	require.Contains(t, compositeIDs, antigravityIDs[0])
+func TestDefaultModelIDsForCustomDoesNotInventDefaults(t *testing.T) {
+	require.Empty(t, defaultModelIDsForPlatform(service.PlatformCustom))
+	require.Empty(t, defaultModelIDsForPlatform(service.PlatformComposite))
 }
 
 func TestGatewayModels_GeminiGroupFallsBackToGeminiModels(t *testing.T) {
@@ -286,7 +283,7 @@ func TestGatewayModels_CustomModelsListFiltersAndOrdersMappedModels(t *testing.T
 	require.Equal(t, []string{"gpt-5.5", "gpt-5.4"}, modelIDsForTest(got.Data))
 }
 
-func TestGatewayModels_CompositeCustomModelsListFiltersAcrossConcretePlatforms(t *testing.T) {
+func TestGatewayModels_CustomModelsListUsesCustomAccountsOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	groupID := int64(33)
@@ -315,10 +312,11 @@ func TestGatewayModels_CompositeCustomModelsListFiltersAcrossConcretePlatforms(t
 					},
 					{
 						ID:       3,
-						Platform: service.PlatformAntigravity,
+						Platform: service.PlatformCustom,
 						Credentials: map[string]any{
 							"model_mapping": map[string]any{
-								"ag-custom-model": "ag-custom-model",
+								"vendor-chat-model":  "upstream-chat-model",
+								"vendor-video-model": "upstream-video-model",
 							},
 						},
 					},
@@ -336,7 +334,7 @@ func TestGatewayModels_CompositeCustomModelsListFiltersAcrossConcretePlatforms(t
 			Platform: service.PlatformComposite,
 			ModelsListConfig: service.GroupModelsListConfig{
 				Enabled: true,
-				Models:  []string{"gemini-2.5-flash", "missing-model", "ag-custom-model", "gpt-5.5"},
+				Models:  []string{"gemini-2.5-flash", "missing-model", "vendor-video-model", "gpt-5.5", "vendor-chat-model"},
 			},
 		},
 	})
@@ -347,10 +345,10 @@ func TestGatewayModels_CompositeCustomModelsListFiltersAcrossConcretePlatforms(t
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"gemini-2.5-flash", "ag-custom-model", "gpt-5.5"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{"vendor-video-model", "vendor-chat-model"}, modelIDsForTest(got.Data))
 }
 
-func TestGatewayModels_CompositeUnmappedAccountsFallbackToLinkedPlatformsOnly(t *testing.T) {
+func TestGatewayModels_CustomGroupDoesNotFallbackToConcretePlatformDefaults(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	groupID := int64(34)
@@ -360,6 +358,7 @@ func TestGatewayModels_CompositeUnmappedAccountsFallbackToLinkedPlatformsOnly(t 
 				groupID: {
 					{ID: 1, Platform: service.PlatformOpenAI},
 					{ID: 2, Platform: service.PlatformGrok},
+					{ID: 3, Platform: service.PlatformCustom},
 				},
 			},
 		},
@@ -379,11 +378,7 @@ func TestGatewayModels_CompositeUnmappedAccountsFallbackToLinkedPlatformsOnly(t 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 
-	ids := modelIDsForTest(got.Data)
-	require.Contains(t, ids, "gpt-5.5")
-	require.Contains(t, ids, "grok-4.3")
-	require.NotContains(t, ids, "claude-sonnet-4-6")
-	require.NotContains(t, ids, "gemini-2.5-flash")
+	require.Empty(t, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_CustomModelsListKeepsConcreteModelAllowedByWildcardMapping(t *testing.T) {

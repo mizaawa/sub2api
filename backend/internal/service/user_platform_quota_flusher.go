@@ -153,6 +153,12 @@ func (s *UserPlatformQuotaUsageFlusher) flushOneBatch(parentCtx context.Context)
 		if e.DailyWindowStart == nil || e.WeeklyWindowStart == nil || e.MonthlyWindowStart == nil {
 			continue
 		}
+		if e.SnapshotAt.IsZero() {
+			// Pre-OCC cache entries have no mutation timestamp. Never let one
+			// overwrite a newer direct DB charge/refund; the next increment will
+			// stamp and re-dirty the full Redis snapshot.
+			continue
+		}
 		snaps = append(snaps, UserPlatformQuotaSnapshot{
 			UserID:             key.UserID,
 			Platform:           key.Platform,
@@ -162,6 +168,7 @@ func (s *UserPlatformQuotaUsageFlusher) flushOneBatch(parentCtx context.Context)
 			DailyWindowStart:   *e.DailyWindowStart,
 			WeeklyWindowStart:  *e.WeeklyWindowStart,
 			MonthlyWindowStart: *e.MonthlyWindowStart,
+			SnapshotAt:         e.SnapshotAt,
 		})
 	}
 

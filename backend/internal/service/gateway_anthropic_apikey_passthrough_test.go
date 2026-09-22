@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1089,7 +1090,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingStillCollectsUsageAf
 		}, "\n"))),
 	}
 
-	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 1}, time.Now(), "claude-3-7-sonnet-20250219")
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 1}, time.Now(), "claude-3-7-sonnet-20250219", "claude-3-7-sonnet-20250219")
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.NotNil(t, result.usage)
@@ -1124,10 +1125,112 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_MissingTerminalEventReturnsEr
 		}, "\n"))),
 	}
 
-	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 1}, time.Now(), "claude-3-7-sonnet-20250219")
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 1}, time.Now(), "claude-3-7-sonnet-20250219", "claude-3-7-sonnet-20250219")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "missing terminal event")
 	require.NotNil(t, result)
+}
+
+func TestGatewayService_AnthropicAPIKeyPassthrough_ResponseModelAuditBypass(t *testing.T) {
+	const (
+		publicModel   = "public-claude-model"
+		channelModel  = "channel-mapped-claude-model"
+		accountModel  = "account-mapped-claude-model"
+		upstreamModel = "upstream-runtime-claude-model"
+	)
+
+	for _, tt := range []struct {
+		name       string
+		enabled    bool
+		wantModel  string
+		wantTop    string
+		wantRawSSE bool
+	}{
+		{name: "enabled restores public model", enabled: true, wantModel: publicModel, wantTop: publicModel},
+		{name: "disabled preserves upstream model", enabled: false, wantModel: upstreamModel, wantTop: "upstream-top-level-alias", wantRawSSE: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			settingService := NewSettingService(&gatewayTTLSettingRepo{data: map[string]string{
+				SettingKeyResponseModelAuditBypass: fmt.Sprintf("%t", tt.enabled),
+			}}, &config.Config{})
+			svc := &GatewayService{
+				cfg:            &config.Config{},
+				settingService: settingService,
+			}
+
+			t.Run("streaming", func(t *testing.T) {
+				gin.SetMode(gin.TestMode)
+				rec := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rec)
+				req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+				req = req.WithContext(WithRequestedPublicModel(req.Context(), publicModel))
+				c.Request = req
+
+				upstreamSSE := strings.Join([]string{
+					`event: message_start`,
+					`data: {"type":"message_start","model":"upstream-top-level-alias","message":{"id":"msg_1","type":"message","model":"upstream-runtime-claude-model","usage":{"input_tokens":3}}}`,
+					"",
+					`event: message_stop`,
+					`data: {"type":"message_stop"}`,
+					"",
+				}, "\n")
+				resp := &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+					Body:       io.NopCloser(strings.NewReader(upstreamSSE)),
+				}
+
+				_, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(
+					context.Background(), resp, c, &Account{ID: 1}, time.Now(), channelModel, accountModel,
+				)
+				require.NoError(t, err)
+				require.Equal(t, upstreamModel, observedUpstreamResponseModel(c))
+
+				var messageStart string
+				scanner := bufio.NewScanner(strings.NewReader(rec.Body.String()))
+				for scanner.Scan() {
+					data, ok := extractAnthropicSSEDataLine(scanner.Text())
+					if ok && gjson.Get(data, "type").String() == "message_start" {
+						messageStart = data
+						break
+					}
+				}
+				require.NoError(t, scanner.Err())
+				require.NotEmpty(t, messageStart)
+				require.Equal(t, tt.wantModel, gjson.Get(messageStart, "message.model").String())
+				require.Equal(t, tt.wantTop, gjson.Get(messageStart, "model").String())
+				if tt.wantRawSSE {
+					require.Equal(t, upstreamSSE, rec.Body.String())
+				}
+			})
+
+			t.Run("non-streaming", func(t *testing.T) {
+				gin.SetMode(gin.TestMode)
+				rec := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rec)
+				req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+				req = req.WithContext(WithRequestedPublicModel(req.Context(), publicModel))
+				c.Request = req
+
+				upstreamBody := []byte(`{"id":"msg_1","type":"message","model":"upstream-runtime-claude-model","usage":{"input_tokens":3,"output_tokens":2}}`)
+				resp := &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(bytes.NewReader(upstreamBody)),
+				}
+
+				_, err := svc.handleNonStreamingResponseAnthropicAPIKeyPassthrough(
+					context.Background(), resp, c, &Account{ID: 1}, channelModel, accountModel,
+				)
+				require.NoError(t, err)
+				require.Equal(t, upstreamModel, observedUpstreamResponseModel(c))
+				require.Equal(t, tt.wantModel, gjson.GetBytes(rec.Body.Bytes(), "model").String())
+				if !tt.enabled {
+					require.Equal(t, upstreamBody, rec.Body.Bytes())
+				}
+			})
+		})
+	}
 }
 
 func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_NonStreamingSuccess(t *testing.T) {
@@ -1137,7 +1240,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_ForwardDirect_NonStreamingSuc
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 
 	body := []byte(`{"model":"claude-3-5-sonnet-latest","messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]}`)
-	upstreamJSON := `{"id":"msg_1","type":"message","usage":{"input_tokens":12,"output_tokens":7,"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":3},"cached_tokens":4}}`
+	upstreamJSON := `{"id":"msg_1","type":"message","model":"claude-3-5-sonnet-latest","usage":{"input_tokens":12,"output_tokens":7,"cache_creation":{"ephemeral_5m_input_tokens":2,"ephemeral_1h_input_tokens":3},"cached_tokens":4}}`
 	upstream := &anthropicHTTPUpstreamRecorder{
 		resp: &http.Response{
 			StatusCode: http.StatusOK,
@@ -1368,7 +1471,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingErrTooLong(t *testin
 		Body:       io.NopCloser(strings.NewReader(longLine)),
 	}
 
-	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 2}, time.Now(), "claude-3-7-sonnet-20250219")
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 2}, time.Now(), "claude-3-7-sonnet-20250219", "claude-3-7-sonnet-20250219")
 	require.Error(t, err)
 	require.ErrorIs(t, err, bufio.ErrTooLong)
 	require.NotNil(t, result)
@@ -1397,7 +1500,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingDataIntervalTimeout(
 		Body:       pr,
 	}
 
-	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 5}, time.Now(), "claude-3-7-sonnet-20250219")
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 5}, time.Now(), "claude-3-7-sonnet-20250219", "claude-3-7-sonnet-20250219")
 	_ = pw.Close()
 	_ = pr.Close()
 
@@ -1445,7 +1548,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingSendsKeepaliveDuring
 		_ = pw.Close()
 	}()
 
-	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 8}, time.Now(), "claude-3-7-sonnet-20250219")
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 8}, time.Now(), "claude-3-7-sonnet-20250219", "claude-3-7-sonnet-20250219")
 	_ = pr.Close()
 	<-done
 
@@ -1488,7 +1591,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingKeepaliveDoesNotInte
 		_ = pw.Close()
 	}()
 
-	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 9}, time.Now(), "claude-3-7-sonnet-20250219")
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 9}, time.Now(), "claude-3-7-sonnet-20250219", "claude-3-7-sonnet-20250219")
 	_ = pr.Close()
 	<-done
 
@@ -1522,7 +1625,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingReadError(t *testing
 		},
 	}
 
-	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 6}, time.Now(), "claude-3-7-sonnet-20250219")
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 6}, time.Now(), "claude-3-7-sonnet-20250219", "claude-3-7-sonnet-20250219")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "stream read error")
 	require.NotNil(t, result)
@@ -1562,7 +1665,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingTimeoutAfterClientDi
 		_ = pw.Close()
 	}()
 
-	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 7}, time.Now(), "claude-3-7-sonnet-20250219")
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 7}, time.Now(), "claude-3-7-sonnet-20250219", "claude-3-7-sonnet-20250219")
 	_ = pr.Close()
 	<-done
 
@@ -1595,7 +1698,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingContextCanceled(t *t
 		},
 	}
 
-	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 3}, time.Now(), "claude-3-7-sonnet-20250219")
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 3}, time.Now(), "claude-3-7-sonnet-20250219", "claude-3-7-sonnet-20250219")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "stream usage incomplete")
 	require.NotNil(t, result)
@@ -1626,7 +1729,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingUpstreamReadErrorAft
 		},
 	}
 
-	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 4}, time.Now(), "claude-3-7-sonnet-20250219")
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 4}, time.Now(), "claude-3-7-sonnet-20250219", "claude-3-7-sonnet-20250219")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "stream usage incomplete after disconnect")
 	require.NotNil(t, result)

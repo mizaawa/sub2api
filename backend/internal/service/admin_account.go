@@ -253,6 +253,9 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 			"linked credential shadow accounts cannot be duplicated; duplicate the parent account instead",
 		)
 	}
+	if err := validateCustomAccountCredentials(source.Platform, source.Type, source.Credentials); err != nil {
+		return nil, err
+	}
 	if !canDuplicateAccountType(source.Type) {
 		return nil, infraerrors.BadRequest(
 			"ACCOUNT_DUPLICATE_CREDENTIAL_TYPE_UNSUPPORTED",
@@ -282,6 +285,9 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	}
 	autoPauseOnExpired := source.AutoPauseOnExpired
 	groups, groupIDs := duplicateAccountGroups(source)
+	if err := validateCustomAccountGroupBindings(ctx, s.groupRepo, source.Platform, groupIDs); err != nil {
+		return nil, err
+	}
 	proxyID := source.ProxyID
 	if source.ProxyFallbackOriginID != nil {
 		// Proxy fallback is transient runtime state; duplicate the configured origin.
@@ -339,6 +345,52 @@ func normalizeAccountConcurrency(platform, accountType string, concurrency int) 
 		}
 	}
 	return concurrency
+}
+
+func validateCustomAccountCredentials(platform, accountType string, credentials map[string]any) error {
+	if platform != PlatformCustom {
+		return nil
+	}
+	if accountType != AccountTypeAPIKey {
+		return infraerrors.BadRequest("CUSTOM_ACCOUNT_TYPE_INVALID", "custom accounts only support apikey credentials")
+	}
+	apiKey, _ := credentials["api_key"].(string)
+	if strings.TrimSpace(apiKey) == "" {
+		return infraerrors.BadRequest("CUSTOM_API_KEY_REQUIRED", "custom accounts require an api_key")
+	}
+	baseURL, _ := credentials["base_url"].(string)
+	if strings.TrimSpace(baseURL) == "" {
+		return infraerrors.BadRequest("CUSTOM_BASE_URL_REQUIRED", "custom accounts require a base_url")
+	}
+	return nil
+}
+
+func validateCustomAccountGroupBindings(ctx context.Context, groupRepo GroupRepository, platform string, groupIDs []int64) error {
+	if len(groupIDs) == 0 {
+		return nil
+	}
+	if groupRepo == nil {
+		return errors.New("group repository not configured")
+	}
+	for _, groupID := range groupIDs {
+		group, err := groupRepo.GetByID(ctx, groupID)
+		if err != nil {
+			return err
+		}
+		if platform == PlatformCustom && group.Platform != PlatformComposite {
+			return infraerrors.BadRequest(
+				"CUSTOM_ACCOUNT_GROUP_PLATFORM_MISMATCH",
+				"custom accounts can only be assigned to Custom groups",
+			)
+		}
+		if platform != PlatformCustom && group.Platform == PlatformComposite {
+			return infraerrors.BadRequest(
+				"CUSTOM_GROUP_ACCOUNT_PLATFORM_MISMATCH",
+				"Custom groups only accept custom accounts",
+			)
+		}
+	}
+	return nil
 }
 
 // ValidateOpenAILongContextBillingExtra validates the OpenAI account billing flag when present.
@@ -515,6 +567,9 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	if err := validateCustomAccountCredentials(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {
 		return nil, err
@@ -528,16 +583,31 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	groupIDs := input.GroupIDs
 	// 如果没有指定分组,自动绑定对应平台的默认分组
 	if len(groupIDs) == 0 && !input.SkipDefaultGroupBind {
-		defaultGroupName := input.Platform + "-default"
-		groups, err := s.groupRepo.ListActiveByPlatform(ctx, input.Platform)
+		groupPlatform := input.Platform
+		defaultGroupNames := []string{input.Platform + "-default"}
+		if input.Platform == PlatformCustom {
+			// Custom groups retain the legacy composite wire value. Prefer the
+			// user-facing name, while accepting an existing legacy default name.
+			groupPlatform = PlatformComposite
+			defaultGroupNames = []string{PlatformCustom + "-default", PlatformComposite + "-default"}
+		}
+		groups, err := s.groupRepo.ListActiveByPlatform(ctx, groupPlatform)
 		if err == nil {
-			for _, g := range groups {
-				if g.Name == defaultGroupName {
-					groupIDs = []int64{g.ID}
+			for _, defaultGroupName := range defaultGroupNames {
+				for _, g := range groups {
+					if g.Name == defaultGroupName {
+						groupIDs = []int64{g.ID}
+						break
+					}
+				}
+				if len(groupIDs) > 0 {
 					break
 				}
 			}
 		}
+	}
+	if err := validateCustomAccountGroupBindings(ctx, s.groupRepo, input.Platform, groupIDs); err != nil {
+		return nil, err
 	}
 
 	// 检查混合渠道风险（除非用户已确认）
@@ -835,10 +905,16 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if input.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *input.AutoPauseOnExpired
 	}
+	if err := validateCustomAccountCredentials(account.Platform, account.Type, account.Credentials); err != nil {
+		return nil, err
+	}
 
 	// 先验证分组是否存在（在任何写操作之前）
 	if input.GroupIDs != nil {
 		if err := s.validateGroupIDsExist(ctx, *input.GroupIDs); err != nil {
+			return nil, err
+		}
+		if err := validateCustomAccountGroupBindings(ctx, s.groupRepo, account.Platform, *input.GroupIDs); err != nil {
 			return nil, err
 		}
 
@@ -970,6 +1046,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		}
 	}
 
+	needCustomGroupCheck := input.GroupIDs != nil
 	needMixedChannelCheck := input.GroupIDs != nil && !input.SkipMixedChannelCheck
 	_, hasLongContextBillingUpdate := input.Extra[openAILongContextBillingEnabledKey]
 
@@ -977,7 +1054,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	var cachedTargets []*Account
 	needsAPIKeyRuntimeClearLookup := s.runtimeBlocker != nil && ((input.Schedulable != nil && *input.Schedulable) ||
 		(input.Schedulable == nil && input.Status == StatusActive))
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate || input.ProbeEnabled != nil || input.RateMultiplier != nil || needsAPIKeyRuntimeClearLookup {
+	if len(input.Credentials) > 0 || input.ProxyID != nil || needCustomGroupCheck || needMixedChannelCheck || hasLongContextBillingUpdate || input.ProbeEnabled != nil || input.RateMultiplier != nil || needsAPIKeyRuntimeClearLookup {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
@@ -1020,6 +1097,26 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			if acc != nil && acc.IsCredentialShadow() {
 				return nil, infraerrors.Newf(http.StatusBadRequest, "SPARK_SHADOW_NO_CREDENTIALS",
 					"spark shadow account %d cannot hold credentials; manage credentials on the parent account", acc.ID)
+			}
+			if acc != nil {
+				prospective := maps.Clone(acc.Credentials)
+				if prospective == nil {
+					prospective = make(map[string]any, len(input.Credentials))
+				}
+				maps.Copy(prospective, input.Credentials)
+				if err := validateCustomAccountCredentials(acc.Platform, acc.Type, prospective); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	if needCustomGroupCheck {
+		for _, account := range cachedTargets {
+			if account == nil {
+				continue
+			}
+			if err := validateCustomAccountGroupBindings(ctx, s.groupRepo, account.Platform, *input.GroupIDs); err != nil {
+				return nil, err
 			}
 		}
 	}

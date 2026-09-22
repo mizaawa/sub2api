@@ -276,12 +276,16 @@ func (a *Account) IsGrok() bool {
 	return a.Platform == PlatformGrok
 }
 
+func (a *Account) IsCustom() bool {
+	return a != nil && a.Platform == PlatformCustom
+}
+
 func (a *Account) IsGrokOAuth() bool {
 	return a.IsGrok() && a.Type == AccountTypeOAuth
 }
 
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok)
+	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformCustom || a.Platform == PlatformGrok)
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -857,7 +861,7 @@ func (a *Account) ResolveMappedModel(requestedModel string) (mappedModel string,
 // GetOpenAICompactMode returns the compact routing mode for an OpenAI account.
 // Missing or invalid values fall back to "auto".
 func (a *Account) GetOpenAICompactMode() string {
-	if a == nil || !a.IsOpenAI() || a.Extra == nil {
+	if a == nil || (!a.IsOpenAI() && !a.IsCustom()) || a.Extra == nil {
 		return OpenAICompactModeAuto
 	}
 	mode, _ := a.Extra["openai_compact_mode"].(string)
@@ -867,7 +871,7 @@ func (a *Account) GetOpenAICompactMode() string {
 // OpenAICompactSupportKnown reports whether compact capability is known for this
 // account and, when known, whether it is supported.
 func (a *Account) OpenAICompactSupportKnown() (supported bool, known bool) {
-	if a == nil || !a.IsOpenAI() {
+	if a == nil || (!a.IsOpenAI() && !a.IsCustom()) {
 		return false, false
 	}
 
@@ -892,7 +896,7 @@ func (a *Account) OpenAICompactSupportKnown() (supported bool, known bool) {
 // requests. Unknown capability remains allowed to avoid breaking older accounts
 // before an explicit probe has been run.
 func (a *Account) AllowsOpenAICompact() bool {
-	if a == nil || !a.IsOpenAI() {
+	if a == nil || (!a.IsOpenAI() && !a.IsCustom()) {
 		return false
 	}
 	supported, known := a.OpenAICompactSupportKnown()
@@ -1284,12 +1288,18 @@ func (a *Account) IsOpenAIPersonalAccessToken() bool {
 }
 
 func (a *Account) IsOpenAIApiKey() bool {
-	return a.IsOpenAI() && a.Type == AccountTypeAPIKey
+	return a != nil && (a.IsOpenAI() || a.IsCustom()) && a.Type == AccountTypeAPIKey
 }
 
 func (a *Account) GetOpenAIBaseURL() string {
-	if !a.IsOpenAI() {
+	if a == nil || (!a.IsOpenAI() && !a.IsCustom()) {
 		return ""
+	}
+	if a.IsCustom() {
+		if a.Type != AccountTypeAPIKey {
+			return ""
+		}
+		return strings.TrimSpace(a.GetCredential("base_url"))
 	}
 	if a.Type == AccountTypeAPIKey {
 		baseURL := a.GetCredential("base_url")
@@ -1298,6 +1308,20 @@ func (a *Account) GetOpenAIBaseURL() string {
 		}
 	}
 	return "https://api.openai.com"
+}
+
+func requireOpenAIBaseURL(account *Account) (string, error) {
+	if account == nil {
+		return "", errors.New("account is required")
+	}
+	baseURL := strings.TrimSpace(account.GetOpenAIBaseURL())
+	if baseURL == "" {
+		if account.IsCustom() {
+			return "", errors.New("custom account missing base_url")
+		}
+		return "", errors.New("OpenAI base_url is unavailable")
+	}
+	return baseURL, nil
 }
 
 func (a *Account) GetOpenAIAccessToken() string {
@@ -1389,7 +1413,7 @@ func (a *Account) GetOpenAIApiKey() string {
 }
 
 func (a *Account) GetOpenAIUserAgent() string {
-	if !a.IsOpenAI() {
+	if a == nil || (!a.IsOpenAI() && !a.IsCustom()) {
 		return ""
 	}
 	return a.GetCredential("user_agent")
@@ -1453,6 +1477,14 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 	}
 	if !a.IsOpenAICompatible() {
 		return false
+	}
+	if a.IsCustom() {
+		// Custom API-key accounts are transparent upstream proxies. The local
+		// scheduler must not require a capability probe for an endpoint that the
+		// configured upstream may support.
+		return a.Type == AccountTypeAPIKey &&
+			strings.TrimSpace(a.GetOpenAIApiKey()) != "" &&
+			strings.TrimSpace(a.GetOpenAIBaseURL()) != ""
 	}
 	if a.IsGrok() {
 		switch capability {
@@ -1610,7 +1642,7 @@ func (a *Account) SupportsOpenAIImageCapability(capability OpenAIImagesCapabilit
 	if capability == "" {
 		return true
 	}
-	if !a.IsOpenAI() {
+	if !a.IsOpenAI() && !a.IsCustom() {
 		return false
 	}
 	switch capability {

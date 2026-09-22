@@ -1249,7 +1249,7 @@ func TestForwardGrokMediaVideoGenerationReturnsTaskIDAsResponseID(t *testing.T) 
 	require.Equal(t, "video-task-123", result.ResponseID)
 }
 
-func TestExtractGrokMediaVideoRequestIDPreservesExistingPrecedence(t *testing.T) {
+func TestExtractGrokMediaVideoRequestIDPrefersStandardID(t *testing.T) {
 	body := []byte(`{
 		"request_id":"request-id",
 		"id":"id",
@@ -1258,7 +1258,7 @@ func TestExtractGrokMediaVideoRequestIDPreservesExistingPrecedence(t *testing.T)
 		"video":{"request_id":"video-request-id","id":"video-id","task_id":"video-task-id"}
 	}`)
 
-	require.Equal(t, "request-id", extractGrokMediaVideoRequestID(body))
+	require.Equal(t, "id", extractGrokMediaVideoRequestID(body))
 }
 
 func TestForwardGrokMediaVideoGenerationPreservesImageToVideoModel(t *testing.T) {

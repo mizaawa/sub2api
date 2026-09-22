@@ -200,8 +200,9 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return nil
 	}
 
-	// Route to platform-specific test method
-	if account.IsOpenAI() {
+	// Custom accounts use the same OpenAI-compatible Responses/Chat Completions
+	// probe path as OpenAI API-key accounts.
+	if account.IsOpenAI() || account.IsCustom() {
 		return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
 	}
 

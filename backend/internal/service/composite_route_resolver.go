@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 )
@@ -27,43 +26,16 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 		decision.Reason = "model is required"
 		return decision, nil
 	}
-
-	if r != nil && r.repo != nil && groupID > 0 {
-		routes, err := r.repo.ListByGroup(ctx, groupID, false)
-		if err != nil {
-			return decision, fmt.Errorf("list composite routes: %w", err)
-		}
-		if route, ok := matchCompositeRoute(routes, model, endpoint); ok {
-			upstreamModel := strings.TrimSpace(route.UpstreamModel)
-			if upstreamModel == "" {
-				upstreamModel = model
-			}
-			return CompositeRouteDecision{
-				Matched:        true,
-				Source:         CompositeRouteSourceExplicit,
-				GroupID:        groupID,
-				PublicModel:    model,
-				TargetPlatform: route.TargetPlatform,
-				UpstreamModel:  upstreamModel,
-				Endpoint:       endpoint,
-				Route:          &route,
-			}, nil
-		}
-	}
-
-	if platform, ok := DetectModelPlatform(model); ok {
-		return CompositeRouteDecision{
-			Matched:        true,
-			Source:         CompositeRouteSourceDetector,
-			GroupID:        groupID,
-			PublicModel:    model,
-			TargetPlatform: platform,
-			UpstreamModel:  model,
-			Endpoint:       endpoint,
-		}, nil
-	}
-	decision.Reason = "no explicit route or built-in detector match"
-	return decision, nil
+	return CompositeRouteDecision{
+		Matched:        true,
+		Source:         CompositeRouteSourceDetector,
+		GroupID:        groupID,
+		PublicModel:    model,
+		TargetPlatform: PlatformCustom,
+		UpstreamModel:  model,
+		Endpoint:       endpoint,
+		Reason:         "Custom groups always route to Custom accounts",
+	}, nil
 }
 
 func matchCompositeRoute(routes []CompositeModelRoute, model, endpoint string) (CompositeModelRoute, bool) {
@@ -79,6 +51,10 @@ func matchCompositeRoute(routes []CompositeModelRoute, model, endpoint string) (
 	}
 	candidates := make([]candidate, 0, len(routes))
 	for _, route := range routes {
+		route.TargetPlatform = strings.TrimSpace(route.TargetPlatform)
+		if !isConcreteRequestPlatform(route.TargetPlatform) {
+			continue
+		}
 		route.Endpoint = normalizeCompositeRouteEndpoint(route.Endpoint)
 		if route.Endpoint != endpoint && route.Endpoint != CompositeRouteEndpointAny {
 			continue

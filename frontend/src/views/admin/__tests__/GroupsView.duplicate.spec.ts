@@ -270,4 +270,19 @@ describe('GroupsView duplicate action', () => {
     expect(showError).not.toHaveBeenCalledWith('admin.groups.duplicateFailed')
     wrapper.unmount()
   })
+
+  it('does not expose legacy Composite route management for Custom groups', async () => {
+    listGroups.mockResolvedValueOnce({
+      items: [{ ...sourceGroup, id: 44, name: 'Custom', platform: 'composite' }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('admin.groups.compositeRoutes.action')
+    wrapper.unmount()
+  })
 })

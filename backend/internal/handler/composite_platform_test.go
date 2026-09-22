@@ -10,19 +10,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCompositeTargetPlatformAllowedResolvesKnownAllowedModel(t *testing.T) {
+func TestCustomTargetPlatformAllowedResolvesArbitraryModelToCustom(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest("POST", "/v1/embeddings", nil)
 	apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformComposite}}
 
-	require.True(t, compositeTargetPlatformAllowed(c, apiKey, "text-embedding-3-large", service.PlatformOpenAI))
+	require.True(t, compositeTargetPlatformAllowed(c, apiKey, "vendor-embedding-v1", service.PlatformCustom))
 	platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
 	require.True(t, ok)
-	require.Equal(t, service.PlatformOpenAI, platform)
+	require.Equal(t, service.PlatformCustom, platform)
 }
 
-func TestOpenAICompatibleTextTargetAllowsCompositeGrokModel(t *testing.T) {
+func TestOpenAICompatibleTextTargetRoutesCustomModelsToCustom(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	for _, path := range []string{"/v1/messages", "/v1/chat/completions"} {
@@ -30,10 +30,10 @@ func TestOpenAICompatibleTextTargetAllowsCompositeGrokModel(t *testing.T) {
 		c.Request = httptest.NewRequest("POST", path, nil)
 		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformComposite}}
 
-		require.True(t, openAICompatibleTextTargetAllowed(c, apiKey, "grok-4.3"), "path=%s", path)
+		require.True(t, openAICompatibleTextTargetAllowed(c, apiKey, "vendor-chat-model"), "path=%s", path)
 		platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
 		require.True(t, ok, "path=%s", path)
-		require.Equal(t, service.PlatformGrok, platform, "path=%s", path)
+		require.Equal(t, service.PlatformCustom, platform, "path=%s", path)
 	}
 }
 
@@ -57,15 +57,16 @@ func TestCompositeTargetPlatformAllowedRejectsWrongOrUnknownModel(t *testing.T) 
 	}
 }
 
-func TestCompositeTargetPlatformResolvedRejectsUnknownModel(t *testing.T) {
+func TestCustomTargetPlatformResolvedAllowsArbitraryModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
 	apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformComposite}}
 
-	require.False(t, compositeTargetPlatformResolved(c, apiKey, "llama-4-maverick"))
-	_, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
-	require.False(t, ok)
+	require.True(t, compositeTargetPlatformResolved(c, apiKey, "vendor/arbitrary-model"))
+	platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
+	require.True(t, ok)
+	require.Equal(t, service.PlatformCustom, platform)
 }
 
 func TestCompositeTargetPlatformResolvedAllowsConcreteGroupWithoutResolution(t *testing.T) {

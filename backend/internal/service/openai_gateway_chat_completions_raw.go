@@ -267,6 +267,8 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	clientOutputStarted := false
 	pendingLines := make([]string, 0, 8)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
+	requestedResponseModel := downstreamRequestedModel(ginRequestContext(c), originalModel)
+	restoreRequestedModel := s.responseModelAuditBypassEnabled(c) && strings.TrimSpace(requestedResponseModel) != ""
 
 	writeLine := func(line string) {
 		if clientDisconnected {
@@ -316,6 +318,9 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 					firstTokenMs = &elapsed
 				}
 			}
+		}
+		if restoreRequestedModel {
+			line = s.replaceModelInSSELine(line, upstreamModel, requestedResponseModel)
 		}
 
 		writeLine(line)
@@ -441,6 +446,10 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	var usage OpenAIUsage
 	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
 		usage = parsedUsage
+	}
+	requestedResponseModel := downstreamRequestedModel(ginRequestContext(c), originalModel)
+	if s.responseModelAuditBypassEnabled(c) && strings.TrimSpace(requestedResponseModel) != "" {
+		respBody = s.replaceModelInResponseBody(respBody, upstreamModel, requestedResponseModel)
 	}
 
 	if s.responseHeaderFilter != nil {

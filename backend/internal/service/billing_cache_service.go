@@ -530,6 +530,15 @@ func (s *BillingCacheService) InvalidateSubscription(ctx context.Context, userID
 	return nil
 }
 
+// InvalidateUserPlatformQuota removes a potentially stale quota snapshot after
+// an asynchronous billing reversal changes the durable ledger.
+func (s *BillingCacheService) InvalidateUserPlatformQuota(ctx context.Context, userID int64, platform string) error {
+	if s == nil || s.cache == nil {
+		return nil
+	}
+	return s.cache.DeleteUserPlatformQuotaCache(ctx, userID, platform)
+}
+
 func (s *BillingCacheService) PublishSubscriptionCacheInvalidation(ctx context.Context, cacheKey string) error {
 	if s.cache == nil {
 		return nil
@@ -707,6 +716,21 @@ func (s *BillingCacheService) QueueUpdateAPIKeyRateLimitUsage(apiKeyID int64, co
 //
 // Redis 写失败用 ALERT 级 log；DB 持久化由 caller 单独 goroutine 兜底（gateway_service.go）。
 func (s *BillingCacheService) IncrementUserPlatformQuotaUsage(userID int64, platform string, cost float64) {
+	markDirty := s != nil && s.cfg != nil && s.cfg.Database.UserPlatformQuotaFlusherEnabled
+	s.incrementUserPlatformQuotaUsage(userID, platform, cost, markDirty)
+}
+
+// IncrementPersistedUserPlatformQuotaUsage updates only the Redis snapshot.
+// The unified billing transaction has already persisted this amount, so adding
+// it to the flusher dirty set would apply the same charge twice in PostgreSQL.
+func (s *BillingCacheService) IncrementPersistedUserPlatformQuotaUsage(userID int64, platform string, cost float64) {
+	s.incrementUserPlatformQuotaUsage(userID, platform, cost, false)
+}
+
+func (s *BillingCacheService) incrementUserPlatformQuotaUsage(userID int64, platform string, cost float64, markDirty bool) {
+	if s == nil {
+		return
+	}
 	if s.cache == nil {
 		return
 	}
@@ -716,7 +740,6 @@ func (s *BillingCacheService) IncrementUserPlatformQuotaUsage(userID int64, plat
 	ctx, cancel := context.WithTimeout(context.Background(), cacheWriteTimeout)
 	defer cancel()
 	ttl := time.Duration(s.cfg.Billing.UserPlatformQuotaCacheTTLSeconds) * time.Second
-	markDirty := s.cfg.Database.UserPlatformQuotaFlusherEnabled
 	if err := s.cache.IncrUserPlatformQuotaUsageCache(ctx, userID, platform, cost, ttl, markDirty); err != nil {
 		logger.LegacyPrintf("service.billing_cache",
 			"ALERT: incr user platform quota cache failed user=%d platform=%s cost=%f: %v",

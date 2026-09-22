@@ -1195,4 +1195,35 @@ describe('EditAccountModal', () => {
       'antigravity_project_id'
     )
   })
+
+  it('preserves and validates the Base URL for Custom API Key accounts', async () => {
+    const account = buildAccount()
+    account.platform = 'custom'
+    account.name = 'Custom video upstream'
+    account.credentials = {
+      api_key: 'sk-custom',
+      base_url: 'https://8yes.cc/v1'
+    }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    const baseUrl = wrapper.get<HTMLInputElement>('input[placeholder="https://api.example.com/v1"]')
+    expect(baseUrl.element.value).toBe('https://8yes.cc/v1')
+    expect(baseUrl.attributes('required')).toBeDefined()
+
+    await baseUrl.setValue('')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock).not.toHaveBeenCalled()
+
+    await baseUrl.setValue('https://relay.example/v1')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledWith(account.id, expect.objectContaining({
+      credentials: expect.objectContaining({
+        base_url: 'https://relay.example/v1'
+      })
+    }))
+  })
 })

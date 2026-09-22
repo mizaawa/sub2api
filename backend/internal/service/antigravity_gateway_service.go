@@ -132,10 +132,10 @@ type AntigravityGatewayService struct {
 }
 
 func (s *AntigravityGatewayService) clientResponseModel(ctx context.Context, originalModel, mappedModel string) string {
-	if s == nil || s.settingService == nil || s.settingService.ResponseModelAuditBypassEnabled(ctx) {
-		return originalModel
+	if s == nil {
+		return downstreamRequestedModel(ctx, originalModel)
 	}
-	return mappedModel
+	return downstreamResponseModel(ctx, s.settingService, originalModel, mappedModel)
 }
 
 func (s *AntigravityGatewayService) upstreamErrorBodyReadLimit() int64 {

@@ -1989,8 +1989,9 @@ func TestIsPlatformPricingMatch(t *testing.T) {
 		{"gemini matches gemini", PlatformGemini, PlatformGemini, true},
 		{"gemini does NOT match antigravity", PlatformGemini, PlatformAntigravity, false},
 		{"gemini does NOT match anthropic", PlatformGemini, PlatformAnthropic, false},
-		{"composite matches openai pricing", PlatformComposite, PlatformOpenAI, true},
-		{"composite matches gemini pricing", PlatformComposite, PlatformGemini, true},
+		{"Custom group matches custom pricing", PlatformComposite, PlatformCustom, true},
+		{"Custom group does not match openai pricing", PlatformComposite, PlatformOpenAI, false},
+		{"Custom group does not match gemini pricing", PlatformComposite, PlatformGemini, false},
 		{"empty string matches nothing", "", PlatformAnthropic, false},
 		{"empty string matches empty", "", "", true},
 	}
@@ -2016,7 +2017,7 @@ func TestMatchingPlatforms(t *testing.T) {
 		{"anthropic returns itself", PlatformAnthropic, []string{PlatformAnthropic}},
 		{"gemini returns itself", PlatformGemini, []string{PlatformGemini}},
 		{"openai returns itself", PlatformOpenAI, []string{PlatformOpenAI}},
-		{"composite returns concrete platforms", PlatformComposite, []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok}},
+		{"Custom group returns custom only", PlatformComposite, []string{PlatformCustom}},
 	}
 
 	for _, tt := range tests {
@@ -2027,21 +2028,18 @@ func TestMatchingPlatforms(t *testing.T) {
 	}
 }
 
-func TestCompositeChannelLookupUsesResolvedTargetPlatform(t *testing.T) {
+func TestCustomChannelLookupIgnoresLegacyResolvedProvider(t *testing.T) {
 	channel := Channel{
 		ID:       1,
 		Status:   StatusActive,
 		GroupIDs: []int64{99},
 		ModelPricing: []ChannelModelPricing{
+			{Platform: PlatformCustom, Models: []string{"vendor-*"}},
 			{Platform: PlatformOpenAI, Models: []string{"gpt-*"}},
-			{Platform: PlatformAnthropic, Models: []string{"claude-*"}},
 		},
 		ModelMapping: map[string]map[string]string{
-			PlatformOpenAI: {
-				"gpt-5": "gpt-5-mini",
-			},
-			PlatformAnthropic: {
-				"claude-*": "claude-sonnet-4-5",
+			PlatformCustom: {
+				"vendor-chat": "upstream-chat",
 			},
 		},
 	}
@@ -2050,18 +2048,11 @@ func TestCompositeChannelLookupUsesResolvedTargetPlatform(t *testing.T) {
 	svc.cache.Store(cache)
 
 	openAICtx := WithResolvedTargetPlatform(context.Background(), PlatformOpenAI)
-	require.NotNil(t, svc.GetChannelModelPricing(openAICtx, 99, "gpt-5"))
-	require.Nil(t, svc.GetChannelModelPricing(openAICtx, 99, "claude-sonnet-4-5"))
-	openAIResult := svc.ResolveChannelMapping(openAICtx, 99, "gpt-5")
-	require.True(t, openAIResult.Mapped)
-	require.Equal(t, "gpt-5-mini", openAIResult.MappedModel)
-
-	anthropicCtx := WithResolvedTargetPlatform(context.Background(), PlatformAnthropic)
-	require.NotNil(t, svc.GetChannelModelPricing(anthropicCtx, 99, "claude-sonnet-4-5"))
-	require.Nil(t, svc.GetChannelModelPricing(anthropicCtx, 99, "gpt-5"))
-	anthropicResult := svc.ResolveChannelMapping(anthropicCtx, 99, "claude-3-5-sonnet")
-	require.True(t, anthropicResult.Mapped)
-	require.Equal(t, "claude-sonnet-4-5", anthropicResult.MappedModel)
+	require.NotNil(t, svc.GetChannelModelPricing(openAICtx, 99, "vendor-chat"))
+	require.Nil(t, svc.GetChannelModelPricing(openAICtx, 99, "gpt-5"))
+	result := svc.ResolveChannelMapping(openAICtx, 99, "vendor-chat")
+	require.True(t, result.Mapped)
+	require.Equal(t, "upstream-chat", result.MappedModel)
 }
 
 // ===========================================================================
@@ -2373,6 +2364,26 @@ func TestValidatePricingBillingMode(t *testing.T) {
 			pricing: []ChannelModelPricing{{BillingMode: BillingModeImage}},
 			wantErr: true,
 			errMsg:  "per-request price or intervals required",
+		},
+		{
+			name:    "video no price no intervals - invalid",
+			pricing: []ChannelModelPricing{{BillingMode: BillingModeVideo}},
+			wantErr: true,
+			errMsg:  "per-request price or intervals required",
+		},
+		{
+			name: "video with price - valid",
+			pricing: []ChannelModelPricing{{
+				BillingMode:     BillingModeVideo,
+				PerRequestPrice: testPtrFloat64(0.25),
+			}},
+		},
+		{
+			name: "video with intervals - valid",
+			pricing: []ChannelModelPricing{{
+				BillingMode: BillingModeVideo,
+				Intervals:   []PricingInterval{{TierLabel: "720p", PerRequestPrice: testPtrFloat64(0.2)}},
+			}},
 		},
 		{
 			name:    "empty list - valid",

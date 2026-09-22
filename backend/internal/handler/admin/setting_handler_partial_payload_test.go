@@ -40,6 +40,24 @@ func TestUpdateSettingsPartialPayloadKeepsUnsentKeys(t *testing.T) {
 	require.Equal(t, "true", repo.values[service.SettingKeyTurnstileEnabled])
 }
 
+func TestUpdateSettingsResponseModelAuditBypassPersistsFalseAndPreservesOmittedValue(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
+		service.SettingKeyResponseModelAuditBypass: "true",
+	})
+
+	omitted := doUpdateSettings(t, h, map[string]any{"risk_control_enabled": true}, nil)
+	require.Equal(t, http.StatusOK, omitted.Code)
+	require.Equal(t, "true", repo.values[service.SettingKeyResponseModelAuditBypass])
+
+	disabled := doUpdateSettings(t, h, map[string]any{"response_model_audit_bypass_enabled": false}, nil)
+	require.Equal(t, http.StatusOK, disabled.Code)
+	require.Equal(t, "false", repo.values[service.SettingKeyResponseModelAuditBypass])
+
+	omittedAgain := doUpdateSettings(t, h, map[string]any{"risk_control_enabled": false}, nil)
+	require.Equal(t, http.StatusOK, omittedAgain.Code)
+	require.Equal(t, "false", repo.values[service.SettingKeyResponseModelAuditBypass])
+}
+
 // A full payload keeps whole-document semantics: fields explicitly set to their
 // zero value are still cleared.
 func TestUpdateSettingsFullPayloadStillClearsSentEmptyFields(t *testing.T) {

@@ -266,7 +266,7 @@ func TestChannelMonitorCreateRejectsCrossPlatformGroup(t *testing.T) {
 	require.Empty(t, repo.created)
 }
 
-func TestChannelMonitorCreateCustomAcceptsAnyGroupPlatform(t *testing.T) {
+func TestChannelMonitorCreateCustomAcceptsCompositeGroup(t *testing.T) {
 	repo := &groupMonitorRepoStub{}
 	reader := &groupMonitorReaderStub{groups: map[int64]*Group{
 		1: activeMonitorGroup(1, "Composite", PlatformComposite),
@@ -281,6 +281,22 @@ func TestChannelMonitorCreateCustomAcceptsAnyGroupPlatform(t *testing.T) {
 	require.Equal(t, "Composite", monitor.Name)
 	require.Equal(t, PlatformComposite, monitor.GroupPlatform)
 	require.Len(t, keys.createCalls, 1)
+}
+
+func TestChannelMonitorCreateCustomRejectsNonCompositeGroup(t *testing.T) {
+	repo := &groupMonitorRepoStub{}
+	reader := &groupMonitorReaderStub{groups: map[int64]*Group{
+		1: activeMonitorGroup(1, "OpenAI", PlatformOpenAI),
+	}}
+	keys := &groupMonitorKeyManagerStub{}
+	svc := newGroupMonitorService(repo, reader, keys, &groupMonitorEncryptor{})
+
+	monitor, err := svc.Create(context.Background(), groupMonitorCreateParams(MonitorProviderCustom, 1))
+
+	require.Nil(t, monitor)
+	require.ErrorIs(t, err, ErrChannelMonitorGroupPlatformMismatch)
+	require.Empty(t, keys.createCalls)
+	require.Empty(t, repo.created)
 }
 
 func TestChannelMonitorCreateCompensatesDedicatedKeyWhenPersistenceFails(t *testing.T) {
@@ -422,7 +438,7 @@ func TestChannelMonitorUpdateExplicitCustomNameIsPreserved(t *testing.T) {
 	require.Equal(t, "Renamed monitor", monitor.Name)
 }
 
-func TestChannelMonitorUpdateCustomAcceptsCrossPlatformGroup(t *testing.T) {
+func TestChannelMonitorUpdateCustomAcceptsCompositeGroup(t *testing.T) {
 	oldGroupID := int64(1)
 	repo := &groupMonitorRepoStub{existing: &ChannelMonitor{
 		ID:              10,
@@ -437,7 +453,7 @@ func TestChannelMonitorUpdateCustomAcceptsCrossPlatformGroup(t *testing.T) {
 		CreatedBy:       9,
 	}}
 	reader := &groupMonitorReaderStub{groups: map[int64]*Group{
-		2: activeMonitorGroup(2, "Antigravity Group", PlatformAntigravity),
+		2: activeMonitorGroup(2, "Custom Group", PlatformComposite),
 	}}
 	keys := &groupMonitorKeyManagerStub{nextKeys: []string{"new-key"}}
 	svc := newGroupMonitorService(repo, reader, keys, &groupMonitorEncryptor{})
@@ -447,12 +463,12 @@ func TestChannelMonitorUpdateCustomAcceptsCrossPlatformGroup(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "Custom monitor", monitor.Name)
-	require.Equal(t, PlatformAntigravity, monitor.GroupPlatform)
+	require.Equal(t, PlatformComposite, monitor.GroupPlatform)
 	require.Equal(t, int64(2), *monitor.GroupID)
 	require.Len(t, keys.createCalls, 1)
 }
 
-func TestChannelMonitorUpdateCanSwitchProviderToCustomAndSelectAnyGroup(t *testing.T) {
+func TestChannelMonitorUpdateCanSwitchProviderToCustomAndSelectCompositeGroup(t *testing.T) {
 	oldGroupID := int64(1)
 	repo := &groupMonitorRepoStub{existing: &ChannelMonitor{
 		ID:              10,
@@ -467,7 +483,7 @@ func TestChannelMonitorUpdateCanSwitchProviderToCustomAndSelectAnyGroup(t *testi
 		CreatedBy:       9,
 	}}
 	reader := &groupMonitorReaderStub{groups: map[int64]*Group{
-		2: activeMonitorGroup(2, "Antigravity Group", PlatformAntigravity),
+		2: activeMonitorGroup(2, "Custom Group", PlatformComposite),
 	}}
 	keys := &groupMonitorKeyManagerStub{nextKeys: []string{"new-key"}}
 	svc := newGroupMonitorService(repo, reader, keys, &groupMonitorEncryptor{})
@@ -483,9 +499,9 @@ func TestChannelMonitorUpdateCanSwitchProviderToCustomAndSelectAnyGroup(t *testi
 
 	require.NoError(t, err)
 	require.Equal(t, MonitorProviderCustom, monitor.Provider)
-	require.Equal(t, "Antigravity Group", monitor.Name)
-	require.Equal(t, PlatformAntigravity, monitor.GroupPlatform)
-	require.Equal(t, []groupMonitorKeyCreateCall{{userID: 9, groupID: 2, monitorName: "Antigravity Group"}}, keys.createCalls)
+	require.Equal(t, "Custom Group", monitor.Name)
+	require.Equal(t, PlatformComposite, monitor.GroupPlatform)
+	require.Equal(t, []groupMonitorKeyCreateCall{{userID: 9, groupID: 2, monitorName: "Custom Group"}}, keys.createCalls)
 }
 
 func TestChannelMonitorDeleteReclaimsDedicatedKey(t *testing.T) {

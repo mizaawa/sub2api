@@ -118,7 +118,7 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 		c.Header("X-Accel-Buffering", "no")
 		c.Status(http.StatusOK)
 
-		streamRes := s.streamUpstreamResponse(c, resp, startTime)
+		streamRes := s.streamUpstreamResponse(c, resp, startTime, originalModel)
 		usage = streamRes.usage
 		firstTokenMs = streamRes.firstTokenMs
 		clientDisconnect = streamRes.clientDisconnect
@@ -132,6 +132,13 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 		// 提取 usage
 		upstreamResponseModelObserverFromContext(c).ObserveAnthropic(respBody)
 		usage = s.extractClaudeUsage(respBody)
+		responseModel := downstreamResponseModel(
+			ginRequestContext(c),
+			s.settingService,
+			originalModel,
+			anthropicResponseModel(respBody),
+		)
+		respBody = rewriteAnthropicResponseModel(respBody, responseModel)
 
 		c.Header("Content-Type", resp.Header.Get("Content-Type"))
 		c.Status(http.StatusOK)
@@ -163,7 +170,16 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 }
 
 // streamUpstreamResponse 透传上游 SSE 流并提取 Claude usage
-func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp *http.Response, startTime time.Time) *antigravityStreamResult {
+func (s *AntigravityGatewayService) streamUpstreamResponse(
+	c *gin.Context,
+	resp *http.Response,
+	startTime time.Time,
+	requestedModel string,
+) *antigravityStreamResult {
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
 
@@ -255,7 +271,18 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 
 			line := ev.line
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
-				upstreamResponseModelObserverFromContext(c).ObserveAnthropic([]byte(strings.TrimSpace(data)))
+				payload := []byte(strings.TrimSpace(data))
+				observer.ObserveAnthropic(payload)
+				responseModel := downstreamResponseModel(
+					ginRequestContext(c),
+					s.settingService,
+					requestedModel,
+					anthropicResponseModel(payload),
+				)
+				rewritten := rewriteAnthropicResponseModel(payload, responseModel)
+				if !bytes.Equal(payload, rewritten) {
+					line = line[:len(line)-len(data)] + string(rewritten)
+				}
 			}
 
 			// 记录首 token 时间

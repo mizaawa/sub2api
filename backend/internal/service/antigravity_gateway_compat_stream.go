@@ -17,9 +17,18 @@ import (
 )
 
 type antigravityCompatStreamAdapter interface {
+	SetModel(string)
 	Emit(*apicompat.AnthropicStreamEvent, *antigravityClientWriter)
 	Finalize(*antigravityClientWriter)
 	WriteError(*antigravityClientWriter, string)
+}
+
+func (a *antigravityChatStreamAdapter) SetModel(model string) {
+	if a == nil {
+		return
+	}
+	a.anthropicState.Model = model
+	a.chatState.Model = model
 }
 
 type antigravityChatStreamAdapter struct {
@@ -73,6 +82,13 @@ type antigravityResponsesStreamAdapter struct {
 	anthropicState *apicompat.AnthropicEventToResponsesState
 }
 
+func (a *antigravityResponsesStreamAdapter) SetModel(model string) {
+	if a == nil {
+		return
+	}
+	a.anthropicState.Model = model
+}
+
 func newAntigravityResponsesStreamAdapter(model string) *antigravityResponsesStreamAdapter {
 	state := apicompat.NewAnthropicEventToResponsesState()
 	state.Model = model
@@ -108,6 +124,7 @@ type antigravityCompatScanEvent struct {
 
 type antigravityCompatStreamSession struct {
 	processor      *antigravity.StreamingProcessor
+	model          string
 	adapter        antigravityCompatStreamAdapter
 	writer         *antigravityClientWriter
 	usage          *ClaudeUsage
@@ -124,7 +141,7 @@ func newAntigravityCompatStreamSession(
 	writer *antigravityClientWriter,
 ) *antigravityCompatStreamSession {
 	return &antigravityCompatStreamSession{
-		processor: antigravity.NewStreamingProcessor(model),
+		model:     model,
 		adapter:   adapter,
 		writer:    writer,
 		usage:     &ClaudeUsage{},
@@ -132,12 +149,44 @@ func newAntigravityCompatStreamSession(
 	}
 }
 
+func (s *antigravityCompatStreamSession) setModel(model string) {
+	if s == nil || s.processor != nil {
+		return
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		model = strings.TrimSpace(s.model)
+	}
+	s.model = model
+	s.adapter.SetModel(model)
+	s.processor = antigravity.NewStreamingProcessor(model)
+}
+
+func (s *antigravityCompatStreamSession) ensureProcessor() *antigravity.StreamingProcessor {
+	if s.processor == nil {
+		s.setModel(s.model)
+	}
+	return s.processor
+}
+
 func (s *antigravityCompatStreamSession) consume(line string) {
-	claudeEvents := s.processor.ProcessLine(strings.TrimRight(line, "\r\n"))
+	if s.processor == nil && !antigravityCompatSSELineHasPayload(line) {
+		return
+	}
+	claudeEvents := s.ensureProcessor().ProcessLine(strings.TrimRight(line, "\r\n"))
 	if len(claudeEvents) == 0 {
 		return
 	}
 	s.consumeClaudeEvents(claudeEvents)
+}
+
+func antigravityCompatSSELineHasPayload(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "data:") {
+		return false
+	}
+	payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
+	return payload != "" && payload != "[DONE]"
 }
 
 func (s *antigravityCompatStreamSession) hasMeaningfulData() bool {
@@ -145,7 +194,7 @@ func (s *antigravityCompatStreamSession) hasMeaningfulData() bool {
 }
 
 func (s *antigravityCompatStreamSession) finish() *antigravityStreamResult {
-	finalEvents, usage := s.processor.Finish()
+	finalEvents, usage := s.ensureProcessor().Finish()
 	mergeAntigravityCompatUsage(s.usage, usage)
 	s.consumeClaudeEvents(finalEvents)
 	s.adapter.Finalize(s.writer)
@@ -153,7 +202,7 @@ func (s *antigravityCompatStreamSession) finish() *antigravityStreamResult {
 }
 
 func (s *antigravityCompatStreamSession) collectResult(clientDisconnect bool) *antigravityStreamResult {
-	_, usage := s.processor.Finish()
+	_, usage := s.ensureProcessor().Finish()
 	mergeAntigravityCompatUsage(s.usage, usage)
 	return s.result(clientDisconnect)
 }
@@ -312,6 +361,14 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 			}
 			resetAntigravityCompatTimer(timeoutTimer, timeout)
 			s.observeAntigravityGeminiSSELine(c, event.line)
+			if antigravityCompatSSELineHasPayload(event.line) {
+				session.setModel(downstreamResponseModel(
+					ginRequestContext(c),
+					s.settingService,
+					originalModel,
+					observedUpstreamResponseModel(c),
+				))
+			}
 			session.consume(event.line)
 
 		case <-timeoutCh:

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -208,6 +209,46 @@ var _ service.LiveCallStore = (*gatewayCache)(nil)
 var _ service.OpenAIHTTPResponseBindingCache = (*gatewayCache)(nil)
 var _ service.OpenAIHTTPResponseBindingTTLCache = (*gatewayCache)(nil)
 var _ service.OpenAIHTTPResponseBindingLegacyCache = (*gatewayCache)(nil)
+var _ service.GrokMediaVideoBillingCache = (*gatewayCache)(nil)
+
+func (c *gatewayCache) SetGrokMediaVideoBillingRecord(
+	ctx context.Context,
+	groupID int64,
+	key string,
+	record *service.GrokMediaVideoBillingRecord,
+	ttl time.Duration,
+) error {
+	if record == nil || key == "" || ttl <= 0 {
+		return fmt.Errorf("invalid grok media video billing record")
+	}
+	value, err := json.Marshal(record)
+	if err != nil {
+		return fmt.Errorf("encode grok media video billing record: %w", err)
+	}
+	return c.rdb.Set(ctx, buildSessionKey(groupID, key), value, ttl).Err()
+}
+
+func (c *gatewayCache) GetGrokMediaVideoBillingRecord(
+	ctx context.Context,
+	groupID int64,
+	key string,
+) (*service.GrokMediaVideoBillingRecord, error) {
+	value, err := c.rdb.Get(ctx, buildSessionKey(groupID, key)).Bytes()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return nil, service.ErrStickySessionNotFound
+		}
+		return nil, err
+	}
+	var record service.GrokMediaVideoBillingRecord
+	if err := json.Unmarshal(value, &record); err != nil {
+		return nil, fmt.Errorf("decode grok media video billing record: %w", err)
+	}
+	if strings.TrimSpace(record.Command.RequestID) == "" {
+		return nil, fmt.Errorf("invalid grok media video billing record")
+	}
+	return &record, nil
+}
 
 const cyberSessionBlockPrefix = "cyber_session_block:"
 

@@ -25,6 +25,7 @@ func TestDetectModelPlatform(t *testing.T) {
 		{name: "learnlm", model: "learnlm-2.0-flash-experimental", platform: PlatformGemini, ok: true},
 		{name: "grok", model: "grok-4", platform: PlatformGrok, ok: true},
 		{name: "xai prefix", model: "xai/grok-4", platform: PlatformGrok, ok: true},
+		{name: "custom prefix", model: "custom/vendor-chat", platform: PlatformCustom, ok: true},
 		{name: "unknown", model: "llama-4-maverick", ok: false},
 	}
 
@@ -37,19 +38,19 @@ func TestDetectModelPlatform(t *testing.T) {
 	}
 }
 
-func TestQuotaPlatformCompositeUsesResolvedOrForceOnly(t *testing.T) {
+func TestQuotaPlatformCustomGroupAlwaysUsesCustom(t *testing.T) {
 	apiKey := &APIKey{Group: &Group{Platform: PlatformComposite}}
 
-	require.Equal(t, "", QuotaPlatform(context.Background(), apiKey))
-	require.Equal(t, PlatformGemini, QuotaPlatform(WithResolvedTargetPlatform(context.Background(), PlatformGemini), apiKey))
-	require.Equal(t, PlatformAntigravity, QuotaPlatform(context.WithValue(context.Background(), ctxkey.ForcePlatform, PlatformAntigravity), apiKey))
+	require.Equal(t, PlatformCustom, QuotaPlatform(context.Background(), apiKey))
+	require.Equal(t, PlatformCustom, QuotaPlatform(WithResolvedTargetPlatform(context.Background(), PlatformGemini), apiKey))
+	require.Equal(t, PlatformCustom, QuotaPlatform(context.WithValue(context.Background(), ctxkey.ForcePlatform, PlatformAntigravity), apiKey))
 
 	ctx := WithResolvedTargetPlatform(context.Background(), PlatformAnthropic)
 	ctx = context.WithValue(ctx, ctxkey.ForcePlatform, PlatformAntigravity)
-	require.Equal(t, PlatformAntigravity, QuotaPlatform(ctx, apiKey))
+	require.Equal(t, PlatformCustom, QuotaPlatform(ctx, apiKey))
 }
 
-func TestCompositeGroupSchedulerHasAllCanonicalPlatformBuckets(t *testing.T) {
+func TestSchedulerCanonicalBucketsIncludeCustom(t *testing.T) {
 	seen := make(map[string]struct{})
 	for _, bucket := range schedulerCanonicalBuckets(99) {
 		seen[bucket.Platform] = struct{}{}
@@ -59,7 +60,7 @@ func TestCompositeGroupSchedulerHasAllCanonicalPlatformBuckets(t *testing.T) {
 		platforms = append(platforms, platform)
 	}
 	require.ElementsMatch(t,
-		[]string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok},
+		[]string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformCustom},
 		platforms,
 	)
 }

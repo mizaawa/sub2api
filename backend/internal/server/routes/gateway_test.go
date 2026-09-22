@@ -170,6 +170,8 @@ func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {
 		"/images/edits",
 		"/v1/videos/generations",
 		"/videos/generations",
+		"/v1/videos",
+		"/videos",
 		"/v1/videos/edits",
 		"/videos/edits",
 		"/v1/videos/extensions",
@@ -199,7 +201,7 @@ func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {
 	}
 }
 
-func TestGatewayRoutesCompositeVideoLookupsUseGrokHandler(t *testing.T) {
+func TestGatewayRoutesCustomVideoLookupsUseCustomHandler(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformComposite)
 
 	for _, path := range []string{
@@ -212,12 +214,53 @@ func TestGatewayRoutesCompositeVideoLookupsUseGrokHandler(t *testing.T) {
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit Grok video lookup handler", path)
+		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit Custom video lookup handler", path)
 		require.NotContains(t, w.Body.String(), "not supported for this platform")
 	}
 }
 
-func TestGatewayRoutesCompositeMessagesWithGrokModelUsesOpenAIGateway(t *testing.T) {
+func TestGatewayRoutesCustomVideoCreationUsesStandardEndpoint(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformComposite)
+
+	for _, path := range []string{
+		"/v1/videos",
+		"/videos",
+		"/v1/videos/generations",
+		"/videos/generations",
+	} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"videos-mini-480p","prompt":"waves","duration":4,"ratio":"16:9"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should hit Custom video creation handler", path)
+		require.NotContains(t, w.Body.String(), "not supported for this platform")
+	}
+}
+
+func TestGatewayRoutesCustomImagesAndCountTokensUseOpenAICompatibleHandlers(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformComposite)
+
+	for _, tc := range []struct {
+		path string
+		body string
+	}{
+		{path: "/v1/images/generations", body: `{"model":"vendor-image-model","prompt":"draw"}`},
+		{path: "/images/generations", body: `{"model":"vendor-image-model","prompt":"draw"}`},
+		{path: "/v1/messages/count_tokens", body: `{"model":"vendor-chat-model","messages":[{"role":"user","content":"hi"}]}`},
+		{path: "/messages/count_tokens", body: `{"model":"vendor-chat-model","messages":[{"role":"user","content":"hi"}]}`},
+	} {
+		req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		router.ServeHTTP(w, req)
+		require.NotEqual(t, http.StatusNotFound, w.Code, "path=%s should reach an OpenAI-compatible handler", tc.path)
+		require.NotContains(t, w.Body.String(), "not supported for this platform")
+	}
+}
+
+func TestGatewayRoutesCustomMessagesIgnoreProviderModelPrefix(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformComposite)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"grok-4.3","messages":[{"role":"user","content":"hi"}]}`))
@@ -232,7 +275,7 @@ func TestGatewayRoutesCompositeMessagesWithGrokModelUsesOpenAIGateway(t *testing
 	require.NotContains(t, w.Body.String(), "composite groups")
 }
 
-func TestGatewayRoutesCompositeChatCompletionsWithGrokModelUsesOpenAIGateway(t *testing.T) {
+func TestGatewayRoutesCustomChatCompletionsIgnoreProviderModelPrefix(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformComposite)
 
 	for _, path := range []string{"/v1/chat/completions", "/chat/completions"} {
@@ -278,7 +321,7 @@ func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
 	}
 }
 
-func TestGatewayRoutesCompositeOpenAIOnlyEndpointsRequireOpenAITarget(t *testing.T) {
+func TestGatewayRoutesCustomEmbeddingsAcceptArbitraryModelNames(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformComposite)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(`{"model":"gemini-2.5-pro","input":"hello"}`))
@@ -286,7 +329,7 @@ func TestGatewayRoutesCompositeOpenAIOnlyEndpointsRequireOpenAITarget(t *testing
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
-	require.Equal(t, http.StatusNotFound, w.Code)
+	require.NotEqual(t, http.StatusNotFound, w.Code)
 
 	req = httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(`{"model":"text-embedding-3-small","input":"hello"}`))
 	req.Header.Set("Content-Type", "application/json")

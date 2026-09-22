@@ -274,8 +274,18 @@ type OpenAIForwardResult struct {
 	ImageSizeBreakdown    map[string]int
 	VideoCount            int
 	VideoResolution       string
-	// VideoDurationSeconds 是提交时请求的生成时长（xAI 按输出秒数计费），已归一化到 1-15 秒。
+	// VideoDurationSeconds is the requested output duration normalized against
+	// the selected model's supported billing range.
 	VideoDurationSeconds int
+	// VideoPriceMultiplier carries model-specific reference-video surcharges.
+	// Zero and one both mean no surcharge for backward compatibility.
+	VideoPriceMultiplier float64
+	// BufferedResponse is populated when the handler must finish durable work
+	// (task ownership binding and billing metadata) before exposing an upstream
+	// success to the client.
+	BufferedResponseStatus  int
+	BufferedResponseHeaders http.Header
+	BufferedResponseBody    []byte
 	// WebSearchCalls 是 Codex alpha/search 网页搜索调用次数（每次成功请求为 1）。
 	// 上游不返回 usage 字段，>0 时走按次计费（分组单价 × 次数 × 倍率）。
 	WebSearchCalls int
@@ -458,6 +468,7 @@ type OpenAIGatewayService struct {
 	codexModelsManifestCache            codexModelsManifestCache
 	openaiCompatSessionResponses        sync.Map
 	openaiCompatAnthropicDigestSessions sync.Map
+	grokMediaVideoBillingRecords        sync.Map
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService

@@ -194,10 +194,14 @@ func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.C
 // noAvailableOpenAISelectionError builds the standard "no account available" error
 // while preserving the compact-specific error when applicable.
 func normalizeOpenAICompatiblePlatform(platform string) string {
-	if platform == PlatformGrok {
+	switch platform {
+	case PlatformGrok:
 		return PlatformGrok
+	case PlatformCustom:
+		return PlatformCustom
+	default:
+		return PlatformOpenAI
 	}
-	return PlatformOpenAI
 }
 
 // details carries an optional machine-parseable exclusion summary (e.g.
@@ -241,7 +245,7 @@ func openAICompactSupportTier(account *Account) int {
 	if account.IsGrok() {
 		return 2
 	}
-	if !account.IsOpenAI() {
+	if !account.IsOpenAI() && !account.IsCustom() {
 		return 0
 	}
 	supported, known := account.OpenAICompactSupportKnown()
@@ -261,7 +265,18 @@ func openAICompactSupportTier(account *Account) int {
 // 检查母账号凭据可用性；该检查未内置于本函数，以避免注入 DB 依赖。
 func isOpenAICompatibleAccountEligibleForRequest(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) bool {
 	platform = normalizeOpenAICompatiblePlatform(platform)
-	if account == nil || account.Platform != platform || !account.IsOpenAICompatible() || !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
+	if account == nil || account.Platform != platform || !account.IsOpenAICompatible() {
+		return false
+	}
+	if account.IsCustom() {
+		// Custom is a transparent API-key proxy. Model names and endpoint
+		// capabilities belong to the upstream; only account availability and
+		// credentials are checked locally.
+		return account.IsSchedulable() && account.Type == AccountTypeAPIKey &&
+			strings.TrimSpace(account.GetOpenAIApiKey()) != "" &&
+			strings.TrimSpace(account.GetOpenAIBaseURL()) != ""
+	}
+	if !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
 		return false
 	}
 	if account.IsOpenAI() {
@@ -853,7 +868,11 @@ func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Contex
 	// 分组利润控制：legacy 公共入口同样装门，保证不经
 	// selectAccountWithScheduler 的调用方也无法绕过利润准入。
 	ctx = s.withOpenAIProfitControlGate(ctx, groupID)
-	return s.selectAccountWithLoadAwareness(ctx, groupID, PlatformOpenAI, sessionHash, requestedModel, excludedIDs, false, "", true)
+	platform := PlatformOpenAI
+	if resolved, ok := ResolvedTargetPlatformFromContext(ctx); ok {
+		platform = normalizeOpenAICompatiblePlatform(resolved)
+	}
+	return s.selectAccountWithLoadAwareness(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, false, "", true)
 }
 
 func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability, useUpstreamTokenCost bool) (*AccountSelectionResult, error) {

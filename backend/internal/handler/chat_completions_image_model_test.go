@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -72,6 +73,34 @@ func TestOpenAIChatCompletionsImageModelRejectionDoesNotAcquireConcurrency(t *te
 
 	require.Equal(t, http.StatusBadRequest, recorder.Code)
 	require.Zero(t, acquireCalls.Load(), "rejection must happen before user/account concurrency and scheduling")
+}
+
+func TestCustomChatCompletionsDefersImageModelValidationToUpstream(t *testing.T) {
+	var acquireCalls atomic.Int64
+	cache := &concurrencyCacheMock{
+		acquireUserSlotFn: func(context.Context, int64, int, string) (bool, error) {
+			acquireCalls.Add(1)
+			return false, errors.New("stop after protocol validation")
+		},
+	}
+	h := newOpenAIImageChatRejectionHandlerWithCache(t, cache)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(
+		`{"model":"gpt-image-2","messages":[{"role":"user","content":"draw"}]}`,
+	))
+	setImageChatTestAuth(c)
+	groupID := int64(4349)
+	apiKey, ok := middleware.GetAPIKeyFromContext(c)
+	require.True(t, ok)
+	apiKey.GroupID = &groupID
+	apiKey.Group = &service.Group{ID: groupID, Platform: service.PlatformComposite}
+
+	h.ChatCompletions(c)
+
+	require.EqualValues(t, 1, acquireCalls.Load(), "Custom requests must pass local model/endpoint validation")
+	require.NotEqual(t, http.StatusBadRequest, recorder.Code)
+	require.NotContains(t, recorder.Body.String(), "This model is not supported")
 }
 
 func newOpenAIImageChatRejectionHandler(t *testing.T) *OpenAIGatewayHandler {

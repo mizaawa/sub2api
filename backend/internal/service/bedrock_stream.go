@@ -30,6 +30,10 @@ func (s *GatewayService) handleBedrockStreamingResponse(
 	startTime time.Time,
 	model string,
 ) (*streamingResult, error) {
+	observer := upstreamResponseModelObserverFromContext(c)
+	if observer == nil {
+		observer = beginUpstreamResponseModelObservation(c)
+	}
 	w := c.Writer
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -134,9 +138,13 @@ func (s *GatewayService) handleBedrockStreamingResponse(
 				firstTokenMs = &ms
 			}
 
+			observer.ObserveAnthropic(sseData)
+
 			// 转换 Bedrock 特有的 amazon-bedrock-invocationMetrics 为标准 Anthropic usage 格式
 			// 同时移除该字段避免透传给客户端
 			sseData = transformBedrockInvocationMetrics(sseData)
+			responseModel := downstreamResponseModel(ginRequestContext(c), s.settingService, model, anthropicResponseModel(sseData))
+			sseData = rewriteAnthropicResponseModel(sseData, responseModel)
 
 			// 解析 SSE 事件数据提取 usage
 			s.parseSSEUsagePassthrough(string(sseData), usage)

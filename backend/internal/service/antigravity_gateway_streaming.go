@@ -36,6 +36,10 @@ func (s *AntigravityGatewayService) observeAntigravityGeminiSSELine(c *gin.Conte
 		return
 	}
 	raw := []byte(payload)
+	// v1internal responses may declare modelVersion either on the outer
+	// envelope or inside response. Observe both before unwrapping so the audit
+	// does not silently lose an outer-only declaration.
+	observer.ObserveGemini(raw)
 	if inner, err := s.unwrapV1InternalResponse(raw); err == nil && len(inner) > 0 {
 		raw = inner
 	}
@@ -899,13 +903,13 @@ func (s *AntigravityGatewayService) collectClaudeStreamResponse(c *gin.Context, 
 			if payload == "" || payload == "[DONE]" {
 				continue
 			}
+			s.observeAntigravityGeminiSSELine(c, trimmed)
 
 			// 解包 v1internal 响应
 			inner, parseErr := s.unwrapV1InternalResponse([]byte(payload))
 			if parseErr != nil {
 				continue
 			}
-			upstreamResponseModelObserverFromContext(c).ObserveGemini(inner)
 
 			var parsed map[string]any
 			if err := json.Unmarshal(inner, &parsed); err != nil {
@@ -965,8 +969,15 @@ returnResponse:
 		return nil, nil, fmt.Errorf("failed to marshal gemini response: %w", err)
 	}
 
-	// 转换 Gemini 响应为 Claude 格式
-	claudeResp, agUsage, err := antigravity.TransformGeminiToClaude(geminiBody, originalModel)
+	// 转换 Gemini 响应为 Claude 格式。开关关闭时采用上游实际声明的
+	// modelVersion；未声明时再回退到客户端请求模型。
+	responseModel := downstreamResponseModel(
+		ginRequestContext(c),
+		s.settingService,
+		originalModel,
+		observedUpstreamResponseModel(c),
+	)
+	claudeResp, agUsage, err := antigravity.TransformGeminiToClaude(geminiBody, responseModel)
 	if err != nil {
 		logger.LegacyPrintf("service.antigravity_gateway", "[antigravity-Forward] transform_error error=%v body=%s", err, string(geminiBody))
 		return nil, nil, fmt.Errorf("failed to parse upstream response: %w", err)
@@ -1030,7 +1041,19 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 		return nil, errors.New("streaming not supported")
 	}
 
-	processor := antigravity.NewStreamingProcessor(originalModel)
+	var processor *antigravity.StreamingProcessor
+	ensureProcessor := func() *antigravity.StreamingProcessor {
+		if processor == nil {
+			responseModel := downstreamResponseModel(
+				ginRequestContext(c),
+				s.settingService,
+				originalModel,
+				observedUpstreamResponseModel(c),
+			)
+			processor = antigravity.NewStreamingProcessor(responseModel)
+		}
+		return processor
+	}
 	var firstTokenMs *int
 	// 使用 Scanner 并限制单行大小，避免 ReadString 无上限导致 OOM
 	scanner := bufio.NewScanner(resp.Body)
@@ -1135,7 +1158,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 
 	// finishUsage 是获取 processor 最终 usage 的辅助函数
 	finishUsage := func() *ClaudeUsage {
-		_, agUsage := processor.Finish()
+		_, agUsage := ensureProcessor().Finish()
 		return convertUsage(agUsage)
 	}
 
@@ -1144,6 +1167,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 		case ev, ok := <-events:
 			if !ok {
 				// 上游完成，发送结束事件
+				processor := ensureProcessor()
 				finalEvents, agUsage := processor.Finish()
 				if len(finalEvents) > 0 {
 					cw.Write(finalEvents)
@@ -1176,7 +1200,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 			s.observeAntigravityGeminiSSELine(c, ev.line)
 
 			// 处理 SSE 行，转换为 Claude 格式
-			claudeEvents := processor.ProcessLine(strings.TrimRight(ev.line, "\r\n"))
+			claudeEvents := ensureProcessor().ProcessLine(strings.TrimRight(ev.line, "\r\n"))
 			if len(claudeEvents) > 0 {
 				if firstTokenMs == nil {
 					ms := int(time.Since(startTime).Milliseconds())

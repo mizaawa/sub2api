@@ -799,7 +799,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.ModelPlazaEnabled = settings[SettingKeyModelPlazaEnabled] == "true"
 	result.ModelPlazaRequireAuth = settings[SettingKeyModelPlazaRequireAuth] == "true"
 	result.ModelPlazaDescription = settings[SettingKeyModelPlazaDescription]
-	result.ResponseModelAuditBypassEnabled = settings[SettingKeyResponseModelAuditBypass] == "true"
+	result.ResponseModelAuditBypassEnabled = strings.EqualFold(strings.TrimSpace(settings[SettingKeyResponseModelAuditBypass]), "true")
 
 	// Affiliate (邀请返利) feature (default: disabled; strict true)
 	result.AffiliateEnabled = settings[SettingKeyAffiliateEnabled] == "true"

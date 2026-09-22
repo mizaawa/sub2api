@@ -38,6 +38,7 @@ type groupRepoStubForAdmin struct {
 	listWithFiltersGroups      []Group
 	listWithFiltersResult      *pagination.PaginationResult
 	listWithFiltersErr         error
+	listActiveByPlatformFn     func(platform string) ([]Group, error)
 }
 
 func (s *groupRepoStubForAdmin) Create(_ context.Context, g *Group) error {
@@ -119,7 +120,11 @@ func (s *groupRepoStubForAdmin) ListActive(_ context.Context) ([]Group, error) {
 	panic("unexpected ListActive call")
 }
 
-func (s *groupRepoStubForAdmin) ListActiveByPlatform(_ context.Context, _ string) ([]Group, error) {
+
+func (s *groupRepoStubForAdmin) ListActiveByPlatform(_ context.Context, platform string) ([]Group, error) {
+	if s.listActiveByPlatformFn != nil {
+		return s.listActiveByPlatformFn(platform)
+	}
 	panic("unexpected ListActiveByPlatform call")
 }
 
@@ -1655,7 +1660,7 @@ func TestAdminService_UpdateAndDeleteCompositeRouteRequireRouteOwnership(t *test
 	require.Equal(t, []int64{11}, routeRepo.deleted)
 }
 
-func TestAdminService_PreviewCompositeRouteUsesExplicitRoutes(t *testing.T) {
+func TestAdminService_PreviewCompositeRouteAlwaysUsesCustomAccounts(t *testing.T) {
 	groupRepo := &groupRepoStubForAdmin{
 		getByID: &Group{ID: 7, Platform: PlatformComposite},
 	}
@@ -1684,9 +1689,8 @@ func TestAdminService_PreviewCompositeRouteUsesExplicitRoutes(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, decision)
 	require.True(t, decision.Matched)
-	require.Equal(t, CompositeRouteSourceExplicit, decision.Source)
-	require.Equal(t, PlatformAnthropic, decision.TargetPlatform)
-	require.Equal(t, "claude-sonnet-4-6", decision.UpstreamModel)
-	require.NotNil(t, decision.Route)
-	require.Equal(t, int64(11), decision.Route.ID)
+	require.Equal(t, CompositeRouteSourceDetector, decision.Source)
+	require.Equal(t, PlatformCustom, decision.TargetPlatform)
+	require.Equal(t, "openrouter/claude", decision.UpstreamModel)
+	require.Nil(t, decision.Route)
 }

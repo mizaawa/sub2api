@@ -11,7 +11,7 @@ import (
 // made through a composite group.
 func WithResolvedTargetPlatform(ctx context.Context, platform string) context.Context {
 	platform = strings.TrimSpace(platform)
-	if ctx == nil || platform == "" {
+	if ctx == nil || !isConcreteRequestPlatform(platform) {
 		return ctx
 	}
 	return context.WithValue(ctx, ctxkey.ResolvedTargetPlatform, platform)
@@ -25,7 +25,7 @@ func ResolvedTargetPlatformFromContext(ctx context.Context) (string, bool) {
 	}
 	platform, ok := ctx.Value(ctxkey.ResolvedTargetPlatform).(string)
 	platform = strings.TrimSpace(platform)
-	if !ok || platform == "" {
+	if !ok || !isConcreteRequestPlatform(platform) {
 		return "", false
 	}
 	return platform, true
@@ -102,6 +102,8 @@ func DetectModelPlatform(model string) (string, bool) {
 			return PlatformAnthropic, true
 		case "openai", "chatgpt":
 			return PlatformOpenAI, true
+		case "custom":
+			return PlatformCustom, true
 		case "google", "google-ai-studio", "gemini":
 			return PlatformGemini, true
 		case "xai", "x-ai", "grok":
@@ -151,26 +153,11 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 	if group == nil || group.Platform != PlatformComposite {
 		return CompositeRouteDecision{}, false, nil
 	}
-	if platform, ok := ResolvedTargetPlatformFromContext(ctx); ok {
-		upstreamModel := requestedModel
-		if resolvedModel, modelOK := ResolvedUpstreamModelFromContext(ctx); modelOK {
-			upstreamModel = resolvedModel
-		}
-		source := CompositeRouteSourceDetector
-		if resolvedSource, sourceOK := CompositeRouteSourceFromContext(ctx); sourceOK {
-			source = resolvedSource
-		}
-		return CompositeRouteDecision{
-			Matched:        true,
-			Source:         source,
-			GroupID:        group.ID,
-			PublicModel:    requestedModel,
-			TargetPlatform: platform,
-			UpstreamModel:  upstreamModel,
-			Endpoint:       normalizeCompositeRouteEndpoint(endpoint),
-		}, true, nil
+	resolver := s.compositeResolver
+	if resolver == nil {
+		resolver = NewCompositeRouteResolver(nil)
 	}
-	decision, err := s.compositeResolver.Resolve(ctx, group.ID, requestedModel, endpoint)
+	decision, err := resolver.Resolve(ctx, group.ID, requestedModel, endpoint)
 	if err != nil {
 		return decision, false, err
 	}
@@ -179,7 +166,7 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 
 func isConcreteRequestPlatform(platform string) bool {
 	switch platform {
-	case PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok:
+	case PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok, PlatformCustom:
 		return true
 	default:
 		return false

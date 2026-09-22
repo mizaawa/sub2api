@@ -11,7 +11,7 @@ import {
 } from "../groupsReasoningEffort";
 
 describe("groupsReasoningEffort", () => {
-  it("provides fixed OpenAI choices to OpenAI and Composite groups", () => {
+  it("provides fixed choices only to OpenAI groups", () => {
     const expected = [
       "minimal",
       "low",
@@ -20,15 +20,15 @@ describe("groupsReasoningEffort", () => {
       "xhigh",
       "max",
     ];
-    for (const platform of ["openai", "composite"] as const) {
-      expect(
-        reasoningEffortOptionsForPlatform(platform).map(
-          (option) => option.value,
-        ),
-      ).toEqual(expected);
-      expect(supportsReasoningEffortPolicyPlatform(platform)).toBe(true);
-    }
+    expect(
+      reasoningEffortOptionsForPlatform("openai").map(
+        (option) => option.value,
+      ),
+    ).toEqual(expected);
+    expect(supportsReasoningEffortPolicyPlatform("openai")).toBe(true);
     for (const platform of [
+      "custom",
+      "composite",
       "anthropic",
       "gemini",
       "antigravity",
@@ -56,9 +56,8 @@ describe("groupsReasoningEffort", () => {
 
   it("clears values unsupported by OpenAI or used on another platform", () => {
     expect(normalizeReasoningEffortForPlatform("openai", " MAX ")).toBe("max");
-    expect(normalizeReasoningEffortForPlatform("composite", " MAX ")).toBe(
-      "max",
-    );
+    expect(normalizeReasoningEffortForPlatform("custom", " MAX ")).toBe("");
+    expect(normalizeReasoningEffortForPlatform("composite", " MAX ")).toBe("");
     expect(normalizeReasoningEffortForPlatform("grok", "max")).toBe("");
     expect(normalizeReasoningEffortForPlatform("openai", "none")).toBe("");
   });

@@ -22,6 +22,7 @@ import (
 const (
 	openAIAccountScheduleLayerPreviousResponse = "previous_response_id"
 	openAIAccountScheduleLayerSessionSticky    = "session_hash"
+	openAIAccountScheduleLayerBoundAccount     = "bound_account"
 	openAIAccountScheduleLayerLoadBalance      = "load_balance"
 	openAIAdvancedSchedulerSettingKey          = "openai_advanced_scheduler_enabled"
 )
@@ -380,7 +381,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
 	requestPlatform := normalizeOpenAICompatiblePlatform(req.Platform)
 	if previousResponseID != "" &&
-		(requestPlatform == PlatformOpenAI || requestPlatform == PlatformGrok) &&
+		(requestPlatform == PlatformOpenAI || requestPlatform == PlatformCustom || requestPlatform == PlatformGrok) &&
 		(!req.StickyWeighted || !req.PreviousResponseCanMove) {
 		selection, err := s.service.selectAccountByPreviousResponseIDForPlatformCapabilityAndTransport(
 			ctx,
@@ -1687,6 +1688,20 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if s != nil && s.service != nil && s.service.isOpenAIProxyStreamQuarantined(ctx, account) {
 		return false, "proxy_stream_quarantined"
 	}
+	if account.Platform == PlatformCustom {
+		// Custom API-key accounts are transparent upstream proxies. Do not use
+		// local model mappings, capability probes, or channel restrictions to
+		// reject a request; the upstream owns those semantics.
+		if account.Type != AccountTypeAPIKey ||
+			strings.TrimSpace(account.GetOpenAIApiKey()) == "" ||
+			strings.TrimSpace(account.GetOpenAIBaseURL()) == "" {
+			return false, "custom_credentials_missing"
+		}
+		if vetoed, reason := openAIProfitControlVetoReason(ctx, account); vetoed {
+			return false, reason
+		}
+		return true, ""
+	}
 	// Quota auto-pause must be evaluated during the initial filter too. Without it the
 	// TopK candidate pool can be filled with paused accounts and the later fresh/DB
 	// rechecks won't reach healthy accounts that fell outside TopK — manifesting as
@@ -2027,6 +2042,128 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForCapability(
 	return s.selectAccountWithScheduler(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, "", requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
 }
 
+// SelectBoundAccountWithSchedulerForCapability validates and selects one exact
+// account. It is used when an upstream resource is owned by the account that
+// created it, so sticky escape and load balancing must never substitute a
+// different account. A busy account returns a wait plan for that same account.
+func (s *OpenAIGatewayService) SelectBoundAccountWithSchedulerForCapability(
+	ctx context.Context,
+	groupID *int64,
+	accountID int64,
+	requestedModel string,
+	requiredTransport OpenAIUpstreamTransport,
+	requiredCapability OpenAIEndpointCapability,
+	platform string,
+) (selection *AccountSelectionResult, decision OpenAIAccountScheduleDecision, err error) {
+	decision = OpenAIAccountScheduleDecision{
+		Layer:             openAIAccountScheduleLayerBoundAccount,
+		SelectedAccountID: accountID,
+	}
+	startedAt := time.Now()
+	defer func() {
+		decision.LatencyMs = time.Since(startedAt).Milliseconds()
+	}()
+
+	if s == nil || accountID <= 0 {
+		return nil, decision, ErrNoAvailableAccounts
+	}
+	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
+	ctx = s.withOpenAIProfitControlGate(ctx, groupID)
+	platform = normalizeOpenAICompatiblePlatform(platform)
+	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
+		return nil, decision, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
+	}
+
+	account, err := s.getSchedulableAccount(ctx, accountID)
+	if err != nil || account == nil || !s.openAIAccountMatchesSchedulingGroup(account, groupID) {
+		return nil, decision, ErrNoAvailableAccounts
+	}
+	account = s.resolveFreshSchedulableOpenAIAccount(ctx, account, platform, requestedModel, false, requiredCapability)
+	if account == nil || !s.openAIAccountMatchesSchedulingGroup(account, groupID) ||
+		!s.isOpenAIAccountTransportCompatible(account, requiredTransport) {
+		return nil, decision, ErrNoAvailableAccounts
+	}
+	account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, groupID, platform, requestedModel, false, requiredCapability)
+	if account == nil || !s.openAIAccountMatchesSchedulingGroup(account, groupID) ||
+		!s.isOpenAIAccountTransportCompatible(account, requiredTransport) {
+		return nil, decision, ErrNoAvailableAccounts
+	}
+
+	decision.SelectedAccountType = account.Type
+	result, err := s.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
+	if err != nil {
+		return nil, decision, err
+	}
+	if result != nil && result.Acquired {
+		selection, selectErr := s.newAcquiredSelectionResult(ctx, account, result.ReleaseFunc)
+		return selection, decision, selectErr
+	}
+	if s.concurrencyService == nil {
+		return nil, decision, ErrNoAvailableAccounts
+	}
+
+	cfg := s.schedulingConfig()
+	selection, selectErr := s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
+		AccountID:      account.ID,
+		MaxConcurrency: account.Concurrency,
+		Timeout:        cfg.StickySessionWaitTimeout,
+		MaxWaiting:     cfg.StickySessionMaxWaiting,
+	})
+	return selection, decision, selectErr
+}
+
+// SelectBoundCustomVideoAccount selects the exact Custom API-key account that
+// owns an asynchronous video task. Custom video polling is an upstream
+// passthrough: do not re-run model/capability probes, quota auto-pause, or
+// channel pricing restrictions after task creation. We only retain ownership,
+// credential, and concurrency safeguards.
+func (s *OpenAIGatewayService) SelectBoundCustomVideoAccount(
+	ctx context.Context,
+	groupID *int64,
+	account *Account,
+) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	decision := OpenAIAccountScheduleDecision{
+		Layer:            openAIAccountScheduleLayerBoundAccount,
+		StickySessionHit: true,
+		CandidateCount:   1,
+		TopK:             1,
+	}
+	if s == nil || account == nil || account.Platform != PlatformCustom ||
+		account.Type != AccountTypeAPIKey ||
+		strings.TrimSpace(account.GetOpenAIApiKey()) == "" ||
+		strings.TrimSpace(account.GetOpenAIBaseURL()) == "" ||
+		!s.openAIAccountMatchesSchedulingGroup(account, groupID) {
+		return nil, decision, ErrNoAvailableAccounts
+	}
+	decision.SelectedAccountID = account.ID
+	decision.SelectedAccountType = account.Type
+
+	result, err := s.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
+	if err != nil {
+		return nil, decision, err
+	}
+	if result != nil && result.Acquired {
+		return &AccountSelectionResult{
+			Account:     account,
+			Acquired:    true,
+			ReleaseFunc: result.ReleaseFunc,
+		}, decision, nil
+	}
+	if s.concurrencyService == nil {
+		return nil, decision, ErrNoAvailableAccounts
+	}
+	cfg := s.schedulingConfig()
+	return &AccountSelectionResult{
+		Account: account,
+		WaitPlan: &AccountWaitPlan{
+			AccountID:      account.ID,
+			MaxConcurrency: account.Concurrency,
+			Timeout:        cfg.StickySessionWaitTimeout,
+			MaxWaiting:     cfg.StickySessionMaxWaiting,
+		},
+	}, decision, nil
+}
+
 func (s *OpenAIGatewayService) SelectAccountWithSchedulerForImages(
 	ctx context.Context,
 	groupID *int64,
@@ -2034,14 +2171,19 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForImages(
 	requestedModel string,
 	excludedIDs map[int64]struct{},
 	requiredCapability OpenAIImagesCapability,
+	platformOverride ...string,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
-	selection, decision, err := s.selectAccountWithScheduler(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", requiredCapability, false, PlatformOpenAI, false, false)
+	platform := PlatformOpenAI
+	if len(platformOverride) > 0 {
+		platform = platformOverride[0]
+	}
+	selection, decision, err := s.selectAccountWithScheduler(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", requiredCapability, false, platform, false, false)
 	if err == nil && selection != nil && selection.Account != nil {
 		return selection, decision, nil
 	}
 	// 如果要求 native 能力（如指定了模型）但没有可用的 APIKey 账号，回退到 basic（OAuth 账号）
 	if requiredCapability == OpenAIImagesCapabilityNative {
-		return s.selectAccountWithScheduler(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", OpenAIImagesCapabilityBasic, false, PlatformOpenAI, false, false)
+		return s.selectAccountWithScheduler(ctx, groupID, "", sessionHash, requestedModel, excludedIDs, OpenAIUpstreamTransportHTTPSSE, "", OpenAIImagesCapabilityBasic, false, platform, false, false)
 	}
 	return selection, decision, err
 }
@@ -2116,7 +2258,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	decision := OpenAIAccountScheduleDecision{}
 	if strings.TrimSpace(previousResponseID) != "" &&
-		(platform == PlatformOpenAI || platform == PlatformGrok) &&
+		(platform == PlatformOpenAI || platform == PlatformCustom || platform == PlatformGrok) &&
 		!previousResponseCanMove {
 		if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 			slog.Warn("channel pricing restriction blocked strict response continuation",

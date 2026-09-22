@@ -165,8 +165,12 @@ func (g *Group) GetVideoPrice(resolution string) *float64 {
 		return g.VideoPrice720P
 	case VideoBillingResolution1080P:
 		return g.VideoPrice1080P
+	case VideoBillingResolution4K:
+		// Group-level video pricing has no 4K field yet. Requiring a channel
+		// pricing rule is safer than silently charging the 480p rate.
+		return nil
 	default:
-		return g.VideoPrice480P
+		return nil
 	}
 }
 
@@ -361,6 +365,12 @@ func NormalizeGroupPlatform(platform string) string {
 	if platform == "" {
 		return PlatformAnthropic
 	}
+	// Keep the legacy database discriminator while exposing the renamed
+	// platform as `custom` at the API/UI boundary. Existing composite groups
+	// therefore continue to share the same account and routing invariants.
+	if platform == PlatformCustom {
+		return PlatformComposite
+	}
 	return platform
 }
 
@@ -372,8 +382,9 @@ func ValidateProfitControlConfig(platform string, enabled bool, minMargin, safet
 	if !enabled {
 		return nil
 	}
+	platform = NormalizeGroupPlatform(platform)
 	if !profitControlPlatformSupported(platform) {
-		return errors.New("利润控制仅支持 openai、anthropic、gemini、grok、antigravity 平台分组")
+		return errors.New("利润控制仅支持 openai、anthropic、gemini、grok、antigravity、custom 平台分组")
 	}
 	if !validProfitControlRatio(minMargin) {
 		return fmt.Errorf("profit_min_margin 应为 [0,1) 的小数，got %v", minMargin)
@@ -394,6 +405,7 @@ func ValidateProfitControlConfig(platform string, enabled bool, minMargin, safet
 // 与 ValidateProfitControlConfig 的分工同高峰倍率：先归一化、后校验，
 // 使"openai 转其他平台"这类更新能静默清空利润配置而不是被校验拒绝。
 func NormalizeProfitControlConfig(platform string, enabled bool, minMargin, safetyBuffer float64) (bool, float64, float64) {
+	platform = NormalizeGroupPlatform(platform)
 	if !profitControlPlatformSupported(platform) {
 		return false, 0, 0
 	}
@@ -409,8 +421,9 @@ func NormalizeProfitControlConfig(platform string, enabled bool, minMargin, safe
 }
 
 func profitControlPlatformSupported(platform string) bool {
+	platform = NormalizeGroupPlatform(platform)
 	switch platform {
-	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformGrok, PlatformAntigravity:
+	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformGrok, PlatformAntigravity, PlatformComposite:
 		return true
 	default:
 		return false

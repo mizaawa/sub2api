@@ -1007,6 +1007,41 @@ func TestOpenAIResponses_FunctionCallOutputHTTPGuidanceDoesNotSuggestPreviousRes
 	require.NotContains(t, w.Body.String(), "reuse previous_response_id")
 }
 
+func TestCustomResponsesDefersFunctionCallOutputValidationToUpstream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	var acquireCalls atomic.Int64
+	cache := &concurrencyCacheMock{
+		acquireUserSlotFn: func(context.Context, int64, int, string) (bool, error) {
+			acquireCalls.Add(1)
+			return false, errors.New("stop after protocol validation")
+		},
+	}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", strings.NewReader(
+		`{"model":"vendor-model","stream":false,"input":[{"type":"function_call_output","output":"{}"}]}`,
+	))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	groupID := int64(3)
+	c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
+		ID:      102,
+		UserID:  1,
+		GroupID: &groupID,
+		Group:   &service.Group{ID: groupID, Platform: service.PlatformComposite},
+		User:    &service.User{ID: 1},
+	})
+	c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1, Concurrency: 1})
+
+	h := newOpenAIHandlerForPreviousResponseIDValidation(t, cache)
+	h.Responses(c)
+
+	require.EqualValues(t, 1, acquireCalls.Load(), "Custom requests must reach scheduling without OpenAI-specific tool validation")
+	require.NotEqual(t, http.StatusBadRequest, w.Code)
+	require.NotContains(t, w.Body.String(), "function_call_output requires call_id")
+}
+
 func TestOpenAIResponses_RejectsFunctionCallOutputMissingCallIDDespiteContinuationContext(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

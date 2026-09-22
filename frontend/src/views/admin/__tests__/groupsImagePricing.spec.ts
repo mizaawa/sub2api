@@ -18,8 +18,17 @@ describe("groups image pricing platform support", () => {
     expect(imagePricingPlatforms.has("grok")).toBe(true);
   });
 
-  it("enables video pricing controls for Grok only", () => {
+  it("supports image pricing for both Custom identifiers", () => {
+    for (const platform of ["custom", "composite"]) {
+      expect(supportsImagePricingPlatform(platform)).toBe(true);
+      expect(imagePricingPlatforms.has(platform)).toBe(true);
+    }
+  });
+
+  it("enables video pricing controls for Grok and both Custom identifiers", () => {
     expect(supportsVideoPricingPlatform("grok")).toBe(true);
+    expect(supportsVideoPricingPlatform("custom")).toBe(true);
+    expect(supportsVideoPricingPlatform("composite")).toBe(true);
     expect(supportsVideoPricingPlatform("openai")).toBe(false);
   });
 
@@ -48,5 +57,12 @@ describe("groups image pricing platform support", () => {
     expect(getImagePricePlaceholder("openai", "image_price_1k")).toBe("0.134");
     expect(getDefaultImagePreviewPrice("openai", "image_price_2k")).toBe(0.201);
     expect(getDefaultVideoPreviewPrice("openai", "video_price_480p")).toBeNull();
+  });
+
+  it("does not invent upstream video defaults for Custom groups", () => {
+    for (const platform of ["custom", "composite"]) {
+      expect(getVideoPricePlaceholder(platform, "video_price_480p")).toBe("");
+      expect(getDefaultVideoPreviewPrice(platform, "video_price_1080p")).toBeNull();
+    }
   });
 });

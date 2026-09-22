@@ -79,7 +79,7 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 	}
 	for _, acc := range accounts {
 		if platform == PlatformComposite {
-			if !isConcreteRequestPlatform(acc.Platform) {
+			if acc.Platform != PlatformCustom {
 				continue
 			}
 		} else if acc.Platform != platform {
@@ -232,6 +232,8 @@ func defaultModelsListCandidateIDs(platform string) []string {
 	switch platform {
 	case PlatformOpenAI:
 		return openai.DefaultModelIDs()
+	case PlatformCustom:
+		return nil
 	case PlatformGemini:
 		ids := make([]string, 0, len(geminicli.DefaultModels))
 		for _, model := range geminicli.DefaultModels {
@@ -248,7 +250,7 @@ func defaultModelsListCandidateIDs(platform string) []string {
 	case PlatformGrok:
 		return xai.DefaultModelIDs()
 	case PlatformComposite:
-		return compositeDefaultModelsListCandidateIDs()
+		return nil
 	default:
 		ids := make([]string, 0, len(claude.DefaultModels))
 		for _, model := range claude.DefaultModels {
@@ -261,29 +263,49 @@ func defaultModelsListCandidateIDs(platform string) []string {
 func defaultAllowImageGenerationForPlatform(platform string) bool {
 	// Grok image and video generation routes share the legacy image-generation gate.
 	// Older clients send the false zero value, so Grok groups must default enabled.
-	return platform == PlatformGrok
+	return platform == PlatformGrok || platform == PlatformComposite
 }
 
 func compositeDefaultModelsListCandidateIDs() []string {
-	seen := make(map[string]struct{})
-	ids := make([]string, 0)
-	for _, platform := range []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok} {
-		for _, id := range defaultModelsListCandidateIDs(platform) {
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			ids = append(ids, id)
-		}
-	}
-	return ids
+	return nil
 }
 
 func canCopyAccountsFromGroupPlatform(targetPlatform, sourcePlatform string) bool {
 	if targetPlatform == PlatformComposite {
-		return sourcePlatform == PlatformComposite || isConcreteRequestPlatform(sourcePlatform)
+		return sourcePlatform == PlatformComposite
 	}
 	return sourcePlatform == targetPlatform
+}
+
+func validateCustomGroupAccountPlatforms(ctx context.Context, accountRepo AccountRepository, groupPlatform string, accountIDs []int64) error {
+	if len(accountIDs) == 0 {
+		return nil
+	}
+	if accountRepo == nil {
+		return errors.New("account repository not configured")
+	}
+	accounts, err := accountRepo.GetByIDs(ctx, accountIDs)
+	if err != nil {
+		return fmt.Errorf("failed to fetch accounts for Custom group validation: %w", err)
+	}
+	for _, account := range accounts {
+		if account == nil {
+			continue
+		}
+		if groupPlatform == PlatformComposite && account.Platform != PlatformCustom {
+			return infraerrors.BadRequest(
+				"CUSTOM_GROUP_ACCOUNT_PLATFORM_MISMATCH",
+				"Custom groups only accept custom accounts",
+			)
+		}
+		if groupPlatform != PlatformComposite && account.Platform == PlatformCustom {
+			return infraerrors.BadRequest(
+				"CUSTOM_ACCOUNT_GROUP_PLATFORM_MISMATCH",
+				"custom accounts can only be assigned to Custom groups",
+			)
+		}
+	}
+	return nil
 }
 
 func groupSupportsOAuthOnlyFilter(platform string) bool {
@@ -291,8 +313,7 @@ func groupSupportsOAuthOnlyFilter(platform string) bool {
 		platform == PlatformAntigravity ||
 		platform == PlatformAnthropic ||
 		platform == PlatformGemini ||
-		platform == PlatformGrok ||
-		platform == PlatformComposite
+		platform == PlatformGrok
 }
 
 func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error) {
@@ -442,6 +463,9 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		if err != nil {
 			return nil, fmt.Errorf("failed to get accounts from source groups: %w", err)
 		}
+		if err := validateCustomGroupAccountPlatforms(ctx, s.accountRepo, platform, accountIDsToCopy); err != nil {
+			return nil, err
+		}
 	}
 
 	group := &Group{
@@ -493,6 +517,9 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		RPMLimit:                        input.RPMLimit,
 		MaxReasoningEffort:              maxReasoningEffort,
 		ReasoningEffortMappings:         reasoningEffortMappings,
+	}
+	if group.Platform == PlatformComposite {
+		group.RequireOAuthOnly = false
 	}
 	sanitizeGroupMessagesDispatchFields(group)
 	if group.Platform != PlatformOpenAI {
@@ -633,7 +660,18 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 		group.Description = *input.Description
 	}
 	if input.Platform != "" {
-		group.Platform = input.Platform
+		normalizedPlatform := NormalizeGroupPlatform(input.Platform)
+		crossesCustomBoundary := (group.Platform == PlatformComposite) != (normalizedPlatform == PlatformComposite)
+		if crossesCustomBoundary && len(input.CopyAccountsFromGroupIDs) == 0 {
+			accountIDs, getErr := s.groupRepo.GetAccountIDsByGroupIDs(ctx, []int64{id})
+			if getErr != nil {
+				return nil, fmt.Errorf("failed to get existing group accounts: %w", getErr)
+			}
+			if validateErr := validateCustomGroupAccountPlatforms(ctx, s.accountRepo, normalizedPlatform, accountIDs); validateErr != nil {
+				return nil, validateErr
+			}
+		}
+		group.Platform = normalizedPlatform
 	}
 	if input.RateMultiplier != nil {
 		if *input.RateMultiplier <= 0 {
@@ -816,6 +854,9 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if input.RequireOAuthOnly != nil {
 		group.RequireOAuthOnly = *input.RequireOAuthOnly
 	}
+	if group.Platform == PlatformComposite {
+		group.RequireOAuthOnly = false
+	}
 	if input.RequirePrivacySet != nil {
 		group.RequirePrivacySet = *input.RequirePrivacySet
 	}
@@ -891,6 +932,9 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 		accountIDsToCopy, err := s.groupRepo.GetAccountIDsByGroupIDs(ctx, uniqueSourceGroupIDs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get accounts from source groups: %w", err)
+		}
+		if err := validateCustomGroupAccountPlatforms(ctx, s.accountRepo, group.Platform, accountIDsToCopy); err != nil {
+			return nil, err
 		}
 
 		// 先清空当前分组的所有账号绑定

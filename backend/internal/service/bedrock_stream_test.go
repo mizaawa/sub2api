@@ -2,16 +2,52 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"hash/crc32"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func buildBedrockTestEventStreamFrame(eventType string, payload []byte) []byte {
+	var headers bytes.Buffer
+	_ = headers.WriteByte(byte(len(":event-type")))
+	_, _ = headers.WriteString(":event-type")
+	_ = headers.WriteByte(7)
+	_ = binary.Write(&headers, binary.BigEndian, uint16(len(eventType)))
+	_, _ = headers.WriteString(eventType)
+	_ = headers.WriteByte(byte(len(":message-type")))
+	_, _ = headers.WriteString(":message-type")
+	_ = headers.WriteByte(7)
+	_ = binary.Write(&headers, binary.BigEndian, uint16(len("event")))
+	_, _ = headers.WriteString("event")
+
+	headerBytes := headers.Bytes()
+	totalLength := uint32(12 + len(headerBytes) + len(payload) + 4)
+	var prelude bytes.Buffer
+	_ = binary.Write(&prelude, binary.BigEndian, totalLength)
+	_ = binary.Write(&prelude, binary.BigEndian, uint32(len(headerBytes)))
+	preludeBytes := prelude.Bytes()
+
+	var frame bytes.Buffer
+	_, _ = frame.Write(preludeBytes)
+	_ = binary.Write(&frame, binary.BigEndian, crc32.Checksum(preludeBytes, crc32IEEETable))
+	_, _ = frame.Write(headerBytes)
+	_, _ = frame.Write(payload)
+	_ = binary.Write(&frame, binary.BigEndian, crc32.Checksum(frame.Bytes(), crc32IEEETable))
+	return frame.Bytes()
+}
 
 func TestExtractBedrockChunkData(t *testing.T) {
 	t.Run("valid base64 payload", func(t *testing.T) {
@@ -88,6 +124,105 @@ func TestTransformBedrockInvocationMetrics(t *testing.T) {
 	}
 }
 
+func TestHandleBedrockNonStreamingResponse_ResponseModelAuditBypass(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name             string
+		enabled          bool
+		body             string
+		expectedClient   string
+		expectedObserved string
+	}{
+		{
+			name:             "enabled restores public request model",
+			enabled:          true,
+			body:             `{"type":"message","model":"bedrock-runtime-alias","content":[],"usage":{}}`,
+			expectedClient:   "public-model",
+			expectedObserved: "bedrock-runtime-alias",
+		},
+		{
+			name:             "disabled preserves upstream model",
+			enabled:          false,
+			body:             `{"type":"message","model":"bedrock-runtime-alias","content":[],"usage":{}}`,
+			expectedClient:   "bedrock-runtime-alias",
+			expectedObserved: "bedrock-runtime-alias",
+		},
+		{
+			name:           "missing upstream model falls back to public request model",
+			enabled:        false,
+			body:           `{"type":"message","content":[],"usage":{}}`,
+			expectedClient: "public-model",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			requestCtx := WithRequestedPublicModel(context.Background(), "public-model")
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil).WithContext(requestCtx)
+			beginUpstreamResponseModelObservation(c)
+
+			svc := &GatewayService{
+				cfg:            &config.Config{},
+				settingService: newResponseModelAuditTestSettingService(tc.enabled),
+			}
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{},
+				Body:       io.NopCloser(strings.NewReader(tc.body)),
+			}
+
+			_, err := svc.handleBedrockNonStreamingResponse(requestCtx, resp, c, nil, "channel-model")
+			require.NoError(t, err)
+			require.Equal(t, tc.expectedClient, gjson.Get(recorder.Body.String(), "model").String())
+			require.Equal(t, tc.expectedObserved, observedUpstreamResponseModel(c))
+		})
+	}
+}
+
+func TestHandleBedrockStreamingResponse_ResponseModelAuditBypass(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name           string
+		enabled        bool
+		expectedClient string
+	}{
+		{name: "enabled restores public request model", enabled: true, expectedClient: "public-model"},
+		{name: "disabled preserves upstream model", enabled: false, expectedClient: "bedrock-runtime-alias"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			requestCtx := WithRequestedPublicModel(context.Background(), "public-model")
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil).WithContext(requestCtx)
+			beginUpstreamResponseModelObservation(c)
+
+			ssePayload := []byte(`{"type":"message_start","message":{"model":"bedrock-runtime-alias","usage":{}}}`)
+			envelope := []byte(`{"bytes":"` + base64.StdEncoding.EncodeToString(ssePayload) + `"}`)
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{},
+				Body:       io.NopCloser(bytes.NewReader(buildBedrockTestEventStreamFrame("chunk", envelope))),
+			}
+			svc := &GatewayService{
+				cfg:            &config.Config{},
+				settingService: newResponseModelAuditTestSettingService(tc.enabled),
+			}
+
+			_, err := svc.handleBedrockStreamingResponse(
+				requestCtx,
+				resp,
+				c,
+				&Account{ID: 1},
+				time.Now(),
+				"channel-model",
+			)
+			require.NoError(t, err)
+			require.Contains(t, recorder.Body.String(), `"model":"`+tc.expectedClient+`"`)
+			require.Equal(t, "bedrock-runtime-alias", observedUpstreamResponseModel(c))
+		})
+	}
+}
+
 func TestExtractEventStreamHeaderValue(t *testing.T) {
 	// Build a header with :event-type = "chunk" (string type = 7)
 	buildStringHeader := func(name, value string) []byte {
@@ -133,53 +268,9 @@ func TestExtractEventStreamHeaderValue(t *testing.T) {
 }
 
 func TestBedrockEventStreamDecoder(t *testing.T) {
-	crc32IeeeTab := crc32.MakeTable(crc32.IEEE)
-
-	// Build a valid EventStream frame with correct CRC32/IEEE checksums.
-	buildFrame := func(eventType string, payload []byte) []byte {
-		// Build headers
-		var headersBuf bytes.Buffer
-		// :event-type header
-		_ = headersBuf.WriteByte(byte(len(":event-type")))
-		_, _ = headersBuf.WriteString(":event-type")
-		_ = headersBuf.WriteByte(7) // string type
-		_ = binary.Write(&headersBuf, binary.BigEndian, uint16(len(eventType)))
-		_, _ = headersBuf.WriteString(eventType)
-		// :message-type header
-		_ = headersBuf.WriteByte(byte(len(":message-type")))
-		_, _ = headersBuf.WriteString(":message-type")
-		_ = headersBuf.WriteByte(7)
-		_ = binary.Write(&headersBuf, binary.BigEndian, uint16(len("event")))
-		_, _ = headersBuf.WriteString("event")
-
-		headers := headersBuf.Bytes()
-		headersLen := uint32(len(headers))
-		// total = 12 (prelude) + headers + payload + 4 (message_crc)
-		totalLen := uint32(12 + len(headers) + len(payload) + 4)
-
-		// Prelude: total_length(4) + headers_length(4)
-		var preludeBuf bytes.Buffer
-		_ = binary.Write(&preludeBuf, binary.BigEndian, totalLen)
-		_ = binary.Write(&preludeBuf, binary.BigEndian, headersLen)
-		preludeBytes := preludeBuf.Bytes()
-		preludeCRC := crc32.Checksum(preludeBytes, crc32IeeeTab)
-
-		// Build frame: prelude + prelude_crc + headers + payload
-		var frame bytes.Buffer
-		_, _ = frame.Write(preludeBytes)
-		_ = binary.Write(&frame, binary.BigEndian, preludeCRC)
-		_, _ = frame.Write(headers)
-		_, _ = frame.Write(payload)
-
-		// Message CRC covers everything before itself
-		messageCRC := crc32.Checksum(frame.Bytes(), crc32IeeeTab)
-		_ = binary.Write(&frame, binary.BigEndian, messageCRC)
-		return frame.Bytes()
-	}
-
 	t.Run("decode chunk event", func(t *testing.T) {
 		payload := []byte(`{"bytes":"dGVzdA=="}`) // base64("test")
-		frame := buildFrame("chunk", payload)
+		frame := buildBedrockTestEventStreamFrame("chunk", payload)
 
 		decoder := newBedrockEventStreamDecoder(bytes.NewReader(frame))
 		result, err := decoder.Decode()
@@ -190,9 +281,9 @@ func TestBedrockEventStreamDecoder(t *testing.T) {
 	t.Run("skip non-chunk events", func(t *testing.T) {
 		// Write initial-response followed by chunk
 		var buf bytes.Buffer
-		_, _ = buf.Write(buildFrame("initial-response", []byte(`{}`)))
+		_, _ = buf.Write(buildBedrockTestEventStreamFrame("initial-response", []byte(`{}`)))
 		chunkPayload := []byte(`{"bytes":"aGVsbG8="}`)
-		_, _ = buf.Write(buildFrame("chunk", chunkPayload))
+		_, _ = buf.Write(buildBedrockTestEventStreamFrame("chunk", chunkPayload))
 
 		decoder := newBedrockEventStreamDecoder(&buf)
 		result, err := decoder.Decode()
@@ -207,7 +298,7 @@ func TestBedrockEventStreamDecoder(t *testing.T) {
 	})
 
 	t.Run("corrupted prelude CRC", func(t *testing.T) {
-		frame := buildFrame("chunk", []byte(`{"bytes":"dGVzdA=="}`))
+		frame := buildBedrockTestEventStreamFrame("chunk", []byte(`{"bytes":"dGVzdA=="}`))
 		// Corrupt the prelude CRC (bytes 8-11)
 		frame[8] ^= 0xFF
 		decoder := newBedrockEventStreamDecoder(bytes.NewReader(frame))
@@ -217,7 +308,7 @@ func TestBedrockEventStreamDecoder(t *testing.T) {
 	})
 
 	t.Run("corrupted message CRC", func(t *testing.T) {
-		frame := buildFrame("chunk", []byte(`{"bytes":"dGVzdA=="}`))
+		frame := buildBedrockTestEventStreamFrame("chunk", []byte(`{"bytes":"dGVzdA=="}`))
 		// Corrupt the message CRC (last 4 bytes)
 		frame[len(frame)-1] ^= 0xFF
 		decoder := newBedrockEventStreamDecoder(bytes.NewReader(frame))

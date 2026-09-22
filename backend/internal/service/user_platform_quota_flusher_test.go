@@ -75,9 +75,27 @@ func makeEntry(daily, weekly, monthly float64) *UserPlatformQuotaCacheEntry {
 		DailyUsageUSD:      daily,
 		WeeklyUsageUSD:     weekly,
 		MonthlyUsageUSD:    monthly,
+		SnapshotAt:         now,
 		DailyWindowStart:   flusherPtrTime(now),
 		WeeklyWindowStart:  flusherPtrTime(now),
 		MonthlyWindowStart: flusherPtrTime(now),
+	}
+}
+
+func TestFlusher_PreOCCEntrySkipped(t *testing.T) {
+	key := UserPlatformQuotaKey{UserID: 1, Platform: "custom"}
+	entry := makeEntry(1.0, 2.0, 3.0)
+	entry.SnapshotAt = time.Time{}
+	cache := &mockQuotaDirtyCache{
+		popSequence: [][]UserPlatformQuotaKey{{key}},
+		getEntries:  []*UserPlatformQuotaCacheEntry{entry},
+	}
+	writer := &mockQuotaSnapshotWriter{}
+
+	newTestFlusher(cache, writer).flush()
+
+	if len(writer.receivedSnaps) != 0 {
+		t.Fatalf("pre-OCC cache entry should be skipped, got %d snapshots", len(writer.receivedSnaps))
 	}
 }
 

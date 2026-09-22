@@ -107,7 +107,7 @@ describe('channel monitor Custom provider', () => {
     const customButton = wrapper.get('[data-testid="monitor-provider-custom"]')
     expect(customButton.text()).toContain('monitorCommon.providers.custom')
     expect(customButton.get('svg').attributes('viewBox')).toBe('0 0 48 48')
-    expect(customButton.findAll('circle')).toHaveLength(7)
+    expect(customButton.findAll('path')).toHaveLength(7)
   })
 
   it('includes Custom in the admin provider filter', () => {
@@ -133,14 +133,14 @@ describe('channel monitor Custom provider', () => {
     })
   })
 
-  it('shows groups from every platform with their default rate when Custom is selected', async () => {
+  it('shows only Custom groups with their default rate when Custom is selected', async () => {
     const groups = [
       group(1, 'openai', 0.1),
       group(2, 'anthropic'),
       group(3, 'gemini'),
       group(4, 'grok'),
       group(5, 'antigravity'),
-      group(6, 'composite'),
+      group(6, 'composite', 0.1),
     ]
     getAllGroups.mockResolvedValue(groups)
     const wrapper = mountDialog()
@@ -155,15 +155,42 @@ describe('channel monitor Custom provider', () => {
     }>
 
     expect(getAllGroups).toHaveBeenCalledTimes(1)
-    expect(options.map(option => option.platform)).toEqual(groups.map(item => item.platform))
-    expect(options.find(option => option.value === 1)?.rate_multiplier).toBe(0.1)
+    expect(options.map(option => option.platform)).toEqual(['composite'])
+    expect(options.find(option => option.value === 6)?.rate_multiplier).toBe(0.1)
 
-    select.vm.$emit('update:modelValue', 1)
+    select.vm.$emit('update:modelValue', 6)
     await wrapper.vm.$nextTick()
     const rate = wrapper.get('[data-testid="monitor-group-rate"]')
     expect(rate.text()).toBe('0.1x')
     expect(rate.classes()).toContain('rounded-md')
     expect(rate.classes()).toContain('bg-gray-100')
+    wrapper.unmount()
+  })
+
+  it('offers Responses mode for Custom and submits the selected API mode', async () => {
+    getAllGroups.mockResolvedValue([group(6, 'composite', 0.1)])
+    const wrapper = mountDialog()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="monitor-provider-custom"]').trigger('click')
+    groupSelect(wrapper).vm.$emit('update:modelValue', 6)
+    await wrapper.get('[data-testid="monitor-primary-model"]').setValue('custom-response-model')
+
+    const responsesButton = wrapper.findAll('button').find(button => (
+      button.text().includes('admin.channelMonitor.form.apiModeResponses')
+    ))
+    expect(responsesButton).toBeDefined()
+    await responsesButton?.trigger('click')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(showError).not.toHaveBeenCalled()
+    expect(createMonitor).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'custom',
+      group_id: 6,
+      api_mode: 'responses',
+      primary_model: 'custom-response-model',
+    }))
     wrapper.unmount()
   })
 
@@ -191,7 +218,7 @@ describe('channel monitor Custom provider', () => {
 
     await wrapper.get('[data-testid="monitor-provider-custom"]').trigger('click')
     expect((select.props('options') as Array<{ value: number }>).map(option => option.value))
-      .toEqual([1, 2, 3])
+      .toEqual([3])
     wrapper.unmount()
   })
 

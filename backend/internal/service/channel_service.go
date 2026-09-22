@@ -343,34 +343,31 @@ func populateChannelCache(channels []Channel, groupPlatforms map[int64]string) *
 // invalidateCache 使缓存失效，让下次读取时自然重建
 
 // isPlatformPricingMatch 判断定价条目的平台是否匹配分组平台。
-// Concrete platforms stay isolated; composite groups may carry concrete-provider
-// pricing rows that are selected by the request's resolved target platform.
+// Concrete platforms stay isolated. The legacy composite group value represents
+// the user-facing Custom platform and therefore only matches Custom pricing.
 func isPlatformPricingMatch(groupPlatform, pricingPlatform string) bool {
 	if groupPlatform == PlatformComposite {
-		return isConcreteRequestPlatform(pricingPlatform)
+		return pricingPlatform == PlatformCustom
 	}
 	return groupPlatform == pricingPlatform
 }
 
 // matchingPlatforms 返回分组平台对应的可匹配平台列表。
-// Concrete platforms return themselves; composite is a configuration-time
-// fallback used before a request target has been resolved.
+// Concrete platforms return themselves; legacy composite maps to Custom.
 func matchingPlatforms(groupPlatform string) []string {
 	if groupPlatform == PlatformComposite {
-		return []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok}
+		return []string{PlatformCustom}
 	}
 	return []string{groupPlatform}
 }
 
 func channelLookupPlatform(ctx context.Context, groupPlatform string) string {
+	if groupPlatform == PlatformComposite {
+		return PlatformCustom
+	}
 	if ctx != nil {
 		if forcePlatform, ok := ctx.Value(ctxkey.ForcePlatform).(string); ok && strings.TrimSpace(forcePlatform) != "" {
 			return strings.TrimSpace(forcePlatform)
-		}
-		if groupPlatform == PlatformComposite {
-			if platform, ok := ResolvedTargetPlatformFromContext(ctx); ok {
-				return platform
-			}
 		}
 	}
 	return groupPlatform
@@ -664,6 +661,22 @@ func checkBillingModeRequirements(p ChannelModelPricing) error {
 			return infraerrors.BadRequest(
 				"BILLING_MODE_MISSING_PRICE",
 				"per-request price or intervals required for per_request/image billing mode",
+			)
+		}
+	}
+	if p.BillingMode == BillingModeVideo {
+		hasDefaultPrice := p.PerRequestPrice != nil
+		hasTierPrice := false
+		for _, interval := range p.Intervals {
+			if interval.PerRequestPrice != nil {
+				hasTierPrice = true
+				break
+			}
+		}
+		if !hasDefaultPrice && !hasTierPrice {
+			return infraerrors.BadRequest(
+				"BILLING_MODE_MISSING_PRICE",
+				"per-request price or intervals required for video billing mode (per-second price or video resolution tier prices)",
 			)
 		}
 	}

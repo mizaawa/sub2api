@@ -18,6 +18,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 // antigravityFailingWriter 模拟客户端断开连接的 gin.ResponseWriter
@@ -200,13 +201,31 @@ func (c *recordingInternal500CounterCache) ResetInternal500Count(_ context.Conte
 	return nil
 }
 
-type antigravitySettingRepoStub struct{}
+type antigravitySettingRepoStub struct {
+	values map[string]string
+}
+
+func newResponseModelAuditTestSettingService(enabled bool) *SettingService {
+	value := "false"
+	if enabled {
+		value = "true"
+	}
+	return &SettingService{
+		settingRepo: &antigravitySettingRepoStub{values: map[string]string{
+			SettingKeyResponseModelAuditBypass: value,
+		}},
+		cfg: &config.Config{},
+	}
+}
 
 func (s *antigravitySettingRepoStub) Get(ctx context.Context, key string) (*Setting, error) {
 	panic("unexpected Get call")
 }
 
 func (s *antigravitySettingRepoStub) GetValue(ctx context.Context, key string) (string, error) {
+	if value, ok := s.values[key]; ok {
+		return value, nil
+	}
 	return "", ErrSettingNotFound
 }
 
@@ -1058,7 +1077,7 @@ func TestStreamUpstreamResponse_UsageAndFirstToken(t *testing.T) {
 	}()
 
 	start := time.Now().Add(-10 * time.Millisecond)
-	result := svc.streamUpstreamResponse(c, resp, start)
+	result := svc.streamUpstreamResponse(c, resp, start, "")
 	_ = pr.Close()
 
 	require.NotNil(t, result)
@@ -1104,7 +1123,7 @@ func TestStreamUpstreamResponse_NormalComplete(t *testing.T) {
 		fmt.Fprintln(pw, "")
 	}()
 
-	result := svc.streamUpstreamResponse(c, resp, time.Now())
+	result := svc.streamUpstreamResponse(c, resp, time.Now(), "")
 	_ = pr.Close()
 
 	require.NotNil(t, result)
@@ -1307,7 +1326,7 @@ func TestStreamUpstreamResponse_ClientDisconnectDrainsUsage(t *testing.T) {
 		fmt.Fprintln(pw, "")
 	}()
 
-	result := svc.streamUpstreamResponse(c, resp, time.Now())
+	result := svc.streamUpstreamResponse(c, resp, time.Now(), "")
 	_ = pr.Close()
 
 	require.NotNil(t, result)
@@ -1332,7 +1351,7 @@ func TestStreamUpstreamResponse_ContextCanceled(t *testing.T) {
 
 	resp := &http.Response{StatusCode: http.StatusOK, Body: cancelReadCloser{}, Header: http.Header{}}
 
-	result := svc.streamUpstreamResponse(c, resp, time.Now())
+	result := svc.streamUpstreamResponse(c, resp, time.Now(), "")
 
 	require.NotNil(t, result)
 	require.True(t, result.clientDisconnect)
@@ -1354,7 +1373,7 @@ func TestStreamUpstreamResponse_Timeout(t *testing.T) {
 	pr, pw := io.Pipe()
 	resp := &http.Response{StatusCode: http.StatusOK, Body: pr, Header: http.Header{}}
 
-	result := svc.streamUpstreamResponse(c, resp, time.Now())
+	result := svc.streamUpstreamResponse(c, resp, time.Now(), "")
 	_ = pw.Close()
 	_ = pr.Close()
 
@@ -1384,7 +1403,7 @@ func TestStreamUpstreamResponse_TimeoutAfterClientDisconnect(t *testing.T) {
 		// 不关闭 pw → 等待超时
 	}()
 
-	result := svc.streamUpstreamResponse(c, resp, time.Now())
+	result := svc.streamUpstreamResponse(c, resp, time.Now(), "")
 	_ = pw.Close()
 	_ = pr.Close()
 
@@ -1650,6 +1669,147 @@ func TestAntigravityForwardUpstream_PreservesExtendedUsageFields(t *testing.T) {
 		CacheCreation1hTokens:    70,
 		ImageOutputTokens:        9,
 	}, result.Usage)
+}
+
+func TestAntigravityForwardUpstream_ResponseModelAuditBypass(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name           string
+		enabled        bool
+		expectedClient string
+	}{
+		{name: "enabled restores public request model", enabled: true, expectedClient: "public-model"},
+		{name: "disabled preserves upstream model", enabled: false, expectedClient: "runtime-alias"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			requestCtx := WithRequestedPublicModel(context.Background(), "public-model")
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil).WithContext(requestCtx)
+
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(
+					`{"type":"message","model":"runtime-alias","content":[],"usage":{"input_tokens":1,"output_tokens":2}}`,
+				)),
+			}}
+			svc := &AntigravityGatewayService{
+				httpUpstream:   upstream,
+				settingService: newResponseModelAuditTestSettingService(tc.enabled),
+			}
+			account := &Account{
+				ID:          1,
+				Name:        "upstream",
+				Type:        AccountTypeUpstream,
+				Credentials: map[string]any{"base_url": "https://upstream.example", "api_key": "test-key"},
+			}
+
+			result, err := svc.ForwardUpstream(
+				requestCtx,
+				c,
+				account,
+				[]byte(`{"model":"channel-model","stream":false}`),
+			)
+			require.NoError(t, err)
+			require.Equal(t, tc.expectedClient, gjson.Get(recorder.Body.String(), "model").String())
+			require.Equal(t, "runtime-alias", result.UpstreamResponseModel)
+			require.False(t, result.UpstreamResponseModelConflict)
+		})
+	}
+}
+
+func TestAntigravityStreamUpstreamResponse_ResponseModelAuditBypass(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name           string
+		enabled        bool
+		expectedClient string
+	}{
+		{name: "enabled restores public request model", enabled: true, expectedClient: "public-model"},
+		{name: "disabled preserves upstream model", enabled: false, expectedClient: "runtime-alias"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			requestCtx := WithRequestedPublicModel(context.Background(), "public-model")
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil).WithContext(requestCtx)
+			beginUpstreamResponseModelObservation(c)
+
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{},
+				Body: io.NopCloser(strings.NewReader(
+					"event: message_start\n" +
+						`data: {"type":"message_start","message":{"model":"runtime-alias","usage":{"input_tokens":1}}}` + "\n\n",
+				)),
+			}
+			svc := &AntigravityGatewayService{
+				settingService: newResponseModelAuditTestSettingService(tc.enabled),
+			}
+
+			result := svc.streamUpstreamResponse(c, resp, time.Now(), "channel-model")
+			require.NotNil(t, result)
+			require.Contains(t, recorder.Body.String(), `"model":"`+tc.expectedClient+`"`)
+			require.Equal(t, "runtime-alias", observedUpstreamResponseModel(c))
+		})
+	}
+}
+
+func TestAntigravityNativeConversion_ResponseModelAuditBypass(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name           string
+		enabled        bool
+		expectedClient string
+	}{
+		{name: "enabled restores public request model", enabled: true, expectedClient: "public-model"},
+		{name: "disabled preserves outer upstream model", enabled: false, expectedClient: "runtime-alias"},
+	} {
+		t.Run(tc.name+"/streaming", func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			requestCtx := WithRequestedPublicModel(context.Background(), "public-model")
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil).WithContext(requestCtx)
+			svc := &AntigravityGatewayService{settingService: newResponseModelAuditTestSettingService(tc.enabled)}
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{},
+				Body: io.NopCloser(strings.NewReader(
+					`data: {"modelVersion":"runtime-alias","response":{"responseId":"resp_model","candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}}` + "\n\n",
+				)),
+			}
+
+			result, err := svc.handleClaudeStreamingResponse(c, resp, time.Now(), "channel-model")
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Contains(t, recorder.Body.String(), `"model":"`+tc.expectedClient+`"`)
+			require.Equal(t, "runtime-alias", observedUpstreamResponseModel(c))
+		})
+
+		t.Run(tc.name+"/collected", func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			requestCtx := WithRequestedPublicModel(context.Background(), "public-model")
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil).WithContext(requestCtx)
+			svc := &AntigravityGatewayService{settingService: newResponseModelAuditTestSettingService(tc.enabled)}
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{},
+				Body: io.NopCloser(strings.NewReader(
+					`data: {"modelVersion":"runtime-alias","response":{"responseId":"resp_model","candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}}` + "\n\n",
+				)),
+			}
+
+			body, result, err := svc.collectClaudeStreamResponse(c, resp, time.Now(), "channel-model")
+
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, tc.expectedClient, gjson.GetBytes(body, "model").String())
+			require.Equal(t, "runtime-alias", observedUpstreamResponseModel(c))
+		})
+	}
 }
 
 // TestAntigravityClientWriter 验证 antigravityClientWriter 的断开检测

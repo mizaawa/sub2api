@@ -22,10 +22,10 @@ import (
 	"go.uber.org/zap"
 )
 
-// ForwardAsAnthropic accepts an Anthropic Messages request body, converts it
-// to OpenAI Responses API format, forwards to the OpenAI upstream, and converts
-// the response back to Anthropic Messages format. This enables Claude Code
-// clients to access OpenAI models through the standard /v1/messages endpoint.
+// ForwardAsAnthropic accepts an Anthropic Messages request body. OpenAI and
+// other compatibility accounts use the established conversion bridges, while
+// Custom API-key accounts forward the Messages protocol transparently to their
+// configured upstream.
 func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	ctx context.Context,
 	c *gin.Context,
@@ -35,6 +35,14 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
 	beginUpstreamResponseModelObservation(c)
+
+	// Custom accounts are API-key upstreams whose protocol is owned by the
+	// configured endpoint. Preserve the Anthropic Messages body and response
+	// exactly; conversion to Chat Completions would silently discard provider-
+	// specific fields and violates the Custom transparent-forwarding contract.
+	if account != nil && account.IsCustom() && account.Type == AccountTypeAPIKey {
+		return s.forwardCustomTransparent(ctx, c, account, body, customMessagesEndpoint)
+	}
 
 	// 入口分流：APIKey 账号 + 上游不支持 Responses API → 走 CC 直转（与
 	// ForwardAsChatCompletions 对称）。缺少此分流时，/v1/messages 入站请求
@@ -600,7 +608,13 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	// accumulated delta events so the client receives the full content.
 	acc.SupplementResponseOutput(finalResponse)
 
-	anthropicResp := apicompat.ResponsesToAnthropic(finalResponse, originalModel)
+	responseModel := downstreamResponseModel(
+		ginRequestContext(c),
+		s.settingService,
+		originalModel,
+		finalResponse.Model,
+	)
+	anthropicResp := apicompat.ResponsesToAnthropic(finalResponse, responseModel)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -830,7 +844,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
 
 	state := apicompat.NewResponsesEventToAnthropicState()
-	state.Model = originalModel
+	state.Model = downstreamResponseModelSeed(ginRequestContext(c), s.settingService, originalModel)
 	var usage OpenAIUsage
 	responseID := ""
 	var firstTokenMs *int

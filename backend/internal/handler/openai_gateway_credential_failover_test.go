@@ -115,6 +115,26 @@ func TestInferenceFailoverExhaustionRestoresRetryAfter(t *testing.T) {
 	require.Equal(t, "17", recorder.Header().Get("Retry-After"))
 }
 
+func TestCustomFailoverExhaustionPreservesRawUpstreamResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	h := &OpenAIGatewayHandler{gatewayService: new(service.OpenAIGatewayService)}
+	body := []byte(`{"error":{"type":"vendor_capacity","message":"opaque"},"vendor_code":77}`)
+
+	h.handleFailoverExhausted(c, &service.UpstreamFailoverError{
+		StatusCode:             http.StatusServiceUnavailable,
+		ResponseBody:           body,
+		ResponseHeaders:        http.Header{"Content-Type": []string{"application/problem+json"}, "Retry-After": []string{"11"}},
+		RawResponsePassthrough: true,
+	}, false)
+
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	require.Equal(t, "application/problem+json", recorder.Header().Get("Content-Type"))
+	require.Equal(t, "11", recorder.Header().Get("Retry-After"))
+	require.Equal(t, body, recorder.Body.Bytes())
+}
+
 func TestFailoverExhaustionRejectsSecretBearingRetryAfter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

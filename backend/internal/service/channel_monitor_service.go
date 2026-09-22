@@ -529,7 +529,8 @@ func (s *ChannelMonitorService) resolveMonitorGroup(ctx context.Context, groupID
 	if group.Status != StatusActive {
 		return nil, ErrChannelMonitorGroupInactive
 	}
-	if provider != MonitorProviderCustom && group.Platform != provider {
+	if (provider == MonitorProviderCustom && group.Platform != PlatformComposite) ||
+		(provider != MonitorProviderCustom && group.Platform != provider) {
 		return nil, ErrChannelMonitorGroupPlatformMismatch
 	}
 	return group, nil
@@ -1102,7 +1103,7 @@ func applyMonitorAdvancedUpdate(existing *ChannelMonitor, p ChannelMonitorUpdate
 	newAPIMode := defaultAPIMode(existing.APIMode)
 	if p.APIMode != nil {
 		newAPIMode = defaultAPIMode(*p.APIMode)
-	} else if existing.Provider != MonitorProviderOpenAI {
+	} else if !isMonitorResponsesProvider(existing.Provider) {
 		newAPIMode = MonitorAPIModeChatCompletions
 	}
 	if err := validateAPIMode(existing.Provider, newAPIMode); err != nil {

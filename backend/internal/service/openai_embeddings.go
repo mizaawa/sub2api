@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
 )
 
@@ -31,6 +32,7 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 		writeOpenAIEmbeddingsError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return nil, fmt.Errorf("missing model in request")
 	}
+	observer := beginUpstreamResponseModelObservation(c)
 
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
@@ -50,9 +52,9 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 	if apiKey == "" {
 		return nil, fmt.Errorf("account %d missing api_key", account.ID)
 	}
-	baseURL := account.GetOpenAIBaseURL()
-	if baseURL == "" {
-		baseURL = "https://api.openai.com"
+	baseURL, err := requireOpenAIBaseURL(account)
+	if err != nil {
+		return nil, err
 	}
 	validatedURL, err := s.validateUpstreamBaseURL(baseURL)
 	if err != nil {
@@ -150,17 +152,30 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 		}
 		return nil, fmt.Errorf("read upstream body: %w", err)
 	}
+	observer.ObserveOpenAI(respBody, "")
 
-	writeOpenAIEmbeddingsUpstreamResponse(c, resp, respBody, s.responseHeaderFilter)
+	downstreamBody := respBody
+	requestedResponseModel := downstreamRequestedModel(ginRequestContext(c), originalModel)
+	if strings.TrimSpace(requestedResponseModel) != "" && responseModelAuditBypassOn(ginRequestContext(c), s.settingService) {
+		if model := gjson.GetBytes(respBody, "model"); model.Type == gjson.String {
+			if rewritten, rewriteErr := sjson.SetBytes(respBody, "model", requestedResponseModel); rewriteErr == nil {
+				downstreamBody = rewritten
+			}
+		}
+	}
+
+	writeOpenAIEmbeddingsUpstreamResponse(c, resp, downstreamBody, s.responseHeaderFilter)
 
 	return &OpenAIForwardResult{
-		RequestID:     firstNonEmptyString(resp.Header.Get("x-request-id"), resp.Header.Get("request-id")),
-		Usage:         extractOpenAIEmbeddingsUsage(respBody),
-		Model:         originalModel,
-		BillingModel:  billingModel,
-		UpstreamModel: upstreamModel,
-		Stream:        false,
-		Duration:      time.Since(startTime),
+		RequestID:                     firstNonEmptyString(resp.Header.Get("x-request-id"), resp.Header.Get("request-id")),
+		Usage:                         extractOpenAIEmbeddingsUsage(respBody),
+		Model:                         originalModel,
+		BillingModel:                  billingModel,
+		UpstreamModel:                 upstreamModel,
+		UpstreamResponseModel:         observedUpstreamResponseModel(c),
+		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+		Stream:                        false,
+		Duration:                      time.Since(startTime),
 	}, nil
 }
 

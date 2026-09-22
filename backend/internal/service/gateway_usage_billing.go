@@ -72,16 +72,17 @@ type usageLogBestEffortWriter interface {
 
 // postUsageBillingParams 统一扣费所需的参数
 type postUsageBillingParams struct {
-	Cost                  *CostBreakdown
-	User                  *User
-	APIKey                *APIKey
-	Account               *Account
-	Subscription          *UserSubscription
-	RequestPayloadHash    string
-	IsSubscriptionBill    bool
-	AccountRateMultiplier float64
-	APIKeyService         APIKeyQuotaUpdater
-	Platform              string // 来自 APIKey 关联 Group 的平台标识
+	Cost                   *CostBreakdown
+	User                   *User
+	APIKey                 *APIKey
+	Account                *Account
+	Subscription           *UserSubscription
+	RequestPayloadHash     string
+	IsSubscriptionBill     bool
+	AccountRateMultiplier  float64
+	APIKeyService          APIKeyQuotaUpdater
+	Platform               string // 来自 APIKey 关联 Group 的平台标识
+	TrackUserPlatformQuota bool
 }
 
 // PlatformFromAPIKey 从 APIKey 关联的 Group 推导 platform 名称。
@@ -102,6 +103,9 @@ func PlatformFromAPIKey(apiKey *APIKey) string {
 // 后扣运行在 worker 池的 background ctx 上没有 ForcePlatform，因此后扣平台由 handler
 // 预先算定、经 RecordUsageInput.QuotaPlatform 传入，不要在后扣链路用 worker ctx 调用本函数。
 func QuotaPlatform(ctx context.Context, apiKey *APIKey) string {
+	if PlatformFromAPIKey(apiKey) == PlatformComposite {
+		return PlatformCustom
+	}
 	if ctx != nil {
 		if fp, ok := ctx.Value(ctxkey.ForcePlatform).(string); ok && fp != "" {
 			return fp
@@ -112,7 +116,7 @@ func QuotaPlatform(ctx context.Context, apiKey *APIKey) string {
 	}
 	platform := PlatformFromAPIKey(apiKey)
 	if platform == PlatformComposite {
-		return ""
+		return PlatformCustom
 	}
 	return platform
 }
@@ -252,6 +256,7 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		AccountID:          p.Account.ID,
 		AccountType:        p.Account.Type,
 		RequestPayloadHash: strings.TrimSpace(p.RequestPayloadHash),
+		ChargedAt:          time.Now().UTC(),
 	}
 	if usageLog != nil {
 		cmd.Model = usageLog.Model
@@ -292,16 +297,26 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 	if p.shouldUpdateAccountQuota() {
 		cmd.AccountQuotaCost = quantizedAccountQuotaCost(p.Cost.TotalCost, p.AccountRateMultiplier)
 	}
+	if p.TrackUserPlatformQuota && !p.IsSubscriptionBill && strings.TrimSpace(p.Platform) != "" && p.Cost.ActualCost > 0 {
+		cmd.Platform = strings.TrimSpace(p.Platform)
+		cmd.UserPlatformQuotaCost = p.Cost.ActualCost
+		cmd.PlatformDailyWindowStart = timezone.StartOfDay(cmd.ChargedAt)
+		cmd.PlatformWeeklyWindowStart = timezone.StartOfWeek(cmd.ChargedAt)
+	}
 
 	cmd.Normalize()
 	return cmd
 }
 
-func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog, p *postUsageBillingParams, deps *billingDeps, repo UsageBillingRepository) (bool, error) {
+func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog, p *postUsageBillingParams, deps *billingDeps, repo UsageBillingRepository) (bool, *UsageBillingCommand, error) {
 	if p == nil || p.Cost == nil || deps == nil {
-		return false, nil
+		return false, nil, nil
 	}
 
+	if !p.IsSubscriptionBill && p.Platform != "" && p.Cost.ActualCost > 0 && p.User != nil &&
+		deps.userPlatformQuotaRepo != nil && deps.billingCacheService != nil {
+		p.TrackUserPlatformQuota = deps.billingCacheService.HasUserPlatformQuotaLimit(ctx, p.User.ID, p.Platform)
+	}
 	cmd := buildUsageBillingCommand(requestID, usageLog, p)
 	normalizedParams := *p
 	normalizedCost := *p.Cost
@@ -309,7 +324,7 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	normalizedParams.Cost = &normalizedCost
 	if cmd == nil || cmd.RequestID == "" || repo == nil {
 		postUsageBilling(ctx, &normalizedParams, deps)
-		return true, nil
+		return true, nil, nil
 	}
 	// buildUsageBillingCommand has already derived the idempotency fingerprint
 	// from the raw amount and quantized its own SQL parameters. The normalized
@@ -321,12 +336,12 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 
 	result, err := repo.Apply(billingCtx, cmd)
 	if err != nil {
-		return false, err
+		return false, cmd, err
 	}
 
 	if result == nil || !result.Applied {
 		deps.deferredService.ScheduleLastUsedUpdate(p.Account.ID)
-		return false, nil
+		return false, cmd, nil
 	}
 
 	if result.APIKeyQuotaExhausted {
@@ -336,7 +351,7 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	}
 
 	finalizePostUsageBilling(billingCtx, &normalizedParams, deps, result)
-	return true, nil
+	return true, cmd, nil
 }
 
 func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *billingDeps, result *UsageBillingApplyResult) {
@@ -367,8 +382,12 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 	//   - flusher_enabled=true:不直写 DB,由 flusher 异步批量刷（markDirty 已在 IncrementUserPlatformQuotaUsage 内部完成）
 	if !p.IsSubscriptionBill && p.Platform != "" && p.Cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil {
 		if deps.billingCacheService.HasUserPlatformQuotaLimit(ctx, p.User.ID, p.Platform) {
-			deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, p.Cost.ActualCost)
-			if deps.cfg == nil || !deps.cfg.Database.UserPlatformQuotaFlusherEnabled {
+			if result != nil && result.UserPlatformQuotaApplied {
+				deps.billingCacheService.IncrementPersistedUserPlatformQuotaUsage(p.User.ID, p.Platform, p.Cost.ActualCost)
+			} else {
+				deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, p.Cost.ActualCost)
+			}
+			if (result == nil || !result.UserPlatformQuotaApplied) && (deps.cfg == nil || !deps.cfg.Database.UserPlatformQuotaFlusherEnabled) {
 				// 降级路径:flusher 未启用时保留原有异步直写 DB
 				dbCtx, dbCancel := detachUpstreamContext(ctx)
 				userID, platform, cost := p.User.ID, p.Platform, p.Cost.ActualCost
@@ -815,7 +834,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		}
 	}
 	requestID := usageLog.RequestID
-	_, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
+	_, _, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
 		Cost:                  cost,
 		User:                  user,
 		APIKey:                apiKey,

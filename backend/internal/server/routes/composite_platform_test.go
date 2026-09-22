@@ -65,7 +65,7 @@ func TestCompositeTargetPlatformMiddlewareResolvesModelAndRestoresBody(t *testin
 	router.POST("/", func(c *gin.Context) {
 		platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
 		require.True(t, ok)
-		require.Equal(t, service.PlatformOpenAI, platform)
+		require.Equal(t, service.PlatformCustom, platform)
 
 		body, err := io.ReadAll(c.Request.Body)
 		require.NoError(t, err)
@@ -82,7 +82,7 @@ func TestCompositeTargetPlatformMiddlewareResolvesModelAndRestoresBody(t *testin
 	require.Equal(t, http.StatusNoContent, w.Code)
 }
 
-func TestCompositeTargetPlatformMiddlewareUsesExplicitRouteAndRewritesBody(t *testing.T) {
+func TestCompositeTargetPlatformMiddlewareIgnoresLegacyExplicitRoute(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	resolver := service.NewCompositeRouteResolver(compositeRouteRepoStub{
@@ -112,15 +112,15 @@ func TestCompositeTargetPlatformMiddlewareUsesExplicitRouteAndRewritesBody(t *te
 	router.POST("/v1/chat/completions", func(c *gin.Context) {
 		platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
 		require.True(t, ok)
-		require.Equal(t, service.PlatformOpenAI, platform)
+		require.Equal(t, service.PlatformCustom, platform)
 
 		upstreamModel, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context())
 		require.True(t, ok)
-		require.Equal(t, "gpt-5", upstreamModel)
+		require.Equal(t, "openrouter/gpt-5", upstreamModel)
 
 		body, err := io.ReadAll(c.Request.Body)
 		require.NoError(t, err)
-		require.JSONEq(t, `{"model":"gpt-5","messages":[]}`, string(body))
+		require.JSONEq(t, `{"model":"openrouter/gpt-5","messages":[]}`, string(body))
 		c.Status(http.StatusNoContent)
 	})
 
@@ -133,7 +133,7 @@ func TestCompositeTargetPlatformMiddlewareUsesExplicitRouteAndRewritesBody(t *te
 	require.Equal(t, http.StatusNoContent, w.Code)
 }
 
-func TestCompositeTargetPlatformMiddlewareUsesExplicitRouteForMultipartImages(t *testing.T) {
+func TestCompositeTargetPlatformMiddlewareKeepsMultipartModelForCustom(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	resolver := service.NewCompositeRouteResolver(compositeRouteRepoStub{
@@ -163,11 +163,11 @@ func TestCompositeTargetPlatformMiddlewareUsesExplicitRouteForMultipartImages(t 
 	router.POST("/v1/images/edits", func(c *gin.Context) {
 		platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
 		require.True(t, ok)
-		require.Equal(t, service.PlatformOpenAI, platform)
+		require.Equal(t, service.PlatformCustom, platform)
 
 		upstreamModel, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context())
 		require.True(t, ok)
-		require.Equal(t, "gpt-image-1", upstreamModel)
+		require.Equal(t, "image-alias", upstreamModel)
 
 		publicModel, ok := service.RequestedPublicModelFromContext(c.Request.Context())
 		require.True(t, ok)
@@ -194,7 +194,7 @@ func TestCompositeTargetPlatformMiddlewareUsesExplicitRouteForMultipartImages(t 
 	require.Equal(t, http.StatusNoContent, w.Code)
 }
 
-func TestCompositeGeminiTargetPlatformMiddlewareUsesPathRoute(t *testing.T) {
+func TestCompositeGeminiTargetPlatformMiddlewareKeepsCustomBoundary(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	resolver := service.NewCompositeRouteResolver(compositeRouteRepoStub{
@@ -224,11 +224,11 @@ func TestCompositeGeminiTargetPlatformMiddlewareUsesPathRoute(t *testing.T) {
 	router.POST("/v1beta/models/*modelAction", func(c *gin.Context) {
 		platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
 		require.True(t, ok)
-		require.Equal(t, service.PlatformGemini, platform)
+		require.Equal(t, service.PlatformCustom, platform)
 
 		upstreamModel, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context())
 		require.True(t, ok)
-		require.Equal(t, "gemini-2.5-pro", upstreamModel)
+		require.Equal(t, "openrouter/gemini-pro", upstreamModel)
 		c.Status(http.StatusNoContent)
 	})
 
@@ -236,6 +236,32 @@ func TestCompositeGeminiTargetPlatformMiddlewareUsesPathRoute(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestCompositeGeminiTargetPlatformMiddlewareDoesNotFallbackToGeminiWithoutModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(gin.HandlerFunc(servermiddleware.APIKeyAuthMiddleware(func(c *gin.Context) {
+		groupID := int64(1)
+		c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{
+			GroupID: &groupID,
+			Group:   &service.Group{ID: groupID, Platform: service.PlatformComposite},
+		})
+		c.Next()
+	})))
+	router.Use(compositeGeminiTargetPlatformMiddleware(nil))
+	router.GET("/v1beta/models", func(c *gin.Context) {
+		platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
+		require.True(t, ok)
+		require.Equal(t, service.PlatformCustom, platform)
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1beta/models", nil)
+	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusNoContent, w.Code)

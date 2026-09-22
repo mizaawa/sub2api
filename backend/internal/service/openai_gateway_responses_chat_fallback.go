@@ -141,7 +141,13 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 	if err != nil {
 		return nil, err
 	}
-	responsesResp := apicompat.ChatCompletionsResponseToResponses(ccResp, originalModel, customTools, toolSearch, namespaceTools)
+	responseModel := downstreamResponseModel(
+		ginRequestContext(c),
+		s.settingService,
+		originalModel,
+		ccResp.Model,
+	)
+	responsesResp := apicompat.ChatCompletionsResponseToResponses(ccResp, responseModel, customTools, toolSearch, namespaceTools)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -177,7 +183,8 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	requestID := resp.Header.Get("x-request-id")
 	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
 
-	state := apicompat.NewChatCompletionsToResponsesStreamState(originalModel)
+	responseModel := downstreamResponseModelSeed(ginRequestContext(c), s.settingService, originalModel)
+	state := apicompat.NewChatCompletionsToResponsesStreamState(responseModel)
 	state.CustomTools = customTools
 	state.ToolSearchDeclared = toolSearch
 	state.NamespaceTools = namespaceTools

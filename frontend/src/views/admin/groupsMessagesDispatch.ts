@@ -1,4 +1,4 @@
-import type { OpenAIMessagesDispatchModelConfig } from "@/types";
+import type { GroupPlatform, OpenAIMessagesDispatchModelConfig } from "@/types";
 
 export interface MessagesDispatchMappingRow {
   claude_model: string;
@@ -21,6 +21,10 @@ export function createDefaultMessagesDispatchFormState(): MessagesDispatchFormSt
     haiku_mapped_model: "gpt-5.4-mini",
     exact_model_mappings: [],
   };
+}
+
+export function supportsMessagesDispatchPlatform(platform: GroupPlatform): boolean {
+  return platform === "openai" || platform === "custom" || platform === "composite";
 }
 
 export function messagesDispatchConfigToFormState(

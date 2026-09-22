@@ -397,16 +397,6 @@
                 </span>
               </button>
               <button
-                v-if="row.platform === 'composite'"
-                @click="handleCompositeRoutes(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-cyan-600 dark:hover:bg-dark-700 dark:hover:text-cyan-400"
-              >
-                <Icon name="swap" size="sm" />
-                <span class="text-xs">{{
-                  t("admin.groups.compositeRoutes.action")
-                }}</span>
-              </button>
-              <button
                 @click="handleRateMultipliers(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-purple-600 dark:hover:bg-dark-700 dark:hover:text-purple-400"
               >
@@ -1506,9 +1496,9 @@
           </p>
         </div>
 
-        <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
+        <!-- OpenAI-compatible Messages 调度配置 -->
         <div
-          v-if="createForm.platform === 'openai'"
+          v-if="supportsMessagesDispatchPlatform(createForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -3126,9 +3116,9 @@
           </p>
         </div>
 
-        <!-- OpenAI Messages 调度配置（仅 openai 平台） -->
+        <!-- OpenAI-compatible Messages 调度配置 -->
         <div
-          v-if="editForm.platform === 'openai'"
+          v-if="supportsMessagesDispatchPlatform(editForm.platform)"
           class="border-t border-gray-200 dark:border-dark-400 pt-4 mt-4"
         >
           <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -4241,6 +4231,7 @@ import {
   messagesDispatchConfigToFormState,
   messagesDispatchFormStateToConfig,
   resetMessagesDispatchFormState,
+  supportsMessagesDispatchPlatform,
   type MessagesDispatchMappingRow,
 } from "./groupsMessagesDispatch";
 import {
@@ -4520,7 +4511,7 @@ const platformOptions = computed(() => [
   { value: "gemini", label: "Gemini" },
   { value: "antigravity", label: "Antigravity" },
   { value: "grok", label: "Grok" },
-  { value: "composite", label: "Composite" },
+  { value: "composite", label: "Custom" },
 ]);
 
 const platformFilterOptions = computed(() => [
@@ -4530,7 +4521,7 @@ const platformFilterOptions = computed(() => [
   { value: "gemini", label: "Gemini" },
   { value: "antigravity", label: "Antigravity" },
   { value: "grok", label: "Grok" },
-  { value: "composite", label: "Composite" },
+  { value: "composite", label: "Custom" },
 ]);
 
 const compositeRoutePlatformOptions = computed(() => [
@@ -4657,7 +4648,7 @@ const invalidRequestFallbackOptionsForEdit = computed(() => {
 });
 
 const canCopyAccountsFromGroup = (targetPlatform: GroupPlatform, sourcePlatform: GroupPlatform) =>
-  targetPlatform === "composite" || sourcePlatform === targetPlatform;
+  sourcePlatform === targetPlatform;
 
 const copyAccountsGroupLabel = (g: AdminGroup) => {
   const count = g.account_count || 0;
@@ -4665,7 +4656,7 @@ const copyAccountsGroupLabel = (g: AdminGroup) => {
   return `${g.name} - ${platform} (${t("admin.groups.accountsCount", { count })})`;
 };
 
-// 复制账号的源分组选项（创建时）- 相同平台；composite 分组可汇总各平台账号
+// 复制账号的源分组选项（创建时）- 仅允许相同平台
 const copyAccountsGroupOptions = computed(() => {
   const eligibleGroups = groups.value.filter(
     (g) =>
@@ -4678,7 +4669,7 @@ const copyAccountsGroupOptions = computed(() => {
   }));
 });
 
-// 复制账号的源分组选项（编辑时）- 相同平台；composite 分组可汇总各平台账号，排除自身
+// 复制账号的源分组选项（编辑时）- 仅允许相同平台并排除自身
 const copyAccountsGroupOptionsForEdit = computed(() => {
   const currentId = editingGroup.value?.id;
   const eligibleGroups = groups.value.filter(
@@ -5759,7 +5750,7 @@ const handleCreateGroup = async () => {
         createForm.supported_model_scopes,
       ),
       messages_dispatch_model_config:
-        createForm.platform === "openai"
+        supportsMessagesDispatchPlatform(createForm.platform)
           ? messagesDispatchFormStateToConfig({
               allow_messages_dispatch: createForm.allow_messages_dispatch,
               opus_mapped_model: createForm.opus_mapped_model,
@@ -6006,7 +5997,7 @@ const handleUpdateGroup = async () => {
         editForm.supported_model_scopes,
       ),
       messages_dispatch_model_config:
-        editForm.platform === "openai"
+        supportsMessagesDispatchPlatform(editForm.platform)
           ? messagesDispatchFormStateToConfig({
               allow_messages_dispatch: editForm.allow_messages_dispatch,
               opus_mapped_model: editForm.opus_mapped_model,
@@ -6200,16 +6191,6 @@ const loadCompositeRoutes = async () => {
   }
 };
 
-const handleCompositeRoutes = async (group: AdminGroup) => {
-  compositeRoutesGroup.value = group;
-  compositePreviewModel.value = "";
-  compositePreviewEndpoint.value = "any";
-  compositePreviewDecision.value = null;
-  resetCompositeRouteForm();
-  showCompositeRoutesModal.value = true;
-  await loadCompositeRoutes();
-};
-
 const closeCompositeRoutesModal = () => {
   showCompositeRoutesModal.value = false;
   compositeRoutesGroup.value = null;
@@ -6372,8 +6353,10 @@ watch(
     if (!["anthropic", "antigravity"].includes(newVal)) {
       createForm.fallback_group_id_on_invalid_request = null;
     }
-    if (newVal !== "openai") {
+    if (!supportsMessagesDispatchPlatform(newVal)) {
       resetMessagesDispatchFormState(createForm);
+    }
+    if (newVal !== "openai") {
       createForm.allow_live = false;
     }
     if (!isProfitControlPlatform(newVal)) {
@@ -6420,8 +6403,10 @@ watch(
     if (!["anthropic", "antigravity"].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null;
     }
-    if (newVal !== "openai") {
+    if (!supportsMessagesDispatchPlatform(newVal)) {
       resetMessagesDispatchFormState(editForm);
+    }
+    if (newVal !== "openai") {
       editForm.allow_live = false;
     }
     if (!isProfitControlPlatform(newVal)) {
@@ -6470,11 +6455,11 @@ watch(
     if (!['anthropic', 'antigravity'].includes(newVal)) {
       editForm.fallback_group_id_on_invalid_request = null
     }
-    if (newVal !== 'openai') {
+    if (!supportsMessagesDispatchPlatform(newVal)) {
       editForm.allow_messages_dispatch = false
-      editForm.allow_live = false
       editForm.default_mapped_model = ''
     }
+    if (newVal !== 'openai') editForm.allow_live = false
   }
 )
 

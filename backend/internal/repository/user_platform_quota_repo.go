@@ -46,6 +46,7 @@ type UserPlatformQuotaSnapshot struct {
 	DailyWindowStart   time.Time
 	WeeklyWindowStart  time.Time
 	MonthlyWindowStart time.Time
+	SnapshotAt         time.Time
 }
 
 // UserPlatformQuotaRepository 定义用户平台配额的数据访问接口。
@@ -441,7 +442,7 @@ func insertLimitsRow(ctx context.Context, client *dbent.Client, userID int64, re
 const batchRows = 6000
 
 // BatchSnapshotUsage 用一条多行 UPSERT 把整批 usage 以绝对值覆盖写入（非累加）。
-// 每批最多 batchRows 行；$1=now 共用；每行 8 个 per-row 参（user_id, platform, 3×usage, 3×window_start）。
+// 每批最多 batchRows 行；$1=now 共用；每行 9 个 per-row 参（user_id, platform, 3×usage, 3×window_start, snapshot_at）。
 // FK 违反（user_id 不存在）返回 ErrUserPlatformQuotaFKViolation。
 //
 // 注意:snapshots 超过 batchRows 会分多条 SQL 执行且【非单事务】——若某子批 FK 失败,
@@ -470,19 +471,24 @@ func (r *userPlatformQuotaRepository) BatchSnapshotUsage(ctx context.Context, sn
 				" daily_window_start, weekly_window_start, monthly_window_start, created_at, updated_at)" +
 				" VALUES ")
 
-		// $1 = now（共用）；每行 8 个 per-row 参，从 $2 起连续编号。
+		// $1 = now（共用）；每行 9 个 per-row 参，从 $2 起连续编号。
 		args := []any{now}
 		for i, s := range batch {
 			if i > 0 {
 				_, _ = sb.WriteString(",")
 			}
 			b := len(args) // 当前 per-row 第一个参数的 0-based 索引，实际占位符 = b+1
-			fmt.Fprintf(&sb, "($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$1,$1)",
-				b+1, b+2, b+3, b+4, b+5, b+6, b+7, b+8)
+			fmt.Fprintf(&sb, "($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$1,$%d)",
+				b+1, b+2, b+3, b+4, b+5, b+6, b+7, b+8, b+9)
+			snapshotAt := s.SnapshotAt
+			if snapshotAt.IsZero() {
+				snapshotAt = now
+			}
 			args = append(args,
 				s.UserID, s.Platform,
 				s.DailyUsageUSD, s.WeeklyUsageUSD, s.MonthlyUsageUSD,
 				s.DailyWindowStart, s.WeeklyWindowStart, s.MonthlyWindowStart,
+				snapshotAt,
 			)
 		}
 
@@ -494,7 +500,8 @@ func (r *userPlatformQuotaRepository) BatchSnapshotUsage(ctx context.Context, sn
 				"  daily_window_start   = EXCLUDED.daily_window_start," +
 				"  weekly_window_start  = EXCLUDED.weekly_window_start," +
 				"  monthly_window_start = EXCLUDED.monthly_window_start," +
-				"  updated_at           = EXCLUDED.updated_at")
+				"  updated_at           = EXCLUDED.updated_at" +
+				" WHERE user_platform_quotas.updated_at <= EXCLUDED.updated_at")
 
 		if _, err := client.ExecContext(ctx, sb.String(), args...); err != nil {
 			var pqErr *pq.Error

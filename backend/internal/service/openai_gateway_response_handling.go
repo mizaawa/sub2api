@@ -23,15 +23,10 @@ import (
 )
 
 func (s *OpenAIGatewayService) responseModelAuditBypassEnabled(c *gin.Context) bool {
-	if s == nil || c == nil || c.Request == nil {
+	if s == nil {
 		return false
 	}
-	// Keep lightweight test/compatibility instances without a settings service
-	// on the historical response-rewrite path.
-	if s.settingService == nil {
-		return true
-	}
-	return s.settingService.ResponseModelAuditBypassEnabled(c.Request.Context())
+	return responseModelAuditBypassOn(ginRequestContext(c), s.settingService)
 }
 
 // openaiStreamingResult streaming response result
@@ -301,7 +296,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		lastDownstreamWriteAt = time.Now()
 	}
 
-	needModelReplace := originalModel != mappedModel && s.responseModelAuditBypassEnabled(c)
+	requestedResponseModel := downstreamRequestedModel(ginRequestContext(c), originalModel)
+	needModelReplace := strings.TrimSpace(requestedResponseModel) != "" && s.responseModelAuditBypassEnabled(c)
 	streamOutputAccumulator := apicompat.NewBufferedResponseAccumulator()
 	streamImageOutputs := make([]json.RawMessage, 0, 1)
 	streamSeenImages := make(map[string]struct{})
@@ -533,8 +529,8 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 			// Replace model in response if needed.
 			// Fast path: most events do not contain model field values.
-			if needModelReplace && mappedModel != "" && strings.Contains(line, mappedModel) {
-				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
+			if needModelReplace {
+				line = s.replaceModelInSSELine(line, mappedModel, requestedResponseModel)
 			}
 			startsClientOutput := forceFlushFailedEvent || openAIStreamDataStartsClientOutput(data, eventType)
 			if guardFirstOutput {
@@ -849,34 +845,29 @@ func openAICompatPayloadWithEventType(payload, eventType string) string {
 	return patched
 }
 
-func (s *OpenAIGatewayService) replaceModelInSSELine(line, fromModel, toModel string) string {
+func (s *OpenAIGatewayService) replaceModelInSSELine(line, _ string, toModel string) string {
+	if strings.TrimSpace(toModel) == "" {
+		return line
+	}
 	data, ok := extractOpenAISSEDataLine(line)
-	if !ok {
-		return line
-	}
-	if data == "" || data == "[DONE]" {
+	if !ok || !gjson.Valid(data) {
 		return line
 	}
 
-	// 使用 gjson 精确检查 model 字段，避免全量 JSON 反序列化
-	if m := gjson.Get(data, "model"); m.Exists() && m.Str == fromModel {
-		newData, err := sjson.Set(data, "model", toModel)
-		if err != nil {
-			return line
+	updated := data
+	for _, path := range []string{"model", "response.model"} {
+		if m := gjson.Get(updated, path); m.Type == gjson.String {
+			var err error
+			updated, err = sjson.Set(updated, path, toModel)
+			if err != nil {
+				return line
+			}
 		}
-		return "data: " + newData
 	}
-
-	// 检查嵌套的 response.model 字段
-	if m := gjson.Get(data, "response.model"); m.Exists() && m.Str == fromModel {
-		newData, err := sjson.Set(data, "response.model", toModel)
-		if err != nil {
-			return line
-		}
-		return "data: " + newData
+	if updated == data {
+		return line
 	}
-
-	return line
+	return "data: " + updated
 }
 
 // correctToolCallsInResponseBody 修正响应体中的工具调用
@@ -1332,8 +1323,9 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	usage := &usageValue
 
 	// Replace model in response if needed
-	if originalModel != mappedModel && s.responseModelAuditBypassEnabled(c) {
-		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
+	requestedResponseModel := downstreamRequestedModel(ginRequestContext(c), originalModel)
+	if strings.TrimSpace(requestedResponseModel) != "" && s.responseModelAuditBypassEnabled(c) {
+		body = s.replaceModelInResponseBody(body, mappedModel, requestedResponseModel)
 	}
 	body, err = restoreGrokResponsesClientToolPayload(c, body)
 	if err != nil {
@@ -1409,8 +1401,9 @@ func (s *OpenAIGatewayService) handleSSEToJSON(ctx context.Context, resp *http.R
 		}
 		finalResponse = supplementCompactionItemFromSSE(c, finalResponse, bodyText)
 		body = finalResponse
-		if originalModel != mappedModel && s.responseModelAuditBypassEnabled(c) {
-			body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
+		requestedResponseModel := downstreamRequestedModel(ginRequestContext(c), originalModel)
+		if strings.TrimSpace(requestedResponseModel) != "" && s.responseModelAuditBypassEnabled(c) {
+			body = s.replaceModelInResponseBody(body, mappedModel, requestedResponseModel)
 		}
 		// Correct tool calls in final response
 		body = s.correctToolCallsInResponseBody(body)
@@ -1433,8 +1426,9 @@ func (s *OpenAIGatewayService) handleSSEToJSON(ctx context.Context, resp *http.R
 			return nil, s.writeOpenAINonStreamingProtocolError(resp, c, msg)
 		}
 		usage = s.parseSSEUsageFromBody(bodyText)
-		if originalModel != mappedModel && s.responseModelAuditBypassEnabled(c) {
-			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, originalModel)
+		requestedResponseModel := downstreamRequestedModel(ginRequestContext(c), originalModel)
+		if strings.TrimSpace(requestedResponseModel) != "" && s.responseModelAuditBypassEnabled(c) {
+			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, requestedResponseModel)
 		}
 		body = []byte(bodyText)
 	}

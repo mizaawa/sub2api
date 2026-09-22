@@ -44,6 +44,40 @@ func TestRewriteGeminiResponseModel(t *testing.T) {
 	require.Equal(t, `{"candidates":[]}`, string(rewriteGeminiResponseModel([]byte(`{"candidates":[]}`), "requested-model")))
 }
 
+func TestRewriteAnthropicResponseModel(t *testing.T) {
+	t.Run("non-streaming response", func(t *testing.T) {
+		body := []byte(`{"type":"message","model":"upstream-model","content":[]}`)
+		rewritten := rewriteAnthropicResponseModel(body, "requested-model")
+
+		require.JSONEq(t, `{"type":"message","model":"requested-model","content":[]}`, string(rewritten))
+		require.Equal(t, "upstream-model", anthropicResponseModel(body))
+	})
+
+	t.Run("message start event", func(t *testing.T) {
+		body := []byte(`{"type":"message_start","message":{"model":"runtime-alias","usage":{}}}`)
+		rewritten := rewriteAnthropicResponseModel(body, "requested-model")
+
+		require.JSONEq(t, `{"type":"message_start","message":{"model":"requested-model","usage":{}}}`, string(rewritten))
+		require.Equal(t, "runtime-alias", anthropicResponseModel(body))
+	})
+
+	t.Run("fills omitted model on message shapes", func(t *testing.T) {
+		require.JSONEq(t,
+			`{"type":"message","content":[],"model":"requested-model"}`,
+			string(rewriteAnthropicResponseModel([]byte(`{"type":"message","content":[]}`), "requested-model")),
+		)
+		require.JSONEq(t,
+			`{"type":"message_start","message":{"usage":{},"model":"requested-model"}}`,
+			string(rewriteAnthropicResponseModel([]byte(`{"type":"message_start","message":{"usage":{}}}`), "requested-model")),
+		)
+	})
+
+	t.Run("does not add model to unrelated event", func(t *testing.T) {
+		body := []byte(`{"type":"content_block_delta","delta":{"text":"hello"}}`)
+		require.Equal(t, string(body), string(rewriteAnthropicResponseModel(body, "requested-model")))
+	})
+}
+
 func TestUpstreamResponseModelObservationAttemptReset(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(nil)

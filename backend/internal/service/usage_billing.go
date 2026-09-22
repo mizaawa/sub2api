@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/shopspring/decimal"
 )
@@ -42,6 +43,14 @@ type UsageBillingCommand struct {
 	APIKeyQuotaCost     float64
 	APIKeyRateLimitCost float64
 	AccountQuotaCost    float64
+	// UserPlatformQuotaCost is persisted by the unified billing transaction.
+	// Keeping it on the receipt lets asynchronous media failures reverse every
+	// ledger touched by the original charge, not only the user's balance.
+	UserPlatformQuotaCost     float64
+	Platform                  string
+	ChargedAt                 time.Time
+	PlatformDailyWindowStart  time.Time
+	PlatformWeeklyWindowStart time.Time
 }
 
 // NormalizeMonetaryFields rounds every billable component to the database
@@ -103,6 +112,7 @@ func (c *UsageBillingCommand) quantizeMonetaryFields() {
 	c.APIKeyQuotaCost = QuantizeUsageBillingAmount(c.APIKeyQuotaCost)
 	c.APIKeyRateLimitCost = QuantizeUsageBillingAmount(c.APIKeyRateLimitCost)
 	c.AccountQuotaCost = QuantizeUsageBillingAmount(c.AccountQuotaCost)
+	c.UserPlatformQuotaCost = QuantizeUsageBillingAmount(c.UserPlatformQuotaCost)
 }
 
 // QuantizeUsageBillingAmount 把金额舍入到 UsageBillingMonetaryScale 位小数，
@@ -149,8 +159,74 @@ func buildUsageBillingFingerprint(c *UsageBillingCommand) string {
 	if payloadHash := strings.TrimSpace(c.RequestPayloadHash); payloadHash != "" {
 		raw += "|" + payloadHash
 	}
+	// Keep the legacy fingerprint byte-for-byte stable for ordinary requests.
+	// Platform quota metadata is appended only when that ledger is actually
+	// updated, avoiding rolling-upgrade conflicts for existing idempotency keys.
+	if c.UserPlatformQuotaCost > 0 {
+		raw += fmt.Sprintf("|platform:%s|platform_cost:%0.10f", strings.TrimSpace(c.Platform), c.UserPlatformQuotaCost)
+		// Async video receipts are later presented from the task ledger to
+		// select the exact quota windows being reversed. Bind those mutable
+		// selectors into the persisted charge fingerprint. Ordinary request
+		// fingerprints remain byte-for-byte compatible across rolling deploys.
+		if strings.HasPrefix(strings.TrimSpace(c.RequestID), "video:") {
+			raw += "|charged_at:" + c.ChargedAt.UTC().Format(time.RFC3339Nano)
+			raw += "|platform_day:" + c.PlatformDailyWindowStart.UTC().Format(time.RFC3339Nano)
+			raw += "|platform_week:" + c.PlatformWeeklyWindowStart.UTC().Format(time.RFC3339Nano)
+		}
+	}
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
+}
+
+func (c *UsageBillingCommand) HasValidFingerprint() bool {
+	if c == nil || strings.TrimSpace(c.RequestFingerprint) == "" {
+		return false
+	}
+	want := strings.TrimSpace(c.RequestFingerprint)
+	copyCommand := *c
+	copyCommand.RequestFingerprint = ""
+	copyCommand.Normalize()
+	return copyCommand.RequestFingerprint == want
+}
+
+// UsageBillingReversalCommand describes an idempotent compensation for a
+// previously applied charge. Original carries the exact normalized effects
+// returned by the billing path, so settings changed after task creation cannot
+// alter the refund amount.
+type UsageBillingReversalCommand struct {
+	ReversalRequestID string
+	Original          UsageBillingCommand
+}
+
+func (c *UsageBillingReversalCommand) Normalize() {
+	if c == nil {
+		return
+	}
+	c.ReversalRequestID = strings.TrimSpace(c.ReversalRequestID)
+	c.Original.Normalize()
+}
+
+type UsageBillingReversalResult struct {
+	Applied    bool
+	NewBalance *float64
+}
+
+func UsageBillingReversalFingerprint(c *UsageBillingReversalCommand) string {
+	if c == nil {
+		return ""
+	}
+	original := c.Original
+	original.Normalize()
+	raw := "reverse|" + original.RequestID + "|" + original.RequestFingerprint
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+// UsageBillingReversalRepository is optional so existing test doubles and
+// alternate repositories remain source compatible. Production's unified
+// repository implements it.
+type UsageBillingReversalRepository interface {
+	Reverse(ctx context.Context, cmd *UsageBillingReversalCommand) (*UsageBillingReversalResult, error)
 }
 
 func HashUsageRequestPayload(payload []byte) string {
@@ -180,11 +256,12 @@ type AccountQuotaState struct {
 }
 
 type UsageBillingApplyResult struct {
-	Applied              bool
-	APIKeyQuotaExhausted bool
-	NewBalance           *float64           // post-deduction balance (nil = no balance deduction)
-	BalanceOverdrafted   bool               // true when the sufficient-balance guard missed and debt was still recorded
-	QuotaState           *AccountQuotaState // post-increment quota state (nil = no quota increment)
+	Applied                  bool
+	APIKeyQuotaExhausted     bool
+	UserPlatformQuotaApplied bool
+	NewBalance               *float64           // post-deduction balance (nil = no balance deduction)
+	BalanceOverdrafted       bool               // true when the sufficient-balance guard missed and debt was still recorded
+	QuotaState               *AccountQuotaState // post-increment quota state (nil = no quota increment)
 }
 
 // BatchImageBalanceHoldCommand describes an idempotent balance hold operation.

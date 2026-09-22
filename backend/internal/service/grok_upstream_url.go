@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"net/url"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
@@ -120,5 +121,37 @@ func buildGrokMediaURL(account *Account, cfg *config.Config, endpoint GrokMediaE
 		return videoURL + "/content", nil
 	default:
 		return "", fmt.Errorf("unsupported grok media endpoint: %s", endpoint)
+	}
+}
+
+func (s *OpenAIGatewayService) buildCompatibleMediaURL(account *Account, endpoint GrokMediaEndpoint, requestID string) (string, error) {
+	if account == nil {
+		return "", fmt.Errorf("media account is required")
+	}
+	if account.Platform == PlatformGrok {
+		return buildGrokMediaURL(account, s.cfg, endpoint, requestID)
+	}
+	if account.Platform != PlatformCustom {
+		return "", fmt.Errorf("account platform %s is not supported for media", account.Platform)
+	}
+
+	baseURL := account.GetOpenAIBaseURL()
+	if baseURL == "" {
+		return "", fmt.Errorf("custom account missing base_url")
+	}
+	validatedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
+	if err != nil {
+		return "", err
+	}
+	escapedID := url.PathEscape(requestID)
+	switch endpoint {
+	case GrokMediaEndpointVideosGenerations:
+		return buildOpenAIEndpointURL(validatedBaseURL, "/v1/videos"), nil
+	case GrokMediaEndpointVideoStatus:
+		return buildOpenAIEndpointURL(validatedBaseURL, "/v1/videos/"+escapedID), nil
+	case GrokMediaEndpointVideoContent:
+		return buildOpenAIEndpointURL(validatedBaseURL, "/v1/videos/"+escapedID+"/content"), nil
+	default:
+		return "", fmt.Errorf("custom media endpoint %s is not supported", endpoint)
 	}
 }

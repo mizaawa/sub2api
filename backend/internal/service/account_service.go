@@ -219,9 +219,16 @@ func NewAccountService(accountRepo AccountRepository, groupRepo GroupRepository)
 
 // Create 创建账号
 func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (*Account, error) {
+	if err := validateCustomAccountCredentials(req.Platform, req.Type, req.Credentials); err != nil {
+		return nil, err
+	}
+
 	// 验证分组是否存在（如果指定了分组）
 	if len(req.GroupIDs) > 0 {
 		if err := s.validateGroupIDsExist(ctx, req.GroupIDs); err != nil {
+			return nil, err
+		}
+		if err := validateCustomAccountGroupBindings(ctx, s.groupRepo, req.Platform, req.GroupIDs); err != nil {
 			return nil, err
 		}
 	}
@@ -360,10 +367,16 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	if req.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
 	}
+	if err := validateCustomAccountCredentials(account.Platform, account.Type, account.Credentials); err != nil {
+		return nil, err
+	}
 
 	// 先验证分组是否存在（在任何写操作之前）
 	if req.GroupIDs != nil {
 		if err := s.validateGroupIDsExist(ctx, *req.GroupIDs); err != nil {
+			return nil, err
+		}
+		if err := validateCustomAccountGroupBindings(ctx, s.groupRepo, account.Platform, *req.GroupIDs); err != nil {
 			return nil, err
 		}
 	}

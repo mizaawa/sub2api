@@ -48,7 +48,10 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return nil, fmt.Errorf("missing model in request")
 	}
-	applyOpenAICompatModelNormalization(&anthropicReq)
+	isCustom := account != nil && account.IsCustom() && account.Type == AccountTypeAPIKey
+	if !isCustom {
+		applyOpenAICompatModelNormalization(&anthropicReq)
+	}
 	clientStream := anthropicReq.Stream
 
 	// 2. Anthropic → Chat Completions (direct, no Responses intermediary)
@@ -60,8 +63,14 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 
 	billingModel := resolveOpenAIForwardModel(account, anthropicReq.Model, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	if isCustom {
+		billingModel = originalModel
+		upstreamModel = originalModel
+	}
 	chatReq.Model = upstreamModel
-	chatReq.ReasoningEffort = openAICompatAnthropicReasoningEffort(&anthropicReq, upstreamModel, chatReq.ReasoningEffort)
+	if !isCustom {
+		chatReq.ReasoningEffort = openAICompatAnthropicReasoningEffort(&anthropicReq, upstreamModel, chatReq.ReasoningEffort)
+	}
 	chatReq.Stream = clientStream
 	if clientStream {
 		chatReq.StreamOptions = &apicompat.ChatStreamOptions{IncludeUsage: true}
@@ -69,17 +78,23 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 
 	convertedEffort := chatReq.ReasoningEffort
 	reasoningEffort := &convertedEffort
-	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
+	if isCustom {
+		reasoningEffort = extractOpenAIReasoningEffortFromBody(body, originalModel)
+	} else {
+		reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
+	}
 	serviceTier := extractOpenAIServiceTierFromBody(body)
 
 	chatBody, err := json.Marshal(chatReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal chat completions request: %w", err)
 	}
-	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(chatBody, upstreamModel); normalized {
-		chatBody = normalizedBody
+	if !isCustom {
+		if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(chatBody, upstreamModel); normalized {
+			chatBody = normalizedBody
+		}
 	}
-	if account.Platform == PlatformOpenAI {
+	if account.Platform == PlatformOpenAI && !isCustom {
 		if policyBody, changed := ApplyOpenAIReasoningEffortPolicyFromContext(ctx, chatBody); changed {
 			chatBody = policyBody
 			if effectiveEffort := strings.TrimSpace(gjson.GetBytes(chatBody, "reasoning_effort").String()); effectiveEffort != "" {
@@ -144,7 +159,13 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsAnthropic(
 	if err != nil {
 		return nil, err
 	}
-	anthropicResp := apicompat.ChatCompletionsResponseToAnthropic(ccResp, originalModel)
+	responseModel := downstreamResponseModel(
+		ginRequestContext(c),
+		s.settingService,
+		originalModel,
+		ccResp.Model,
+	)
+	anthropicResp := apicompat.ChatCompletionsResponseToAnthropic(ccResp, responseModel)
 
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -177,7 +198,8 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 	requestID := resp.Header.Get("x-request-id")
 	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
 
-	anthropicState := apicompat.NewChatCompletionsToAnthropicStreamState(originalModel)
+	responseModel := downstreamResponseModelSeed(ginRequestContext(c), s.settingService, originalModel)
+	anthropicState := apicompat.NewChatCompletionsToAnthropicStreamState(responseModel)
 	clientDisconnected := false
 
 	// 与 responses 兄弟不同：客户端断开后仍继续做事件转换（喂 anthropicState），

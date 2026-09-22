@@ -15,6 +15,41 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+type responseModelAuditSettingRepo struct {
+	value string
+}
+
+func (r *responseModelAuditSettingRepo) Get(context.Context, string) (*Setting, error) {
+	panic("unexpected Get call")
+}
+
+func (r *responseModelAuditSettingRepo) GetValue(_ context.Context, key string) (string, error) {
+	if key == SettingKeyResponseModelAuditBypass {
+		return r.value, nil
+	}
+	return "", ErrSettingNotFound
+}
+
+func (r *responseModelAuditSettingRepo) Set(context.Context, string, string) error {
+	panic("unexpected Set call")
+}
+
+func (r *responseModelAuditSettingRepo) GetMultiple(context.Context, []string) (map[string]string, error) {
+	panic("unexpected GetMultiple call")
+}
+
+func (r *responseModelAuditSettingRepo) SetMultiple(context.Context, map[string]string) error {
+	panic("unexpected SetMultiple call")
+}
+
+func (r *responseModelAuditSettingRepo) GetAll(context.Context) (map[string]string, error) {
+	panic("unexpected GetAll call")
+}
+
+func (r *responseModelAuditSettingRepo) Delete(context.Context, string) error {
+	panic("unexpected Delete call")
+}
+
 func TestBuildOpenAIEmbeddingsURL(t *testing.T) {
 	t.Parallel()
 
@@ -93,6 +128,8 @@ func TestForwardEmbeddings_APIKeyPassthroughRecordsUsageAndBatchInput(t *testing
 	require.Equal(t, "nowledge-embedding", result.Model)
 	require.Equal(t, "jina-embeddings-v5-text-small", result.BillingModel)
 	require.Equal(t, "jina-embeddings-v5-text-small", result.UpstreamModel)
+	require.Equal(t, "jina-embeddings-v5-text-small", result.UpstreamResponseModel)
+	require.False(t, result.UpstreamResponseModelConflict)
 	require.Equal(t, 13, result.Usage.InputTokens)
 	require.Equal(t, 0, result.Usage.OutputTokens)
 	require.Equal(t, "https://api.jina.ai/v1/embeddings", upstream.lastReq.URL.String())
@@ -103,4 +140,59 @@ func TestForwardEmbeddings_APIKeyPassthroughRecordsUsageAndBatchInput(t *testing
 	require.Equal(t, "world", gjson.GetBytes(upstream.lastBody, "input.1").String())
 	require.Equal(t, "float", gjson.GetBytes(upstream.lastBody, "encoding_format").String())
 	require.Equal(t, int64(256), gjson.GetBytes(upstream.lastBody, "dimensions").Int())
+	require.Equal(t, "nowledge-embedding", gjson.Get(rec.Body.String(), "model").String())
+}
+
+func TestForwardEmbeddings_ResponseModelAuditBypass(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, tc := range []struct {
+		name          string
+		setting       string
+		expectedModel string
+	}{
+		{name: "disabled preserves upstream runtime model", setting: "false", expectedModel: "runtime-embedding-model"},
+		{name: "enabled restores original public model", setting: "true", expectedModel: "public-embedding-model"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{"model":"channel-embedding-model","input":"hello"}`)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/embeddings", bytes.NewReader(body))
+			c.Request = c.Request.WithContext(WithRequestedPublicModel(c.Request.Context(), "public-embedding-model"))
+
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(
+					`{"object":"list","data":[],"model":"runtime-embedding-model","usage":{"prompt_tokens":1,"total_tokens":1}}`,
+				)),
+			}}
+			svc := &OpenAIGatewayService{
+				cfg:            &config.Config{},
+				httpUpstream:   upstream,
+				settingService: NewSettingService(&responseModelAuditSettingRepo{value: tc.setting}, &config.Config{}),
+			}
+			account := &Account{
+				ID:       43,
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"api_key":  "sk-test",
+					"base_url": "https://api.example.com",
+					"model_mapping": map[string]any{
+						"channel-embedding-model": "account-embedding-model",
+					},
+				},
+			}
+
+			result, err := svc.ForwardEmbeddings(c.Request.Context(), c, account, body, "")
+
+			require.NoError(t, err)
+			require.Equal(t, tc.expectedModel, gjson.Get(rec.Body.String(), "model").String())
+			require.Equal(t, "account-embedding-model", gjson.GetBytes(upstream.lastBody, "model").String())
+			require.Equal(t, "runtime-embedding-model", result.UpstreamResponseModel)
+			require.False(t, result.UpstreamResponseModelConflict)
+		})
+	}
 }

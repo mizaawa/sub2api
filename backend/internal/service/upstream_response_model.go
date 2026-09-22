@@ -1,12 +1,97 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
+
+// responseModelAuditBypassOn reports whether client-visible model fields should
+// be restored to the model requested by the downstream client. Services built
+// without a SettingService keep the historical rewrite behavior used by small
+// compatibility instances and unit tests.
+func responseModelAuditBypassOn(ctx context.Context, settingService *SettingService) bool {
+	if settingService == nil {
+		return true
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return settingService.ResponseModelAuditBypassEnabled(ctx)
+}
+
+func downstreamResponseModel(ctx context.Context, settingService *SettingService, requestedModel, upstreamModel string) string {
+	requestedModel = downstreamRequestedModel(ctx, requestedModel)
+	if responseModelAuditBypassOn(ctx, settingService) || strings.TrimSpace(upstreamModel) == "" {
+		return requestedModel
+	}
+	return strings.TrimSpace(upstreamModel)
+}
+
+// downstreamResponseModelSeed is used by streaming protocol converters. An
+// empty seed lets the converter adopt the model declared by the first upstream
+// event; a requested-model seed intentionally masks that declaration.
+func downstreamResponseModelSeed(ctx context.Context, settingService *SettingService, requestedModel string) string {
+	if responseModelAuditBypassOn(ctx, settingService) {
+		return downstreamRequestedModel(ctx, requestedModel)
+	}
+	return ""
+}
+
+func ginRequestContext(c *gin.Context) context.Context {
+	if c == nil || c.Request == nil {
+		return context.Background()
+	}
+	return c.Request.Context()
+}
+
+// anthropicResponseModel returns the model declared by an Anthropic response
+// or message_start event without changing the payload.
+func anthropicResponseModel(body []byte) string {
+	if len(body) == 0 || !gjson.ValidBytes(body) {
+		return ""
+	}
+	return firstTrimmedGJSONModel(
+		gjson.GetBytes(body, "message.model"),
+		gjson.GetBytes(body, "model"),
+	)
+}
+
+// rewriteAnthropicResponseModel changes only client-visible Anthropic model
+// fields. For valid message responses it also supplies the model when an
+// upstream-compatible implementation omitted it.
+func rewriteAnthropicResponseModel(body []byte, model string) []byte {
+	model = strings.TrimSpace(model)
+	if len(body) == 0 || model == "" || !gjson.ValidBytes(body) || !gjson.ParseBytes(body).IsObject() {
+		return body
+	}
+
+	updated := body
+	message := gjson.GetBytes(body, "message")
+	if message.IsObject() {
+		current := gjson.GetBytes(body, "message.model")
+		if !current.Exists() || current.String() != model {
+			if next, err := sjson.SetBytes(updated, "message.model", model); err == nil {
+				updated = next
+			}
+		}
+	}
+
+	topLevelModel := gjson.GetBytes(body, "model")
+	responseType := strings.TrimSpace(gjson.GetBytes(body, "type").String())
+	if topLevelModel.Exists() || (!message.IsObject() && (responseType == "" || responseType == "message")) {
+		if !topLevelModel.Exists() || topLevelModel.String() != model {
+			if next, err := sjson.SetBytes(updated, "model", model); err == nil {
+				updated = next
+			}
+		}
+	}
+	return updated
+}
 
 // rewriteGeminiResponseModel changes only client-visible Gemini modelVersion
 // fields. Callers observe the original payload before invoking this helper so

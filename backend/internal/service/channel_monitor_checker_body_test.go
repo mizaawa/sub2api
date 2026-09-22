@@ -421,8 +421,8 @@ func TestCustomMonitorConfiguration(t *testing.T) {
 	if err := validateAPIMode(MonitorProviderCustom, MonitorAPIModeChatCompletions); err != nil {
 		t.Fatalf("custom chat_completions mode should be valid: %v", err)
 	}
-	if err := validateAPIMode(MonitorProviderCustom, MonitorAPIModeResponses); err == nil {
-		t.Fatal("custom responses mode should be rejected by channel monitoring")
+	if err := validateAPIMode(MonitorProviderCustom, MonitorAPIModeResponses); err != nil {
+		t.Fatalf("custom responses mode should be valid: %v", err)
 	}
 	if err := validateReplaceRequestBody(MonitorProviderCustom, MonitorAPIModeChatCompletions, map[string]any{}); err == nil {
 		t.Fatal("custom replace-mode body should require messages")
@@ -449,6 +449,31 @@ func TestRunCheckForModel_Custom_DefaultChatRequest(t *testing.T) {
 	}
 	if h.lastBody["stream"] != false {
 		t.Errorf("custom body should set stream=false, got %v", h.lastBody["stream"])
+	}
+	if h.lastHeaders.Get("Authorization") != "Bearer custom-key" {
+		t.Errorf("expected custom bearer auth header, got %q", h.lastHeaders.Get("Authorization"))
+	}
+}
+
+func TestRunCheckForModel_Custom_ResponsesRequest(t *testing.T) {
+	h := &openAICaptureHandler{}
+	endpoint := setupFakeOpenAI(t, h)
+
+	res := runCheckForModel(context.Background(), MonitorProviderCustom, endpoint, "custom-key", "custom-model", &CheckOptions{
+		APIMode: MonitorAPIModeResponses,
+	})
+
+	if res.Status != MonitorStatusOperational {
+		t.Fatalf("custom responses request should pass challenge, got status=%s message=%q", res.Status, res.Message)
+	}
+	if h.lastPath != providerOpenAIResponsesPath {
+		t.Fatalf("custom responses path = %q, want %q", h.lastPath, providerOpenAIResponsesPath)
+	}
+	if h.lastBody["model"] != "custom-model" {
+		t.Errorf("custom responses body should contain model=custom-model, got %v", h.lastBody["model"])
+	}
+	if _, ok := h.lastBody["input"]; !ok {
+		t.Error("custom responses body should contain input")
 	}
 	if h.lastHeaders.Get("Authorization") != "Bearer custom-key" {
 		t.Errorf("expected custom bearer auth header, got %q", h.lastHeaders.Get("Authorization"))

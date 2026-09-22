@@ -107,14 +107,14 @@ func TestListPlazaGroups_PlatformIsolation(t *testing.T) {
 	require.Equal(t, "gpt-5", byName["g-gpt"][0].Name)
 }
 
-func TestListPlazaGroups_CompositeIncludesConfiguredConcretePlatforms(t *testing.T) {
-	anthropicPrice := 3e-6
-	openAIPrice := 2e-6
+func TestListPlazaGroups_CompositeIncludesOnlyCustomPricing(t *testing.T) {
+	customPrice := 2e-6
 	ch := Channel{
 		ID: 1, Name: "multi", Status: StatusActive, GroupIDs: []int64{10},
 		ModelPricing: []ChannelModelPricing{
-			{Platform: PlatformAnthropic, Models: []string{"shared-model"}, InputPrice: &anthropicPrice},
-			{Platform: PlatformOpenAI, Models: []string{"shared-model"}, InputPrice: &openAIPrice},
+			{Platform: PlatformAnthropic, Models: []string{"anthropic-model"}},
+			{Platform: PlatformOpenAI, Models: []string{"openai-model"}},
+			{Platform: PlatformCustom, Models: []string{"custom-model"}, InputPrice: &customPrice},
 			{Platform: "", Models: []string{"empty-platform"}},
 			{Platform: PlatformComposite, Models: []string{"nested-composite"}},
 			{Platform: "unknown-platform", Models: []string{"unknown-platform"}},
@@ -126,19 +126,19 @@ func TestListPlazaGroups_CompositeIncludesConfiguredConcretePlatforms(t *testing
 
 	require.NoError(t, err)
 	require.Len(t, out, 1)
-	require.Len(t, out[0].Models, 2, "only concrete platforms are included and same-named models remain distinct")
-	require.Equal(t, PlatformAnthropic, out[0].Models[0].Platform)
-	require.Equal(t, PlatformOpenAI, out[0].Models[1].Platform)
-	require.InDelta(t, anthropicPrice, *out[0].Models[0].Pricing.InputPrice, 1e-12)
-	require.InDelta(t, openAIPrice, *out[0].Models[1].Pricing.InputPrice, 1e-12)
+	require.Len(t, out[0].Models, 1)
+	require.Equal(t, "custom-model", out[0].Models[0].Name)
+	require.Equal(t, PlatformCustom, out[0].Models[0].Platform)
+	require.InDelta(t, customPrice, *out[0].Models[0].Pricing.InputPrice, 1e-12)
 }
 
-func TestListPlazaGroups_CompositeAndOrdinaryGroupsDoNotLeakPlatforms(t *testing.T) {
+func TestListPlazaGroups_CustomAndOrdinaryGroupsDoNotLeakPlatforms(t *testing.T) {
 	ch := Channel{
 		ID: 1, Name: "multi", Status: StatusActive, GroupIDs: []int64{10, 20},
 		ModelPricing: []ChannelModelPricing{
 			{Platform: PlatformAnthropic, Models: []string{"claude-sonnet"}, InputPrice: testPtrFloat64(3e-6)},
 			{Platform: PlatformOpenAI, Models: []string{"gpt-5"}, InputPrice: testPtrFloat64(2e-6)},
+			{Platform: PlatformCustom, Models: []string{"vendor-model"}, InputPrice: testPtrFloat64(1e-6)},
 		},
 	}
 	groups := []Group{
@@ -158,15 +158,9 @@ func TestListPlazaGroups_CompositeAndOrdinaryGroupsDoNotLeakPlatforms(t *testing
 	require.Equal(t, []PlazaModel{{
 		Name: "claude-sonnet", Platform: PlatformAnthropic, Pricing: byName["anthropic-only"].Models[0].Pricing,
 	}}, byName["anthropic-only"].Models)
-	require.Len(t, byName["composite"].Models, 2)
-	require.Equal(t, []string{"claude-sonnet", "gpt-5"}, []string{
-		byName["composite"].Models[0].Name,
-		byName["composite"].Models[1].Name,
-	})
-	require.Equal(t, []string{PlatformAnthropic, PlatformOpenAI}, []string{
-		byName["composite"].Models[0].Platform,
-		byName["composite"].Models[1].Platform,
-	})
+	require.Len(t, byName["composite"].Models, 1)
+	require.Equal(t, "vendor-model", byName["composite"].Models[0].Name)
+	require.Equal(t, PlatformCustom, byName["composite"].Models[0].Platform)
 }
 
 func TestListPlazaGroups_InactiveChannelSkipped(t *testing.T) {

@@ -27,6 +27,30 @@ func resolveAccountStatsCost(
 	requestCount int,
 	totalCost float64,
 ) *float64 {
+	return resolveAccountStatsCostWithUnits(
+		ctx, channelService, billingService, accountID, groupID, upstreamModel,
+		tokens, accountStatsRequestUnits{requestCount: requestCount}, totalCost,
+	)
+}
+
+type accountStatsRequestUnits struct {
+	requestCount    int
+	videoCount      int
+	videoSeconds    int
+	videoResolution string
+}
+
+func resolveAccountStatsCostWithUnits(
+	ctx context.Context,
+	channelService *ChannelService,
+	billingService *BillingService,
+	accountID int64,
+	groupID int64,
+	upstreamModel string,
+	tokens UsageTokens,
+	units accountStatsRequestUnits,
+	totalCost float64,
+) *float64 {
 	if !validUsageTokens(tokens) {
 		// An invalid usage snapshot must not fall through to the historical
 		// total_cost fallback, which could otherwise make account statistics
@@ -46,7 +70,7 @@ func resolveAccountStatsCost(
 	platform := channelService.GetGroupPlatform(ctx, groupID)
 
 	// 优先级 1：自定义规则（始终尝试）
-	if cost := tryCustomRules(channel, accountID, groupID, platform, upstreamModel, tokens, requestCount); cost != nil {
+	if cost := tryCustomRulesWithUnits(channel, accountID, groupID, platform, upstreamModel, tokens, units); cost != nil {
 		return cost
 	}
 
@@ -99,6 +123,16 @@ func tryCustomRules(
 	channel *Channel, accountID, groupID int64,
 	platform, model string, tokens UsageTokens, requestCount int,
 ) *float64 {
+	return tryCustomRulesWithUnits(
+		channel, accountID, groupID, platform, model, tokens,
+		accountStatsRequestUnits{requestCount: requestCount},
+	)
+}
+
+func tryCustomRulesWithUnits(
+	channel *Channel, accountID, groupID int64,
+	platform, model string, tokens UsageTokens, units accountStatsRequestUnits,
+) *float64 {
 	modelLower := strings.ToLower(model)
 	for _, rule := range channel.AccountStatsPricingRules {
 		if !matchAccountStatsRule(&rule, accountID, groupID) {
@@ -108,7 +142,7 @@ func tryCustomRules(
 		if pricing == nil {
 			continue // 规则匹配但模型不在规则定价中，继续下一条
 		}
-		return calculateStatsCost(pricing, tokens, requestCount)
+		return calculateStatsCostWithUnits(pricing, tokens, units)
 	}
 	return nil
 }
@@ -170,23 +204,65 @@ func findPricingForModel(pricingList []ChannelModelPricing, platform, modelLower
 
 // isPlatformMatch 判断平台是否匹配（空平台视为不限平台）。
 func isPlatformMatch(queryPlatform, pricingPlatform string) bool {
+	queryPlatform = normalizeAccountStatsPricingPlatform(queryPlatform)
+	pricingPlatform = normalizeAccountStatsPricingPlatform(pricingPlatform)
 	if queryPlatform == "" || pricingPlatform == "" {
 		return true
 	}
 	return queryPlatform == pricingPlatform
 }
 
+func normalizeAccountStatsPricingPlatform(platform string) string {
+	platform = strings.ToLower(strings.TrimSpace(platform))
+	if platform == PlatformComposite {
+		return PlatformCustom
+	}
+	return platform
+}
+
 // calculateStatsCost 使用给定的定价计算费用（不含任何倍率，原始费用）。
 func calculateStatsCost(pricing *ChannelModelPricing, tokens UsageTokens, requestCount int) *float64 {
+	return calculateStatsCostWithUnits(pricing, tokens, accountStatsRequestUnits{requestCount: requestCount})
+}
+
+func calculateStatsCostWithUnits(pricing *ChannelModelPricing, tokens UsageTokens, units accountStatsRequestUnits) *float64 {
 	if pricing == nil || !validUsageTokens(tokens) {
 		return nil
 	}
 	switch pricing.BillingMode {
+	case BillingModeVideo:
+		requestCount := units.videoSeconds
+		if requestCount <= 0 {
+			requestCount = units.videoCount
+		}
+		if requestCount <= 0 {
+			requestCount = units.requestCount
+		}
+		return calculateTieredPerRequestStatsCost(pricing, units.videoResolution, requestCount)
 	case BillingModePerRequest, BillingModeImage:
-		return calculatePerRequestStatsCost(pricing, requestCount)
+		if pricing.BillingMode == BillingModePerRequest && units.videoCount > 0 {
+			return calculateTieredPerRequestStatsCost(pricing, units.videoResolution, units.videoCount)
+		}
+		return calculatePerRequestStatsCost(pricing, units.requestCount)
 	default:
 		return calculateTokenStatsCost(pricing, tokens)
 	}
+}
+
+func calculateTieredPerRequestStatsCost(pricing *ChannelModelPricing, tierLabel string, requestCount int) *float64 {
+	if pricing == nil {
+		return nil
+	}
+	tierLabel = strings.TrimSpace(tierLabel)
+	if tierLabel != "" {
+		for i := range pricing.Intervals {
+			interval := &pricing.Intervals[i]
+			if strings.EqualFold(strings.TrimSpace(interval.TierLabel), tierLabel) {
+				return calculatePerRequestStatsCost(&ChannelModelPricing{PerRequestPrice: interval.PerRequestPrice}, requestCount)
+			}
+		}
+	}
+	return calculatePerRequestStatsCost(pricing, requestCount)
 }
 
 // calculatePerRequestStatsCost 按次/图片计费。
@@ -269,7 +345,19 @@ func applyAccountStatsCost(
 	if usageLog != nil && usageLog.ImageCount > 0 {
 		requestCount = usageLog.ImageCount
 	}
-	usageLog.AccountStatsCost = resolveAccountStatsCost(
-		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, totalCost,
+	units := accountStatsRequestUnits{requestCount: requestCount}
+	if usageLog != nil && usageLog.VideoCount > 0 {
+		units.requestCount = usageLog.VideoCount
+		units.videoCount = usageLog.VideoCount
+		if usageLog.VideoResolution != nil {
+			units.videoResolution = *usageLog.VideoResolution
+		}
+		if usageLog.VideoDurationSeconds != nil && *usageLog.VideoDurationSeconds > 0 &&
+			usageLog.VideoCount <= maxBillableRequestCount/(*usageLog.VideoDurationSeconds) {
+			units.videoSeconds = usageLog.VideoCount * *usageLog.VideoDurationSeconds
+		}
+	}
+	usageLog.AccountStatsCost = resolveAccountStatsCostWithUnits(
+		ctx, cs, bs, accountID, groupID, model, tokens, units, totalCost,
 	)
 }

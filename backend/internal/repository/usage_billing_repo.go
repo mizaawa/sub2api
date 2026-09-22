@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -60,6 +61,243 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 	}
 	tx = nil
 	return result, nil
+}
+
+// Reverse atomically compensates every database ledger touched by Apply. The
+// original charge must already own its idempotency key; the reversal gets a
+// second key, so repeated failed/cancelled polls are harmless.
+func (r *usageBillingRepository) Reverse(ctx context.Context, cmd *service.UsageBillingReversalCommand) (_ *service.UsageBillingReversalResult, err error) {
+	if cmd == nil {
+		return &service.UsageBillingReversalResult{}, nil
+	}
+	if r == nil || r.db == nil {
+		return nil, errors.New("usage billing repository db is nil")
+	}
+	cmd.Normalize()
+	original := &cmd.Original
+	if cmd.ReversalRequestID == "" || original.RequestID == "" || original.APIKeyID <= 0 {
+		return nil, service.ErrUsageBillingRequestIDRequired
+	}
+	if !original.HasValidFingerprint() {
+		return nil, service.ErrUsageBillingRequestConflict
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if tx != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	originalApplied, err := usageBillingClaimMatches(
+		ctx, tx, original.RequestID, original.APIKeyID, original.RequestFingerprint,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if !originalApplied {
+		if err := tx.Commit(); err != nil {
+			return nil, err
+		}
+		tx = nil
+		return &service.UsageBillingReversalResult{Applied: false}, nil
+	}
+
+	applied, err := r.claimUsageBillingRequest(
+		ctx, tx, cmd.ReversalRequestID, original.APIKeyID, service.UsageBillingReversalFingerprint(cmd),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if !applied {
+		if err := tx.Rollback(); err != nil {
+			return nil, err
+		}
+		tx = nil
+		return &service.UsageBillingReversalResult{Applied: false}, nil
+	}
+
+	result := &service.UsageBillingReversalResult{Applied: true}
+	if err := r.applyUsageBillingReversalEffects(ctx, tx, original, result); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE usage_logs
+		SET actual_cost = 0, account_stats_cost = CASE WHEN account_stats_cost IS NULL THEN NULL ELSE 0 END
+		WHERE request_id = $1 AND api_key_id = $2
+	`, original.RequestID, original.APIKeyID); err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	tx = nil
+	return result, nil
+}
+
+func usageBillingClaimMatches(ctx context.Context, tx *sql.Tx, requestID string, apiKeyID int64, fingerprint string) (bool, error) {
+	var persistedFingerprint string
+	err := tx.QueryRowContext(ctx, `
+		SELECT request_fingerprint FROM usage_billing_dedup
+		WHERE request_id = $1 AND api_key_id = $2
+	`, requestID, apiKeyID).Scan(&persistedFingerprint)
+	if err == nil {
+		if strings.TrimSpace(persistedFingerprint) != strings.TrimSpace(fingerprint) {
+			return false, service.ErrUsageBillingRequestConflict
+		}
+		return true, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	err = tx.QueryRowContext(ctx, `
+		SELECT request_fingerprint FROM usage_billing_dedup_archive
+		WHERE request_id = $1 AND api_key_id = $2
+	`, requestID, apiKeyID).Scan(&persistedFingerprint)
+	if err == nil {
+		if strings.TrimSpace(persistedFingerprint) != strings.TrimSpace(fingerprint) {
+			return false, service.ErrUsageBillingRequestConflict
+		}
+		return true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return false, err
+}
+
+func (r *usageBillingRepository) applyUsageBillingReversalEffects(
+	ctx context.Context,
+	tx *sql.Tx,
+	original *service.UsageBillingCommand,
+	result *service.UsageBillingReversalResult,
+) error {
+	if original == nil {
+		return nil
+	}
+	chargedAt := original.ChargedAt
+	if chargedAt.IsZero() {
+		chargedAt = time.Now().UTC()
+	}
+
+	if original.BalanceCost > 0 {
+		var balance float64
+		err := tx.QueryRowContext(ctx, `
+			UPDATE users SET balance = balance + $1, updated_at = NOW()
+			WHERE id = $2 AND deleted_at IS NULL
+			RETURNING balance
+		`, original.BalanceCost, original.UserID).Scan(&balance)
+		if errors.Is(err, sql.ErrNoRows) {
+			return service.ErrUserNotFound
+		}
+		if err != nil {
+			return err
+		}
+		result.NewBalance = &balance
+	}
+
+	if original.SubscriptionCost > 0 && original.SubscriptionID != nil {
+		res, err := tx.ExecContext(ctx, `
+			UPDATE user_subscriptions SET
+				daily_usage_usd = CASE WHEN daily_window_start IS NULL OR daily_window_start <= $1 THEN GREATEST(0, daily_usage_usd - $2) ELSE daily_usage_usd END,
+				weekly_usage_usd = CASE WHEN weekly_window_start IS NULL OR weekly_window_start <= $1 THEN GREATEST(0, weekly_usage_usd - $2) ELSE weekly_usage_usd END,
+				monthly_usage_usd = CASE WHEN monthly_window_start IS NULL OR monthly_window_start <= $1 THEN GREATEST(0, monthly_usage_usd - $2) ELSE monthly_usage_usd END,
+				updated_at = NOW()
+			WHERE id = $3 AND deleted_at IS NULL
+		`, chargedAt, original.SubscriptionCost, *original.SubscriptionID)
+		if err != nil {
+			return err
+		}
+		if affected, err := res.RowsAffected(); err != nil {
+			return err
+		} else if affected == 0 {
+			return service.ErrSubscriptionNotFound
+		}
+	}
+
+	if original.APIKeyQuotaCost > 0 || original.APIKeyRateLimitCost > 0 {
+		res, err := tx.ExecContext(ctx, `
+			UPDATE api_keys SET
+				quota_used = GREATEST(0, quota_used - $1),
+				usage_5h = CASE WHEN window_5h_start IS NULL OR (window_5h_start <= $3 AND window_5h_start + INTERVAL '5 hours' > $3) THEN GREATEST(0, usage_5h - $2) ELSE usage_5h END,
+				usage_1d = CASE WHEN window_1d_start IS NULL OR (window_1d_start <= $3 AND window_1d_start + INTERVAL '24 hours' > $3) THEN GREATEST(0, usage_1d - $2) ELSE usage_1d END,
+				usage_7d = CASE WHEN window_7d_start IS NULL OR (window_7d_start <= $3 AND window_7d_start + INTERVAL '7 days' > $3) THEN GREATEST(0, usage_7d - $2) ELSE usage_7d END,
+				status = CASE WHEN status = $5 AND (quota <= 0 OR GREATEST(0, quota_used - $1) < quota) THEN $4 ELSE status END,
+				updated_at = NOW()
+			WHERE id = $6 AND deleted_at IS NULL
+		`, original.APIKeyQuotaCost, original.APIKeyRateLimitCost, chargedAt,
+			service.StatusAPIKeyActive, service.StatusAPIKeyQuotaExhausted, original.APIKeyID)
+		if err != nil {
+			return err
+		}
+		if affected, err := res.RowsAffected(); err != nil {
+			return err
+		} else if affected == 0 {
+			return service.ErrAPIKeyNotFound
+		}
+	}
+
+	if original.AccountQuotaCost > 0 {
+		res, err := tx.ExecContext(ctx, `
+			UPDATE accounts SET extra = COALESCE(extra, '{}'::jsonb)
+				|| jsonb_build_object('quota_used', GREATEST(0, COALESCE((extra->>'quota_used')::numeric, 0) - $1))
+				|| CASE WHEN COALESCE((extra->>'quota_daily_limit')::numeric, 0) > 0 THEN
+					jsonb_build_object('quota_daily_used', CASE
+						WHEN (extra->>'quota_daily_start')::timestamptz <= $2
+							AND CASE WHEN COALESCE(extra->>'quota_daily_reset_mode', 'rolling') = 'fixed'
+								THEN (extra->>'quota_daily_reset_at')::timestamptz > $2
+								ELSE (extra->>'quota_daily_start')::timestamptz + INTERVAL '24 hours' > $2
+							END
+						THEN GREATEST(0, COALESCE((extra->>'quota_daily_used')::numeric, 0) - $1)
+						ELSE COALESCE((extra->>'quota_daily_used')::numeric, 0)
+					END)
+					ELSE '{}'::jsonb END
+				|| CASE WHEN COALESCE((extra->>'quota_weekly_limit')::numeric, 0) > 0 THEN
+					jsonb_build_object('quota_weekly_used', CASE
+						WHEN (extra->>'quota_weekly_start')::timestamptz <= $2
+							AND CASE WHEN COALESCE(extra->>'quota_weekly_reset_mode', 'rolling') = 'fixed'
+								THEN (extra->>'quota_weekly_reset_at')::timestamptz > $2
+								ELSE (extra->>'quota_weekly_start')::timestamptz + INTERVAL '168 hours' > $2
+							END
+						THEN GREATEST(0, COALESCE((extra->>'quota_weekly_used')::numeric, 0) - $1)
+						ELSE COALESCE((extra->>'quota_weekly_used')::numeric, 0)
+					END)
+					ELSE '{}'::jsonb END,
+				updated_at = NOW()
+			WHERE id = $3 AND deleted_at IS NULL
+		`, original.AccountQuotaCost, chargedAt, original.AccountID)
+		if err != nil {
+			return err
+		}
+		if affected, err := res.RowsAffected(); err != nil {
+			return err
+		} else if affected == 0 {
+			return service.ErrAccountNotFound
+		}
+		if err := enqueueSchedulerOutbox(ctx, tx, service.SchedulerOutboxEventAccountChanged, &original.AccountID, nil, nil); err != nil {
+			return err
+		}
+	}
+
+	if original.UserPlatformQuotaCost > 0 && strings.TrimSpace(original.Platform) != "" {
+		_, err := tx.ExecContext(ctx, `
+			UPDATE user_platform_quotas SET
+				daily_usage_usd = CASE WHEN daily_window_start = $1 THEN GREATEST(0, daily_usage_usd - $3) ELSE daily_usage_usd END,
+				weekly_usage_usd = CASE WHEN weekly_window_start = $2 THEN GREATEST(0, weekly_usage_usd - $3) ELSE weekly_usage_usd END,
+				monthly_usage_usd = CASE WHEN monthly_window_start IS NULL OR (monthly_window_start <= $4 AND monthly_window_start + INTERVAL '30 days' > $4) THEN GREATEST(0, monthly_usage_usd - $3) ELSE monthly_usage_usd END,
+				updated_at = NOW()
+			WHERE user_id = $5 AND platform = $6 AND deleted_at IS NULL
+		`, original.PlatformDailyWindowStart, original.PlatformWeeklyWindowStart,
+			original.UserPlatformQuotaCost, chargedAt, original.UserID, strings.TrimSpace(original.Platform))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *usageBillingRepository) claimUsageBillingKey(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) (bool, error) {
@@ -196,20 +434,88 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 	}
 
 	if cmd.APIKeyRateLimitCost > 0 {
-		if err := incrementUsageBillingAPIKeyRateLimit(ctx, tx, cmd.APIKeyID, cmd.APIKeyRateLimitCost); err != nil {
+		if err := incrementUsageBillingAPIKeyRateLimit(ctx, tx, cmd.APIKeyID, cmd.APIKeyRateLimitCost, cmd.ChargedAt); err != nil {
 			return err
 		}
 	}
 
 	if cmd.AccountQuotaCost > 0 && (strings.EqualFold(cmd.AccountType, service.AccountTypeAPIKey) || strings.EqualFold(cmd.AccountType, service.AccountTypeBedrock)) {
-		quotaState, err := incrementUsageBillingAccountQuota(ctx, tx, cmd.AccountID, cmd.AccountQuotaCost)
+		quotaState, err := incrementUsageBillingAccountQuota(ctx, tx, cmd.AccountID, cmd.AccountQuotaCost, cmd.ChargedAt)
 		if err != nil {
 			return err
 		}
 		result.QuotaState = quotaState
 	}
 
+	if cmd.UserPlatformQuotaCost > 0 && strings.TrimSpace(cmd.Platform) != "" {
+		if err := incrementUsageBillingUserPlatformQuota(ctx, tx, cmd); err != nil {
+			return err
+		}
+		result.UserPlatformQuotaApplied = true
+	}
+
 	return nil
+}
+
+func incrementUsageBillingUserPlatformQuota(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) error {
+	if cmd == nil || cmd.UserPlatformQuotaCost <= 0 || strings.TrimSpace(cmd.Platform) == "" {
+		return nil
+	}
+	chargedAt := cmd.ChargedAt
+	if chargedAt.IsZero() {
+		chargedAt = time.Now().UTC()
+	}
+	dailyStart := cmd.PlatformDailyWindowStart
+	if dailyStart.IsZero() {
+		dailyStart = chargedAt
+	}
+	weeklyStart := cmd.PlatformWeeklyWindowStart
+	if weeklyStart.IsZero() {
+		weeklyStart = chargedAt
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO user_platform_quotas (
+			user_id, platform,
+			daily_usage_usd, weekly_usage_usd, monthly_usage_usd,
+			daily_window_start, weekly_window_start, monthly_window_start,
+			created_at, updated_at
+		) VALUES ($1, $2, $3, $3, $3, $4, $5, $6, $6, $6)
+		ON CONFLICT (user_id, platform) WHERE deleted_at IS NULL DO UPDATE SET
+			daily_usage_usd = CASE
+				WHEN user_platform_quotas.daily_window_start IS NULL OR user_platform_quotas.daily_window_start < EXCLUDED.daily_window_start
+				THEN EXCLUDED.daily_usage_usd
+				WHEN user_platform_quotas.daily_window_start = EXCLUDED.daily_window_start
+				THEN user_platform_quotas.daily_usage_usd + EXCLUDED.daily_usage_usd
+				ELSE user_platform_quotas.daily_usage_usd
+			END,
+			weekly_usage_usd = CASE
+				WHEN user_platform_quotas.weekly_window_start IS NULL OR user_platform_quotas.weekly_window_start < EXCLUDED.weekly_window_start
+				THEN EXCLUDED.weekly_usage_usd
+				WHEN user_platform_quotas.weekly_window_start = EXCLUDED.weekly_window_start
+				THEN user_platform_quotas.weekly_usage_usd + EXCLUDED.weekly_usage_usd
+				ELSE user_platform_quotas.weekly_usage_usd
+			END,
+			monthly_usage_usd = CASE
+				WHEN user_platform_quotas.monthly_window_start IS NULL OR user_platform_quotas.monthly_window_start + INTERVAL '30 days' <= EXCLUDED.monthly_window_start
+				THEN EXCLUDED.monthly_usage_usd
+				WHEN EXCLUDED.monthly_window_start >= user_platform_quotas.monthly_window_start
+				THEN user_platform_quotas.monthly_usage_usd + EXCLUDED.monthly_usage_usd
+				ELSE user_platform_quotas.monthly_usage_usd
+			END,
+			daily_window_start = CASE
+				WHEN user_platform_quotas.daily_window_start IS NULL OR user_platform_quotas.daily_window_start < EXCLUDED.daily_window_start
+				THEN EXCLUDED.daily_window_start ELSE user_platform_quotas.daily_window_start END,
+			weekly_window_start = CASE
+				WHEN user_platform_quotas.weekly_window_start IS NULL OR user_platform_quotas.weekly_window_start < EXCLUDED.weekly_window_start
+				THEN EXCLUDED.weekly_window_start ELSE user_platform_quotas.weekly_window_start END,
+			monthly_window_start = CASE
+				WHEN user_platform_quotas.monthly_window_start IS NULL OR user_platform_quotas.monthly_window_start + INTERVAL '30 days' <= EXCLUDED.monthly_window_start
+				THEN EXCLUDED.monthly_window_start
+				ELSE user_platform_quotas.monthly_window_start
+			END,
+			updated_at = GREATEST(user_platform_quotas.updated_at, EXCLUDED.updated_at)
+	`, cmd.UserID, strings.TrimSpace(cmd.Platform), cmd.UserPlatformQuotaCost, dailyStart, weeklyStart, chargedAt)
+	return err
 }
 
 func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscriptionID int64, costUSD float64) error {
@@ -439,18 +745,21 @@ func incrementUsageBillingAPIKeyQuota(ctx context.Context, tx *sql.Tx, apiKeyID 
 	return exhausted, nil
 }
 
-func incrementUsageBillingAPIKeyRateLimit(ctx context.Context, tx *sql.Tx, apiKeyID int64, cost float64) error {
+func incrementUsageBillingAPIKeyRateLimit(ctx context.Context, tx *sql.Tx, apiKeyID int64, cost float64, chargedAt time.Time) error {
+	if chargedAt.IsZero() {
+		chargedAt = time.Now().UTC()
+	}
 	res, err := tx.ExecContext(ctx, `
 		UPDATE api_keys SET
-			usage_5h = CASE WHEN window_5h_start IS NOT NULL AND window_5h_start + INTERVAL '5 hours' <= NOW() THEN $1 ELSE usage_5h + $1 END,
-			usage_1d = CASE WHEN window_1d_start IS NOT NULL AND window_1d_start + INTERVAL '24 hours' <= NOW() THEN $1 ELSE usage_1d + $1 END,
-			usage_7d = CASE WHEN window_7d_start IS NOT NULL AND window_7d_start + INTERVAL '7 days' <= NOW() THEN $1 ELSE usage_7d + $1 END,
-			window_5h_start = CASE WHEN window_5h_start IS NULL OR window_5h_start + INTERVAL '5 hours' <= NOW() THEN NOW() ELSE window_5h_start END,
-			window_1d_start = CASE WHEN window_1d_start IS NULL OR window_1d_start + INTERVAL '24 hours' <= NOW() THEN date_trunc('day', NOW()) ELSE window_1d_start END,
-			window_7d_start = CASE WHEN window_7d_start IS NULL OR window_7d_start + INTERVAL '7 days' <= NOW() THEN date_trunc('day', NOW()) ELSE window_7d_start END,
+			usage_5h = CASE WHEN window_5h_start IS NOT NULL AND window_5h_start + INTERVAL '5 hours' <= $3 THEN $1 ELSE usage_5h + $1 END,
+			usage_1d = CASE WHEN window_1d_start IS NOT NULL AND window_1d_start + INTERVAL '24 hours' <= $3 THEN $1 ELSE usage_1d + $1 END,
+			usage_7d = CASE WHEN window_7d_start IS NOT NULL AND window_7d_start + INTERVAL '7 days' <= $3 THEN $1 ELSE usage_7d + $1 END,
+			window_5h_start = CASE WHEN window_5h_start IS NULL OR window_5h_start + INTERVAL '5 hours' <= $3 THEN $3 ELSE window_5h_start END,
+			window_1d_start = CASE WHEN window_1d_start IS NULL OR window_1d_start + INTERVAL '24 hours' <= $3 THEN date_trunc('day', $3::timestamptz) ELSE window_1d_start END,
+			window_7d_start = CASE WHEN window_7d_start IS NULL OR window_7d_start + INTERVAL '7 days' <= $3 THEN date_trunc('day', $3::timestamptz) ELSE window_7d_start END,
 			updated_at = NOW()
 		WHERE id = $2 AND deleted_at IS NULL
-	`, cost, apiKeyID)
+	`, cost, apiKeyID, chargedAt)
 	if err != nil {
 		return err
 	}
@@ -464,7 +773,11 @@ func incrementUsageBillingAPIKeyRateLimit(ctx context.Context, tx *sql.Tx, apiKe
 	return nil
 }
 
-func incrementUsageBillingAccountQuota(ctx context.Context, tx *sql.Tx, accountID int64, amount float64) (*service.AccountQuotaState, error) {
+func incrementUsageBillingAccountQuota(ctx context.Context, tx *sql.Tx, accountID int64, amount float64, chargedAt time.Time) (*service.AccountQuotaState, error) {
+	if chargedAt.IsZero() {
+		chargedAt = time.Now().UTC()
+	}
+	chargedAtText := chargedAt.UTC().Format(time.RFC3339Nano)
 	rows, err := tx.QueryContext(ctx,
 		`UPDATE accounts SET extra = (
 			COALESCE(extra, '{}'::jsonb)
@@ -477,8 +790,8 @@ func incrementUsageBillingAccountQuota(ctx context.Context, tx *sql.Tx, accountI
 					ELSE COALESCE((extra->>'quota_daily_used')::numeric, 0) + $1 END,
 					'quota_daily_start',
 					CASE WHEN `+dailyExpiredExpr+`
-					THEN `+nowUTC+`
-					ELSE COALESCE(extra->>'quota_daily_start', `+nowUTC+`) END
+					THEN $3
+					ELSE COALESCE(extra->>'quota_daily_start', $3) END
 				)
 				|| CASE WHEN `+dailyExpiredExpr+` AND `+nextDailyResetAtExpr+` IS NOT NULL
 				   THEN jsonb_build_object('quota_daily_reset_at', `+nextDailyResetAtExpr+`)
@@ -492,8 +805,8 @@ func incrementUsageBillingAccountQuota(ctx context.Context, tx *sql.Tx, accountI
 					ELSE COALESCE((extra->>'quota_weekly_used')::numeric, 0) + $1 END,
 					'quota_weekly_start',
 					CASE WHEN `+weeklyExpiredExpr+`
-					THEN `+nowUTC+`
-					ELSE COALESCE(extra->>'quota_weekly_start', `+nowUTC+`) END
+					THEN $3
+					ELSE COALESCE(extra->>'quota_weekly_start', $3) END
 				)
 				|| CASE WHEN `+weeklyExpiredExpr+` AND `+nextWeeklyResetAtExpr+` IS NOT NULL
 				   THEN jsonb_build_object('quota_weekly_reset_at', `+nextWeeklyResetAtExpr+`)
@@ -508,7 +821,7 @@ func incrementUsageBillingAccountQuota(ctx context.Context, tx *sql.Tx, accountI
 			COALESCE((extra->>'quota_daily_limit')::numeric, 0),
 			COALESCE((extra->>'quota_weekly_used')::numeric, 0),
 			COALESCE((extra->>'quota_weekly_limit')::numeric, 0)`,
-		amount, accountID)
+		amount, accountID, chargedAtText)
 	if err != nil {
 		return nil, err
 	}

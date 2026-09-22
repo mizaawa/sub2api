@@ -1020,12 +1020,12 @@ func (h *AccountHandler) Update(c *gin.Context) {
 
 // scheduleOpenAIResponsesProbe 异步触发 OpenAI APIKey 账号的 Responses API 能力探测。
 //
-// 仅对 platform=openai && type=apikey 账号生效；其他账号无操作。
+// 仅对 platform=openai/custom && type=apikey 账号生效；其他账号无操作。
 // 探测本身在 goroutine 中执行（会发一次 HTTP 请求到上游），不会阻塞
 // 当前请求。探测错误仅记录日志，不向上下文传播：探测失败时标记保持缺失，
 // 网关会按"现状即证据"默认走 Responses。
 func (h *AccountHandler) scheduleOpenAIResponsesProbe(account *service.Account) {
-	if account == nil || account.Platform != service.PlatformOpenAI || account.Type != service.AccountTypeAPIKey {
+	if account == nil || (account.Platform != service.PlatformOpenAI && account.Platform != service.PlatformCustom) || account.Type != service.AccountTypeAPIKey {
 		return
 	}
 	if h.accountTestService == nil {
@@ -2509,6 +2509,30 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
 	if err != nil {
 		response.NotFound(c, "Account not found")
+		return
+	}
+
+	// Custom accounts intentionally have no provider-wide default model set.
+	// Their available models are exactly the public names configured in the
+	// account mapping, so an empty mapping must remain an empty list.
+	if account.IsCustom() {
+		mapping := account.GetModelMapping()
+		requestedModels := make([]string, 0, len(mapping))
+		for requestedModel := range mapping {
+			requestedModels = append(requestedModels, requestedModel)
+		}
+		sort.Strings(requestedModels)
+
+		models := make([]openai.Model, 0, len(requestedModels))
+		for _, requestedModel := range requestedModels {
+			models = append(models, openai.Model{
+				ID:          requestedModel,
+				Object:      "model",
+				Type:        "model",
+				DisplayName: requestedModel,
+			})
+		}
+		response.Success(c, models)
 		return
 	}
 

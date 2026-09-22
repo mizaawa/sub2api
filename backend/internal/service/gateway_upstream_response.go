@@ -829,7 +829,8 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		flusher.Flush()
 	}
 
-	needModelReplace := originalModel != mappedModel && (s.settingService == nil || s.settingService.ResponseModelAuditBypassEnabled(ctx))
+	requestedResponseModel := downstreamRequestedModel(ctx, originalModel)
+	needModelReplace := strings.TrimSpace(requestedResponseModel) != "" && responseModelAuditBypassOn(ctx, s.settingService)
 	clientDisconnected := false // 客户端断开标志，断开后继续读取上游以获取完整usage
 	sawTerminalEvent := false
 	useNoopDeltaKeepalive := c != nil && c.Request != nil && shouldUseClaudeCodeNoopDeltaKeepalive(c.GetHeader("User-Agent"))
@@ -960,8 +961,8 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 
 		if needModelReplace {
 			if msg, ok := event["message"].(map[string]any); ok {
-				if model, ok := msg["model"].(string); ok && model == mappedModel {
-					msg["model"] = originalModel
+				if _, ok := msg["model"].(string); ok {
+					msg["model"] = requestedResponseModel
 					eventChanged = true
 				}
 			}
@@ -1513,8 +1514,9 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 	}
 
 	// 如果有模型映射，替换响应中的model字段
-	if originalModel != mappedModel && (s.settingService == nil || s.settingService.ResponseModelAuditBypassEnabled(ctx)) {
-		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
+	requestedResponseModel := downstreamRequestedModel(ctx, originalModel)
+	if strings.TrimSpace(requestedResponseModel) != "" && responseModelAuditBypassOn(ctx, s.settingService) {
+		body = s.replaceModelInResponseBody(body, mappedModel, requestedResponseModel)
 	}
 
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -1536,8 +1538,11 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 
 // replaceModelInResponseBody 替换响应体中的model字段
 // 使用 gjson/sjson 精确替换，避免全量 JSON 反序列化
-func (s *GatewayService) replaceModelInResponseBody(body []byte, fromModel, toModel string) []byte {
-	if m := gjson.GetBytes(body, "model"); m.Exists() && m.Str == fromModel {
+func (s *GatewayService) replaceModelInResponseBody(body []byte, _ string, toModel string) []byte {
+	if strings.TrimSpace(toModel) == "" || !gjson.ValidBytes(body) {
+		return body
+	}
+	if m := gjson.GetBytes(body, "model"); m.Type == gjson.String {
 		newBody, err := sjson.SetBytes(body, "model", toModel)
 		if err != nil {
 			return body

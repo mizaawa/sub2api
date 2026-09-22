@@ -43,6 +43,10 @@ type UserPlatformQuotaCacheEntry struct {
 	MonthlyUsageUSD float64
 	Version         int64
 	SchemaVersion   int64
+	// SnapshotAt is the mutation time used by the DB flusher's optimistic
+	// concurrency guard. A stale snapshot may never overwrite a newer direct
+	// charge, refund, or admin update.
+	SnapshotAt time.Time
 
 	// 以下字段仅在 SchemaVersion >= 1 时有效
 	DailyLimitUSD   *float64
@@ -936,7 +940,7 @@ type CostInput struct {
 	LongContextBillingEnabled *bool
 }
 
-// CalculateCostUnified 统一计费入口，支持三种计费模式。
+// CalculateCostUnified 统一计费入口，支持 token、按次、图片和视频计费模式。
 // 使用 ModelPricingResolver 解析定价，然后根据 BillingMode 分发计算。
 func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, error) {
 	if err := validateUsageTokens(input.Tokens); err != nil {
@@ -975,7 +979,7 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 	var breakdown *CostBreakdown
 	var err error
 	switch resolved.Mode {
-	case BillingModePerRequest, BillingModeImage:
+	case BillingModePerRequest, BillingModeImage, BillingModeVideo:
 		breakdown, err = s.calculatePerRequestCost(resolved, input)
 	default: // BillingModeToken
 		breakdown, err = s.calculateTokenCost(resolved, input)
@@ -1538,7 +1542,7 @@ func (s *BillingService) CalculateImageCost(model string, imageSize string, imag
 
 // CalculateVideoCost 计算视频生成费用（按秒计费，与 xAI 口径一致）。
 // model: 请求的模型名称（用于获取默认价格）
-// resolution: 视频分辨率 "480p", "720p", "1080p"
+// resolution: 视频分辨率 "480p", "720p", "1080p", "4k"
 // videoCount: 生成的视频数量
 // durationSeconds: 单个视频时长（秒），<=0 时按上游默认时长计
 // groupConfig: 分组配置的每秒价格（可能为 nil，表示使用默认值）
@@ -1547,8 +1551,8 @@ func (s *BillingService) CalculateVideoCost(model string, resolution string, vid
 	if videoCount <= 0 || videoCount > maxBillableRequestCount {
 		return &CostBreakdown{}
 	}
-	resolution = NormalizeVideoBillingResolutionOrDefault(resolution)
-	durationSeconds = NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds)
+	resolution = NormalizeVideoBillingResolutionForModelOrDefault(model, resolution, "")
+	durationSeconds = NormalizeVideoBillingDurationSecondsForModelOrDefault(model, durationSeconds)
 
 	perSecondPrice := s.getVideoUnitPrice(model, resolution, groupConfig)
 	totalCost := perSecondPrice * float64(durationSeconds) * float64(videoCount)

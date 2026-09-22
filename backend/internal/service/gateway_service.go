@@ -645,6 +645,7 @@ type UpstreamFailoverError struct {
 	NextAccountAction        NextAccountAction
 	ClientStatusCode         int
 	ClientMessage            string
+	RawResponsePassthrough   bool // Custom API-key routes return the final upstream status/body unchanged.
 }
 
 func (e *UpstreamFailoverError) Error() string {

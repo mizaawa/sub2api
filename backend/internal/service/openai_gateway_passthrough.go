@@ -345,14 +345,15 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	case AccountTypeOAuth:
 		targetURL = chatgptCodexURL
 	case AccountTypeAPIKey:
-		baseURL := account.GetOpenAIBaseURL()
-		if baseURL != "" {
-			validatedURL, err := s.validateUpstreamBaseURL(baseURL)
-			if err != nil {
-				return nil, err
-			}
-			targetURL = buildOpenAIResponsesURL(validatedURL)
+		baseURL, err := requireOpenAIBaseURL(account)
+		if err != nil {
+			return nil, err
 		}
+		validatedURL, err := s.validateUpstreamBaseURL(baseURL)
+		if err != nil {
+			return nil, err
+		}
+		targetURL = buildOpenAIResponsesURL(validatedURL)
 	}
 	targetURL = appendOpenAIResponsesRequestPathSuffix(targetURL, openAIResponsesRequestPathSuffix(c))
 
@@ -1197,7 +1198,8 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	defer putSSEScannerBuf64K(scanBuf)
 	documentScanner := newOpenAISSEJSONDocumentScanner(scanner)
 
-	needModelReplace := strings.TrimSpace(originalModel) != "" && strings.TrimSpace(mappedModel) != "" && strings.TrimSpace(originalModel) != strings.TrimSpace(mappedModel) && s.responseModelAuditBypassEnabled(c)
+	requestedResponseModel := downstreamRequestedModel(ginRequestContext(c), originalModel)
+	needModelReplace := strings.TrimSpace(requestedResponseModel) != "" && s.responseModelAuditBypassEnabled(c)
 	resultWithUsage := func() *openaiStreamingResultPassthrough {
 		return &openaiStreamingResultPassthrough{
 			usage:            usage,
@@ -1217,8 +1219,8 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			trimmedData := strings.TrimSpace(data)
 			rawEventType := strings.TrimSpace(gjson.GetBytes(dataBytes, "type").String())
 			observer.ObserveOpenAI(dataBytes, rawEventType)
-			if needModelReplace && strings.Contains(data, mappedModel) {
-				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
+			if needModelReplace {
+				line = s.replaceModelInSSELine(line, mappedModel, requestedResponseModel)
 				if replacedData, replaced := extractOpenAISSEDataLine(line); replaced {
 					dataBytes = []byte(replacedData)
 					trimmedData = strings.TrimSpace(replacedData)
@@ -1444,8 +1446,9 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if contentType == "" {
 		contentType = "application/json"
 	}
-	if originalModel != "" && mappedModel != "" && originalModel != mappedModel && s.responseModelAuditBypassEnabled(c) {
-		body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
+	requestedResponseModel := downstreamRequestedModel(ginRequestContext(c), originalModel)
+	if strings.TrimSpace(requestedResponseModel) != "" && s.responseModelAuditBypassEnabled(c) {
+		body = s.replaceModelInResponseBody(body, mappedModel, requestedResponseModel)
 	}
 	body, err = restoreOpenAIResponsesNamespacePayload(c, body)
 	if err != nil {
@@ -1489,8 +1492,9 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(ctx context.Context, r
 		}
 		finalResponse = supplementCompactionItemFromSSE(c, finalResponse, bodyText)
 		body = finalResponse
-		if originalModel != "" && mappedModel != "" && originalModel != mappedModel && s.responseModelAuditBypassEnabled(c) {
-			body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
+		requestedResponseModel := downstreamRequestedModel(ginRequestContext(c), originalModel)
+		if strings.TrimSpace(requestedResponseModel) != "" && s.responseModelAuditBypassEnabled(c) {
+			body = s.replaceModelInResponseBody(body, mappedModel, requestedResponseModel)
 		}
 		// Correct tool calls in final response
 		body = s.correctToolCallsInResponseBody(body)
@@ -1509,8 +1513,9 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(ctx context.Context, r
 			return nil, s.writeOpenAINonStreamingProtocolError(resp, c, msg)
 		}
 		usage = s.parseSSEUsageFromBody(bodyText)
-		if originalModel != "" && mappedModel != "" && originalModel != mappedModel && s.responseModelAuditBypassEnabled(c) {
-			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, originalModel)
+		requestedResponseModel := downstreamRequestedModel(ginRequestContext(c), originalModel)
+		if strings.TrimSpace(requestedResponseModel) != "" && s.responseModelAuditBypassEnabled(c) {
+			bodyText = s.replaceModelInSSEBody(bodyText, mappedModel, requestedResponseModel)
 		}
 		body = []byte(bodyText)
 	}

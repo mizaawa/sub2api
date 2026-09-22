@@ -1,23 +1,8 @@
 <template>
-  <svg
+  <CustomPlatformIcon
     v-if="provider === 'custom'"
-    :width="size"
-    :height="size"
-    viewBox="0 0 48 48"
-    xmlns="http://www.w3.org/2000/svg"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="4"
-    aria-hidden="true"
-  >
-    <circle cx="24" cy="8" r="4" />
-    <circle cx="24" cy="24" r="4" />
-    <circle cx="37.856" cy="16" r="4" />
-    <circle cx="37.856" cy="32" r="4" />
-    <circle cx="24" cy="40" r="4" />
-    <circle cx="10.144" cy="32" r="4" />
-    <circle cx="10.144" cy="16" r="4" />
-  </svg>
+    :size="size"
+  />
   <svg
     v-else-if="iconInfo"
     :width="size"
@@ -46,6 +31,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Provider } from '@/api/admin/channelMonitor'
+import CustomPlatformIcon from '@/components/common/CustomPlatformIcon.vue'
 
 interface IconData {
   paths: string[]

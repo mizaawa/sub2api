@@ -423,6 +423,7 @@
                 <label class="input-label text-xs mb-0">{{ t('admin.channels.form.modelPricing', 'Model Pricing') }}</label>
                 <div class="flex items-center gap-2">
                   <button
+                    v-if="section.platform !== 'custom'"
                     type="button"
                     @click="syncLatestModels(sIdx)"
                     :disabled="syncingPlatform === section.platform"
@@ -674,9 +675,11 @@ interface FormPricingRule {
   pricing: PricingFormEntry[]
 }
 
+type ChannelPricingPlatform = Exclude<GroupPlatform, 'composite'> | 'custom'
+
 // ── Platform Section type ──
 interface PlatformSection {
-  platform: GroupPlatform
+  platform: ChannelPricingPlatform
   enabled: boolean
   collapsed: boolean
   group_ids: number[]
@@ -761,7 +764,7 @@ const form = reactive({
 let abortController: AbortController | null = null
 
 // ── Platform config ──
-const platformOrder: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok']
+const platformOrder: ChannelPricingPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'custom']
 
 // ── Helpers ──
 function formatDate(value: string): string {
@@ -772,7 +775,7 @@ function formatDate(value: string): string {
 // ── Platform section helpers ──
 const activePlatforms = computed(() => form.platforms.filter(s => s.enabled).map(s => s.platform))
 
-function addPlatformSection(platform: GroupPlatform) {
+function addPlatformSection(platform: ChannelPricingPlatform) {
   form.platforms.push({
     platform,
     enabled: true,
@@ -787,7 +790,7 @@ function addPlatformSection(platform: GroupPlatform) {
   })
 }
 
-function togglePlatform(platform: GroupPlatform) {
+function togglePlatform(platform: ChannelPricingPlatform) {
   const section = form.platforms.find(s => s.platform === platform)
   if (section) {
     section.enabled = !section.enabled
@@ -799,8 +802,12 @@ function togglePlatform(platform: GroupPlatform) {
   }
 }
 
-function getGroupsForPlatform(platform: GroupPlatform): AdminGroup[] {
-  return allGroups.value.filter(g => g.platform === platform || g.platform === 'composite')
+function getGroupsForPlatform(platform: ChannelPricingPlatform): AdminGroup[] {
+  return allGroups.value.filter(g => (
+    platform === 'custom'
+      ? g.platform === 'composite'
+      : g.platform === platform
+  ))
 }
 
 // ── Group helpers ──
@@ -1173,20 +1180,24 @@ function apiToForm(channel: Channel): PlatformSection[] {
   }
 
   // Determine which platforms are active (from groups + pricing + mapping)
-  const activePlatforms = new Set<GroupPlatform>()
+  const activePlatforms = new Set<ChannelPricingPlatform>()
   for (const gid of channel.group_ids || []) {
     const p = groupPlatformMap.get(gid)
     if (p === 'composite') {
-      platformOrder.forEach(platform => activePlatforms.add(platform))
+      activePlatforms.add('custom')
     } else if (p) {
       activePlatforms.add(p)
     }
   }
   for (const p of channel.model_pricing || []) {
-    if (p.platform) activePlatforms.add(p.platform as GroupPlatform)
+    if (p.platform && platformOrder.includes(p.platform as ChannelPricingPlatform)) {
+      activePlatforms.add(p.platform as ChannelPricingPlatform)
+    }
   }
   for (const p of Object.keys(channel.model_mapping || {})) {
-    if (platformOrder.includes(p as GroupPlatform)) activePlatforms.add(p as GroupPlatform)
+    if (platformOrder.includes(p as ChannelPricingPlatform)) {
+      activePlatforms.add(p as ChannelPricingPlatform)
+    }
   }
 
   // Build sections in platform order
@@ -1196,7 +1207,9 @@ function apiToForm(channel: Channel): PlatformSection[] {
 
     const groupIds = (channel.group_ids || []).filter(gid => {
       const groupPlatform = groupPlatformMap.get(gid)
-      return groupPlatform === platform || groupPlatform === 'composite'
+      return platform === 'custom'
+        ? groupPlatform === 'composite'
+        : groupPlatform === platform
     })
     const mapping = (channel.model_mapping || {})[platform] || {}
     const pricing = (channel.model_pricing || [])
@@ -1370,15 +1383,16 @@ function distributeRulesToPlatforms(apiRules: AccountStatsPricingRule[]) {
 
   for (const apiRule of apiRules) {
     // Infer platform from group_ids
-    const platforms = new Set<GroupPlatform>()
+    const platforms = new Set<ChannelPricingPlatform>()
     for (const gid of apiRule.group_ids || []) {
       const p = groupPlatformMap.get(gid)
-      if (p && p !== 'composite') platforms.add(p)
+      if (p === 'composite') platforms.add('custom')
+      else if (p) platforms.add(p)
     }
     // If pricing has a platform field, use that as fallback
     if (platforms.size === 0 && apiRule.pricing?.length > 0) {
-      const p = apiRule.pricing[0].platform as GroupPlatform | undefined
-      if (p) platforms.add(p)
+      const p = apiRule.pricing[0].platform as ChannelPricingPlatform | undefined
+      if (p && platformOrder.includes(p)) platforms.add(p)
     }
     const targetPlatform = platforms.size >= 1 ? [...platforms][0] : null
     if (!targetPlatform) continue
@@ -1495,13 +1509,16 @@ async function handleSubmit() {
     }
   }
 
-  // 校验 per_request/image 模式必须有价格 (只校验启用的平台)
+  // 校验 per_request/image/video 模式必须有价格 (只校验启用的平台)
   for (const section of form.platforms.filter(s => s.enabled)) {
     for (const entry of section.model_pricing) {
       if (entry.models.length === 0) continue
-      if ((entry.billing_mode === 'per_request' || entry.billing_mode === 'image') &&
-          (entry.per_request_price == null || entry.per_request_price === '') &&
-          (!entry.intervals || entry.intervals.length === 0)) {
+      const hasDefaultRequestPrice = entry.per_request_price != null && entry.per_request_price !== ''
+      const hasTierRequestPrice = (entry.intervals || []).some(interval => (
+        interval.per_request_price != null && interval.per_request_price !== ''
+      ))
+      if ((entry.billing_mode === 'per_request' || entry.billing_mode === 'image' || entry.billing_mode === 'video') &&
+          !hasDefaultRequestPrice && !hasTierRequestPrice) {
         appStore.showError(t('admin.channels.form.perRequestPriceRequired'))
         return
       }

@@ -13,6 +13,9 @@ func TestNormalizeGroupPlatformDefaultsToAnthropic(t *testing.T) {
 	if got := NormalizeGroupPlatform(PlatformOpenAI); got != PlatformOpenAI {
 		t.Fatalf("显式 platform 不应被改写，got %s", got)
 	}
+	if got := NormalizeGroupPlatform(PlatformCustom); got != PlatformComposite {
+		t.Fatalf("Custom API 值应兼容旧 composite 存储值，got %s", got)
+	}
 	// 归一化后的默认平台必须真的支持利润控制，否则预校验仍会误拒。
 	if err := ValidateProfitControlConfig(NormalizeGroupPlatform(""), true, 0.3, 0.05); err != nil {
 		t.Fatalf("省略 platform 且启用利润控制不应被预校验拒绝: %v", err)
