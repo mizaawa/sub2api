@@ -3,6 +3,7 @@ package repository
 import (
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/stretchr/testify/require"
 )
 
@@ -151,6 +152,18 @@ func TestIsMigrationChecksumCompatible(t *testing.T) {
 			)
 			require.True(t, ok)
 		}
+	})
+
+	t.Run("203已发布checksum可兼容无阻塞修复版本", func(t *testing.T) {
+		content, err := migrations.FS.ReadFile("203_custom_platform_constraints.sql")
+		require.NoError(t, err)
+
+		ok := isMigrationChecksumCompatible(
+			"203_custom_platform_constraints.sql",
+			"cfbe9458fea9345505c6bef3d04cfe76d6642f5b460378f607407f30f79ed598",
+			migrationChecksum(string(content)),
+		)
+		require.True(t, ok)
 	})
 
 	t.Run("119未知checksum不兼容", func(t *testing.T) {
