@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// resolveAccountStatsCost 计算账号统计定价费用。
+// resolveAccountStatsCostWithUnits 计算账号统计定价费用。
 // 返回 nil 表示不覆盖，使用默认公式（total_cost × account_rate_multiplier）。
 //
 // 优先级（先命中为准）：
@@ -16,23 +16,6 @@ import (
 //
 // upstreamModel 是最终发往上游的模型 ID。
 // totalCost 是本次请求的客户计费（倍率前），用于优先级 2。
-func resolveAccountStatsCost(
-	ctx context.Context,
-	channelService *ChannelService,
-	billingService *BillingService,
-	accountID int64,
-	groupID int64,
-	upstreamModel string,
-	tokens UsageTokens,
-	requestCount int,
-	totalCost float64,
-) *float64 {
-	return resolveAccountStatsCostWithUnits(
-		ctx, channelService, billingService, accountID, groupID, upstreamModel,
-		tokens, accountStatsRequestUnits{requestCount: requestCount}, totalCost,
-	)
-}
-
 type accountStatsRequestUnits struct {
 	requestCount    int
 	videoCount      int
@@ -118,17 +101,7 @@ func tryModelFilePricing(billingService *BillingService, model string, tokens Us
 	return &cost
 }
 
-// tryCustomRules 遍历自定义规则，按数组顺序先命中为准。
-func tryCustomRules(
-	channel *Channel, accountID, groupID int64,
-	platform, model string, tokens UsageTokens, requestCount int,
-) *float64 {
-	return tryCustomRulesWithUnits(
-		channel, accountID, groupID, platform, model, tokens,
-		accountStatsRequestUnits{requestCount: requestCount},
-	)
-}
-
+// tryCustomRulesWithUnits 遍历自定义规则，按数组顺序先命中为准。
 func tryCustomRulesWithUnits(
 	channel *Channel, accountID, groupID int64,
 	platform, model string, tokens UsageTokens, units accountStatsRequestUnits,
@@ -220,11 +193,7 @@ func normalizeAccountStatsPricingPlatform(platform string) string {
 	return platform
 }
 
-// calculateStatsCost 使用给定的定价计算费用（不含任何倍率，原始费用）。
-func calculateStatsCost(pricing *ChannelModelPricing, tokens UsageTokens, requestCount int) *float64 {
-	return calculateStatsCostWithUnits(pricing, tokens, accountStatsRequestUnits{requestCount: requestCount})
-}
-
+// calculateStatsCostWithUnits 使用给定的定价计算费用（不含任何倍率，原始费用）。
 func calculateStatsCostWithUnits(pricing *ChannelModelPricing, tokens UsageTokens, units accountStatsRequestUnits) *float64 {
 	if pricing == nil || !validUsageTokens(tokens) {
 		return nil

@@ -11,6 +11,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func resolveAccountStatsCost(
+	ctx context.Context,
+	channelService *ChannelService,
+	billingService *BillingService,
+	accountID int64,
+	groupID int64,
+	upstreamModel string,
+	tokens UsageTokens,
+	requestCount int,
+	totalCost float64,
+) *float64 {
+	return resolveAccountStatsCostWithUnits(
+		ctx, channelService, billingService, accountID, groupID, upstreamModel,
+		tokens, accountStatsRequestUnits{requestCount: requestCount}, totalCost,
+	)
+}
+
+func tryCustomRules(
+	channel *Channel, accountID, groupID int64,
+	platform, model string, tokens UsageTokens, requestCount int,
+) *float64 {
+	return tryCustomRulesWithUnits(
+		channel, accountID, groupID, platform, model, tokens,
+		accountStatsRequestUnits{requestCount: requestCount},
+	)
+}
+
+func calculateStatsCost(pricing *ChannelModelPricing, tokens UsageTokens, requestCount int) *float64 {
+	return calculateStatsCostWithUnits(pricing, tokens, accountStatsRequestUnits{requestCount: requestCount})
+}
+
 // ---------------------------------------------------------------------------
 // matchAccountStatsRule
 // ---------------------------------------------------------------------------

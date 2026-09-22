@@ -124,7 +124,7 @@ func (s *OpenAIGatewayService) forwardCustomTransparent(
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 	}
 	if resp == nil {
-		return nil, errors.New("Custom upstream returned no response")
+		return nil, errors.New("custom upstream returned no response")
 	}
 	defer func() { _ = resp.Body.Close() }()
 

@@ -266,10 +266,6 @@ func defaultAllowImageGenerationForPlatform(platform string) bool {
 	return platform == PlatformGrok || platform == PlatformComposite
 }
 
-func compositeDefaultModelsListCandidateIDs() []string {
-	return nil
-}
-
 func canCopyAccountsFromGroupPlatform(targetPlatform, sourcePlatform string) bool {
 	if targetPlatform == PlatformComposite {
 		return sourcePlatform == PlatformComposite

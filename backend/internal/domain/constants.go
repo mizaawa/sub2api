@@ -25,8 +25,8 @@ const (
 	PlatformGrok        = "grok"
 	// PlatformCustom is an API-key-only OpenAI-compatible upstream.
 	// Groups keep using the legacy "composite" wire value for compatibility.
-	PlatformCustom      = "custom"
-	PlatformComposite   = "composite"
+	PlatformCustom    = "custom"
+	PlatformComposite = "composite"
 )
 
 // Account type constants
