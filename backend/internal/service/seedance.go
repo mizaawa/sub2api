@@ -55,7 +55,7 @@ func ParseSeedanceRequest(body []byte) (GrokMediaRequestInfo, error) {
 func buildSeedanceURL(base string, endpoint GrokMediaEndpoint, taskID string) (string, error) {
 	base = strings.TrimRight(strings.TrimSpace(base), "/")
 	if base == "" {
-		return "", fmt.Errorf("Seedance base URL is empty")
+		return "", fmt.Errorf("seedance base URL is empty")
 	}
 	if !strings.HasSuffix(base, "/api/v3") && !strings.HasSuffix(base, "/v3") {
 		base += "/api/v3"
@@ -64,7 +64,7 @@ func buildSeedanceURL(base string, endpoint GrokMediaEndpoint, taskID string) (s
 	if endpoint != SeedanceEndpointCreate {
 		taskID = strings.TrimPrefix(strings.TrimSpace(taskID), "seedance:")
 		if taskID == "" || validateUpstreamPathSegment("Seedance task ID", taskID) != nil {
-			return "", fmt.Errorf("invalid Seedance task ID")
+			return "", fmt.Errorf("invalid seedance task ID")
 		}
 		base += "/" + taskID
 	}
@@ -83,13 +83,13 @@ func (s *OpenAIGatewayService) ForwardSeedance(
 	body []byte,
 ) (*OpenAIForwardResult, error) {
 	if account == nil || !endpoint.IsSeedance() {
-		return nil, fmt.Errorf("Seedance account and endpoint are required")
+		return nil, fmt.Errorf("seedance account and endpoint are required")
 	}
 	if account.Platform != PlatformOpenAI && account.Platform != PlatformCustom {
-		return nil, fmt.Errorf("account platform %s is not supported for Seedance", account.Platform)
+		return nil, fmt.Errorf("account platform %s is not supported for seedance", account.Platform)
 	}
 	if !account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilitySeedance) {
-		return nil, fmt.Errorf("Seedance is not enabled for this account")
+		return nil, fmt.Errorf("seedance is not enabled for this account")
 	}
 	baseURL := account.GetOpenAIBaseURL()
 	validatedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
@@ -114,7 +114,7 @@ func (s *OpenAIGatewayService) ForwardSeedance(
 		upstreamModel = account.GetMappedModel(requestModel)
 		requestBody, err = sjson.SetBytes(body, "model", upstreamModel)
 		if err != nil {
-			return nil, fmt.Errorf("rewrite Seedance model: %w", err)
+			return nil, fmt.Errorf("rewrite seedance model: %w", err)
 		}
 	}
 
@@ -160,7 +160,7 @@ func (s *OpenAIGatewayService) ForwardSeedance(
 	}
 	if resp.StatusCode >= 400 {
 		s.WriteCustomRawUpstreamResponse(c, resp.StatusCode, resp.Header, responseBody)
-		return nil, fmt.Errorf("Seedance upstream status %d", resp.StatusCode)
+		return nil, fmt.Errorf("seedance upstream status %d", resp.StatusCode)
 	}
 
 	result := &OpenAIForwardResult{
@@ -174,7 +174,7 @@ func (s *OpenAIGatewayService) ForwardSeedance(
 	if endpoint == SeedanceEndpointCreate {
 		id := strings.TrimSpace(gjson.GetBytes(responseBody, "id").String())
 		if id == "" {
-			return nil, fmt.Errorf("Seedance create response missing task ID")
+			return nil, fmt.Errorf("seedance create response missing task ID")
 		}
 		result.ResponseID = SeedanceTaskKey(id)
 	} else {
