@@ -31,19 +31,28 @@ const (
 	GrokMediaEndpointVideosExtensions  GrokMediaEndpoint = "videos_extensions"
 	GrokMediaEndpointVideoStatus       GrokMediaEndpoint = "video_status"
 	GrokMediaEndpointVideoContent      GrokMediaEndpoint = "video_content"
+	SeedanceEndpointCreate             GrokMediaEndpoint = "seedance_create"
+	SeedanceEndpointStatus             GrokMediaEndpoint = "seedance_status"
+	SeedanceEndpointDelete             GrokMediaEndpoint = "seedance_delete"
 )
+
+const OpenAIEndpointCapabilitySeedance OpenAIEndpointCapability = "seedance"
+
+func (e GrokMediaEndpoint) IsSeedance() bool {
+	return e == SeedanceEndpointCreate || e == SeedanceEndpointStatus || e == SeedanceEndpointDelete
+}
 
 func (e GrokMediaEndpoint) RequiresRequestBody() bool {
 	return !e.IsVideoLookupRequest()
 }
 
 func (e GrokMediaEndpoint) IsVideoLookupRequest() bool {
-	return e == GrokMediaEndpointVideoStatus || e == GrokMediaEndpointVideoContent
+	return e == GrokMediaEndpointVideoStatus || e == GrokMediaEndpointVideoContent || e == SeedanceEndpointStatus || e == SeedanceEndpointDelete
 }
 
 func (e GrokMediaEndpoint) IsVideoGenerationRequest() bool {
 	switch e {
-	case GrokMediaEndpointVideosGenerations, GrokMediaEndpointVideosEdits, GrokMediaEndpointVideosExtensions:
+	case GrokMediaEndpointVideosGenerations, GrokMediaEndpointVideosEdits, GrokMediaEndpointVideosExtensions, SeedanceEndpointCreate:
 		return true
 	default:
 		return false
@@ -52,7 +61,7 @@ func (e GrokMediaEndpoint) IsVideoGenerationRequest() bool {
 
 func (e GrokMediaEndpoint) IsGenerationRequest() bool {
 	switch e {
-	case GrokMediaEndpointImagesGenerations, GrokMediaEndpointImagesEdits, GrokMediaEndpointVideosGenerations, GrokMediaEndpointVideosEdits, GrokMediaEndpointVideosExtensions:
+	case GrokMediaEndpointImagesGenerations, GrokMediaEndpointImagesEdits, GrokMediaEndpointVideosGenerations, GrokMediaEndpointVideosEdits, GrokMediaEndpointVideosExtensions, SeedanceEndpointCreate:
 		return true
 	default:
 		return false
@@ -114,6 +123,9 @@ func (r GrokMediaRequestInfo) ModerationBody() []byte {
 }
 
 func (e GrokMediaEndpoint) httpMethod() string {
+	if e == SeedanceEndpointDelete {
+		return http.MethodDelete
+	}
 	if e.IsVideoLookupRequest() {
 		return http.MethodGet
 	}
@@ -592,7 +604,7 @@ func (s *OpenAIGatewayService) ResolveGrokMediaVideoRequestAccountDetails(
 	if err != nil {
 		return nil, err
 	}
-	if account == nil || (account.Platform != PlatformGrok && account.Platform != PlatformCustom) {
+	if account == nil || (account.Platform != PlatformGrok && account.Platform != PlatformCustom && account.Platform != PlatformOpenAI) {
 		return nil, fmt.Errorf("video request account platform is unsupported")
 	}
 	return account, nil

@@ -302,6 +302,18 @@ func RegisterGatewayRoutes(
 		}
 		h.Gateway.Responses(c)
 	}
+	// Ark/Seedance clients use several documented API prefixes depending on
+	// their SDK configuration. Keep every alias on the same auth, group and
+	// endpoint-normalization middleware chain.
+	seedanceRoute := func(method, path string) {
+		r.Handle(method, path, bodyLimit, clientRequestID, opsErrorLogger, endpointNorm,
+			gin.HandlerFunc(apiKeyAuth), compositeTarget, requireGroupAnthropic, h.OpenAIGateway.SeedanceTasks)
+	}
+	for _, prefix := range []string{"/api/v3", "/v3", "/v1", ""} {
+		seedanceRoute(http.MethodPost, prefix+"/contents/generations/tasks")
+		seedanceRoute(http.MethodGet, prefix+"/contents/generations/tasks/:task_id")
+		seedanceRoute(http.MethodDelete, prefix+"/contents/generations/tasks/:task_id")
+	}
 	// OpenAI-compatible clients commonly use /openai/v1 as their base URL.
 	// Keep the Responses aliases on the same middleware chain as /v1 so
 	// authentication, composite routing, endpoint normalization, and the

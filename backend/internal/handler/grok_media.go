@@ -121,7 +121,16 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	}
 
 	contentType := c.GetHeader("Content-Type")
-	requestInfo := service.ParseGrokMediaRequest(contentType, body)
+	requestInfo := service.GrokMediaRequestInfo{}
+	if endpoint.IsSeedance() && endpoint == service.SeedanceEndpointCreate {
+		requestInfo, err = service.ParseSeedanceRequest(body)
+		if err != nil {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
+	} else {
+		requestInfo = service.ParseGrokMediaRequest(contentType, body)
+	}
 	requestModel := requestInfo.Model
 	routingModel := requestModel
 	if targetPlatform == service.PlatformGrok {
@@ -145,7 +154,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "request_id is required")
 		return
 	}
-	if targetPlatform == service.PlatformCustom && endpoint.IsVideoGenerationRequest() {
+	if targetPlatform == service.PlatformCustom && endpoint.IsVideoGenerationRequest() && !endpoint.IsSeedance() {
 		if err := h.gatewayService.ValidateCustomVideoPricing(
 			c.Request.Context(), apiKey, requestModel, requestInfo.Resolution,
 		); err != nil {
@@ -160,7 +169,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	setOpsEndpointContext(c, "", int16(service.RequestTypeSync))
 
 	if endpoint.IsGenerationRequest() {
-		if !service.GroupAllowsImageGeneration(apiKey.Group) {
+		if !endpoint.IsSeedance() && !service.GroupAllowsImageGeneration(apiKey.Group) {
 			h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 			return
 		}
@@ -171,12 +180,14 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 				return
 			}
 		}
-		imageReleaseFunc, acquired := h.acquireImageGenerationSlot(c, streamStarted)
-		if !acquired {
-			return
-		}
-		if imageReleaseFunc != nil {
-			defer imageReleaseFunc()
+		if !endpoint.IsSeedance() {
+			imageReleaseFunc, acquired := h.acquireImageGenerationSlot(c, streamStarted)
+			if !acquired {
+				return
+			}
+			if imageReleaseFunc != nil {
+				defer imageReleaseFunc()
+			}
 		}
 	}
 
@@ -214,7 +225,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		}
 		boundLookupAccountID = boundLookupAccount.ID
 	}
-	if targetPlatform != service.PlatformGrok && targetPlatform != service.PlatformCustom {
+	if targetPlatform != service.PlatformGrok && targetPlatform != service.PlatformCustom && targetPlatform != service.PlatformOpenAI {
 		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Videos API is not supported for this platform")
 		return
 	}
@@ -395,6 +406,9 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 					accountReleaseFunc()
 				}
 			}()
+			if endpoint.IsSeedance() {
+				return h.gatewayService.ForwardSeedance(requestCtx, c, account, endpoint, requestID, body)
+			}
 			return h.gatewayService.ForwardGrokMedia(requestCtx, c, account, endpoint, requestID, body, contentType)
 		}()
 
@@ -423,7 +437,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 				// transport error, 429, or 5xx may occur after the upstream has
 				// accepted the task. Retrying another account can create and bill
 				// duplicate videos, so always terminate after the first attempt.
-				if targetPlatform == service.PlatformCustom && endpoint.IsVideoGenerationRequest() {
+				if endpoint.IsVideoGenerationRequest() && (targetPlatform == service.PlatformCustom || endpoint.IsSeedance()) {
 					h.handleFailoverExhausted(c, failoverErr, false)
 					return
 				}
@@ -514,7 +528,18 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			}
 			return
 		}
-		if targetPlatform == service.PlatformCustom && endpoint.IsVideoGenerationRequest() {
+		if endpoint == service.SeedanceEndpointCreate {
+			if err := h.gatewayService.BindGrokMediaVideoRequestAccount(
+				requestCtx, apiKey.GroupID, result.ResponseID, subject.UserID, apiKey.ID, account.ID,
+			); err != nil {
+				h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Failed to persist Seedance task")
+				return
+			}
+			if !h.gatewayService.WriteBufferedGrokMediaResponse(c, result) {
+				h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Failed to write Seedance task response")
+				return
+			}
+		} else if targetPlatform == service.PlatformCustom && endpoint.IsVideoGenerationRequest() {
 			if err := h.finalizeCustomVideoCreation(
 				c, requestCtx, reqLog, apiKey, subject, subscription, account, result,
 				requestModel, channelMapping, body,
@@ -649,6 +674,9 @@ func grokMediaRequiredCapability(endpoint service.GrokMediaEndpoint) service.Ope
 }
 
 func mediaRequiredCapability(endpoint service.GrokMediaEndpoint, platform string) service.OpenAIEndpointCapability {
+	if endpoint.IsSeedance() {
+		return service.OpenAIEndpointCapabilitySeedance
+	}
 	if platform != service.PlatformGrok {
 		return ""
 	}

@@ -41,6 +41,51 @@ func TestEnsureSimpleModeDefaultGroups_CreatesMissingDefaults(t *testing.T) {
 	require.True(t, grokDefault.AllowImageGeneration)
 }
 
+func TestEnsureCustomDefaultGroup_CreatesCompositeRoute(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	client := tx.Client()
+
+	seedCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	require.NoError(t, ensureCustomDefaultGroup(seedCtx, client))
+	customDefault, err := client.Group.Query().
+		Where(group.NameEQ(service.PlatformCustom+"-default"), group.DeletedAtIsNil()).
+		Only(seedCtx)
+	require.NoError(t, err)
+	require.Equal(t, service.PlatformComposite, customDefault.Platform)
+	require.True(t, customDefault.AllowImageGeneration)
+}
+
+func TestEnsureCustomDefaultGroup_RepairsLegacyPlatform(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	client := tx.Client()
+
+	seedCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	legacy, err := client.Group.Create().
+		SetName(service.PlatformCustom + "-default").
+		SetDescription(simpleModeDefaultGroupDescription).
+		SetPlatform(service.PlatformCustom).
+		SetStatus(service.StatusActive).
+		SetSubscriptionType(service.SubscriptionTypeStandard).
+		SetRateMultiplier(1.0).
+		SetIsExclusive(false).
+		SetAllowImageGeneration(false).
+		Save(seedCtx)
+	require.NoError(t, err)
+
+	require.NoError(t, ensureCustomDefaultGroup(seedCtx, client))
+
+	legacy, err = client.Group.Get(seedCtx, legacy.ID)
+	require.NoError(t, err)
+	require.Equal(t, service.PlatformComposite, legacy.Platform)
+	require.True(t, legacy.AllowImageGeneration)
+}
+
 func TestEnsureSimpleModeDefaultGroups_BackfillsOnlyAutoCreatedGrokDefault(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)

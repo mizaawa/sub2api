@@ -58,6 +58,32 @@ func ensureSimpleModeDefaultGroups(ctx context.Context, client *dbent.Client) er
 	return nil
 }
 
+// ensureCustomDefaultGroup is intentionally independent from simple mode.
+// Custom accounts are backed by composite groups, and without one a newly
+// created account has no schedulable route in a standard deployment.
+func ensureCustomDefaultGroup(ctx context.Context, client *dbent.Client) error {
+	if client == nil {
+		return fmt.Errorf("nil ent client")
+	}
+
+	const name = service.PlatformCustom + "-default"
+	// Older builds could persist this group with the account platform value
+	// (`custom`). Custom accounts are validated against the legacy composite
+	// group discriminator, so repair that row in place during startup.
+	updated, err := client.Group.Update().
+		Where(group.NameEQ(name), group.DeletedAtIsNil(), group.PlatformNEQ(service.PlatformComposite)).
+		SetPlatform(service.PlatformComposite).
+		SetAllowImageGeneration(true).
+		Save(ctx)
+	if err != nil {
+		return fmt.Errorf("repair custom default group: %w", err)
+	}
+	if updated > 0 {
+		return nil
+	}
+	return createGroupIfNotExists(ctx, client, name, service.PlatformComposite)
+}
+
 func createGroupIfNotExists(ctx context.Context, client *dbent.Client, name, platform string) error {
 	exists, err := client.Group.Query().
 		Where(group.NameEQ(name), group.DeletedAtIsNil()).
@@ -77,7 +103,7 @@ func createGroupIfNotExists(ctx context.Context, client *dbent.Client, name, pla
 		SetSubscriptionType(service.SubscriptionTypeStandard).
 		SetRateMultiplier(1.0).
 		SetIsExclusive(false).
-		SetAllowImageGeneration(platform == service.PlatformGrok).
+		SetAllowImageGeneration(platform == service.PlatformGrok || platform == service.PlatformComposite).
 		Save(ctx)
 	if err != nil {
 		if dbent.IsConstraintError(err) {

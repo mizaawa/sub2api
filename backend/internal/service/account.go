@@ -1478,6 +1478,19 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 	if !a.IsOpenAICompatible() {
 		return false
 	}
+	if capability == OpenAIEndpointCapabilitySeedance {
+		// Custom API-key accounts are explicitly configured as transparent Ark
+		// proxies. OpenAI API-key accounts opt in through openai_capabilities.
+		if a.Platform == PlatformCustom {
+			return a.Type == AccountTypeAPIKey &&
+				strings.TrimSpace(a.GetOpenAIApiKey()) != "" &&
+				strings.TrimSpace(a.GetOpenAIBaseURL()) != ""
+		}
+		configured, found := a.openAIEndpointCapabilitySet()
+		return a.Platform == PlatformOpenAI && a.Type == AccountTypeAPIKey &&
+			strings.TrimSpace(a.GetOpenAIBaseURL()) != "" &&
+			found && configured[string(OpenAIEndpointCapabilitySeedance)]
+	}
 	if a.IsCustom() {
 		// Custom API-key accounts are transparent upstream proxies. The local
 		// scheduler must not require a capability probe for an endpoint that the

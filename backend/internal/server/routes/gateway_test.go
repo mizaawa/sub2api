@@ -77,6 +77,19 @@ func TestGatewayRoutesOpenAIResponsesCompactPathIsRegistered(t *testing.T) {
 	}
 }
 
+func TestGatewayRoutesSeedanceTaskAliasesAreRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter()
+	registered := make(map[string]bool)
+	for _, route := range router.Routes() {
+		registered[route.Method+" "+route.Path] = true
+	}
+	for _, prefix := range []string{"/api/v3", "/v3", "/v1", ""} {
+		require.True(t, registered["POST "+prefix+"/contents/generations/tasks"])
+		require.True(t, registered["GET "+prefix+"/contents/generations/tasks/:task_id"])
+		require.True(t, registered["DELETE "+prefix+"/contents/generations/tasks/:task_id"])
+	}
+}
+
 func TestGatewayRoutesOpenAIV1ResponsesAliasesAreRegistered(t *testing.T) {
 	router := newGatewayRoutesTestRouter()
 	registered := make(map[string]bool)
