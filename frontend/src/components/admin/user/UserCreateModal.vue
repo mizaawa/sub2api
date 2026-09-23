@@ -14,12 +14,13 @@
         <label class="input-label">{{ t('admin.users.password') }}</label>
         <div class="flex gap-2">
           <div class="relative flex-1">
-            <input v-model="form.password" type="text" required class="input pr-10" :placeholder="t('admin.users.enterPassword')" />
+            <input v-model="form.password" type="text" required minlength="6" class="input pr-10" :placeholder="t('admin.users.enterPassword')" />
           </div>
           <button type="button" @click="generateRandomPassword" class="btn btn-secondary px-3">
             <Icon name="refresh" size="md" />
           </button>
         </div>
+        <p class="input-hint">{{ t('common.passwordMinLength') }}</p>
       </div>
       <div>
         <label class="input-label">{{ t('admin.users.username') }}</label>
@@ -89,6 +90,10 @@ const loading = ref(false)
 
 const submit = async () => {
   if (loading.value) return
+  if (Array.from(form.password).length < 6) {
+    appStore.showError(t('common.passwordMinLength'))
+    return
+  }
   loading.value = true
   try {
     const { balance: rawBalance, ...rest } = { ...form }
