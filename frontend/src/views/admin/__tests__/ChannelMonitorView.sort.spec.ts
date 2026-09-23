@@ -66,6 +66,22 @@ const VueDraggableStub = defineComponent({
       type: Array as PropType<ChannelMonitor[]>,
       required: true,
     },
+    animation: {
+      type: Number,
+      default: undefined,
+    },
+    forceFallback: {
+      type: Boolean,
+      default: false,
+    },
+    fallbackOnBody: {
+      type: Boolean,
+      default: false,
+    },
+    fallbackTolerance: {
+      type: Number,
+      default: 0,
+    },
   },
   emits: ['update:modelValue'],
   setup(props, { emit }) {
@@ -185,6 +201,11 @@ describe('ChannelMonitorView sorting', () => {
     expect(listMonitors).toHaveBeenCalledWith({ page: 2, page_size: 100 })
 
     const sortList = wrapper.get('[data-testid="channel-monitor-sort-list"]')
+    const draggable = wrapper.findComponent(VueDraggableStub)
+    expect(draggable.props('animation')).toBe(0)
+    expect(draggable.props('forceFallback')).toBe(true)
+    expect(draggable.props('fallbackOnBody')).toBe(true)
+    expect(draggable.props('fallbackTolerance')).toBe(4)
     expect(sortList.findAll('[data-monitor-id]').map(row => row.attributes('data-monitor-id')))
       .toEqual(['2', '3', '1', '4'])
 

@@ -232,7 +232,12 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		forwardStart := time.Now()
 
 		forwardBody := body
-		if requestPlatform != service.PlatformCustom && channelMapping.Mapped {
+		// Custom accounts keep their upstream protocol transparent, but a
+		// channel mapping is still a gateway-owned alias contract. Apply it at
+		// the handler boundary so aliases such as kimi-k3 can reach the model
+		// name exposed by the selected distributor. With no mapping, preserve
+		// the original Custom request body byte-for-byte.
+		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
 		}
 		writerSizeBeforeForward := c.Writer.Size()

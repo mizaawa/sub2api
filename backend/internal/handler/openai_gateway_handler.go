@@ -433,10 +433,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
-	forwardBody := body
-	if requestPlatform != service.PlatformCustom {
-		forwardBody = openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
-	}
+	// Custom forwarding remains protocol-transparent; an explicit channel
+	// mapping is nevertheless a gateway-owned public-alias contract and must
+	// be applied before the transparent upstream call.
+	forwardBody := openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
 	seedOpenAIForwardImageIntentHint(c, channelMapping.Mapped, imageIntent)
 
 	// Custom requests are protocol-transparent. Let the configured upstream
@@ -1201,12 +1201,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		forwardStart := time.Now()
 
 		defaultMappedModel := strings.TrimSpace(effectiveMappedModel)
-		// Custom requests keep the client body/model unchanged. Other platforms
-		// retain the established channel mapping behavior.
-		forwardBody := body
-		if requestPlatform != service.PlatformCustom {
-			forwardBody = mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
-		}
+		// Custom forwarding remains protocol-transparent, while an explicit
+		// channel mapping still rewrites the public alias for the upstream.
+		forwardBody := mappedBodyForMessages(channelMappingMsg.Mapped, channelMappingMsg.MappedModel)
 		writerSizeBeforeForward := c.Writer.Size()
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {

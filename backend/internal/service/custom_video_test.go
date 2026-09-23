@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +18,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestForwardCustomVideoGenerationUsesStandardAsyncEndpoint(t *testing.T) {
@@ -67,7 +70,7 @@ func TestForwardCustomVideoGenerationUsesStandardAsyncEndpoint(t *testing.T) {
 	require.Equal(t, "task-standard-id", result.ResponseID)
 	require.Equal(t, "seedance-2-5-720p", result.BillingModel)
 	require.Equal(t, 1, result.VideoCount)
-	require.Equal(t, VideoBillingResolution720P, result.VideoResolution)
+	require.Empty(t, result.VideoResolution, "Custom must not infer resolution from the model suffix")
 	require.Equal(t, 8, result.VideoDurationSeconds)
 	require.InDelta(t, 1.4, result.VideoPriceMultiplier, 1e-12)
 	require.Empty(t, recorder.Body.Bytes(), "creation success must remain buffered until task metadata is durable")
@@ -112,13 +115,232 @@ func TestForwardCustomVideoGenerationPreservesRequestedClipCount(t *testing.T) {
 	require.Len(t, upstream.requests, 1)
 	require.JSONEq(t, string(body), string(upstream.lastBody))
 	require.Equal(t, 2, result.VideoCount)
-	require.Equal(t, VideoBillingResolution720P, result.VideoResolution)
+	require.Empty(t, result.VideoResolution, "Custom must not infer resolution from the model suffix")
 	require.Equal(t, 4, result.VideoDurationSeconds)
 }
 
 func TestParseGrokMediaRequestAcceptsStringClipCount(t *testing.T) {
 	info := ParseGrokMediaRequest("application/json", []byte(`{"model":"videos-standard-720p","n":"2"}`))
 	require.Equal(t, 2, info.N)
+}
+
+func TestForwardCustomVideoResolutionNormalizesToResolution(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"model":"custom-video-model","prompt":"waves","resolution":"720p","vendor_option":"keep"}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"task-resolution","status":"queued"}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: customVideoTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.ForwardGrokMedia(
+		context.Background(), c, customVideoTestAccount(), GrokMediaEndpointVideosGenerations, "", body, "application/json",
+	)
+	require.NoError(t, err)
+	require.Equal(t, "720p", gjson.GetBytes(upstream.lastBody, "resolution").String())
+	require.Equal(t, "keep", gjson.GetBytes(upstream.lastBody, "vendor_option").String())
+	require.Equal(t, VideoBillingResolution720P, result.VideoResolution)
+}
+
+func TestForwardCustomVideoResolutionNameNormalizesToResolution(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"model":"custom-video-model","prompt":"waves","resolution":"invalid","resolution_name":"720"}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"task-resolution-name","status":"queued"}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: customVideoTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.ForwardGrokMedia(
+		context.Background(), c, customVideoTestAccount(), GrokMediaEndpointVideosGenerations, "", body, "application/json",
+	)
+	require.NoError(t, err)
+	require.Equal(t, "720p", gjson.GetBytes(upstream.lastBody, "resolution").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "resolution_name").Exists())
+	require.Equal(t, VideoBillingResolution720P, result.VideoResolution)
+	require.Empty(t, recorder.Body.Bytes())
+}
+
+func TestForwardCustomVideoInvalidJSONResolutionIsRemoved(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"model":"custom-video-model","prompt":"waves","resolution":"not-a-resolution","resolution_name":"also-invalid"}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"task-invalid-resolution","status":"queued"}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: customVideoTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.ForwardGrokMedia(
+		context.Background(), c, customVideoTestAccount(), GrokMediaEndpointVideosGenerations, "", body, "application/json",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.False(t, gjson.GetBytes(upstream.lastBody, "resolution").Exists())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "resolution_name").Exists())
+	require.Empty(t, result.VideoResolution)
+	require.Empty(t, recorder.Body.Bytes())
+}
+
+func TestForwardCustomVideoMissingResolutionDoesNotUseModelSuffix(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"model":"videos-standard-720p","prompt":"waves"}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"task-missing-resolution","status":"queued"}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: customVideoTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.ForwardGrokMedia(
+		context.Background(), c, customVideoTestAccount(), GrokMediaEndpointVideosGenerations, "", body, "application/json",
+	)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.False(t, gjson.GetBytes(upstream.lastBody, "resolution").Exists())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "resolution_name").Exists())
+	require.Empty(t, result.VideoResolution)
+}
+
+func TestForwardCustomVideoInvalidMultipartResolutionIsRemoved(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	require.NoError(t, writer.WriteField("model", "custom-video-model"))
+	require.NoError(t, writer.WriteField("prompt", "waves"))
+	require.NoError(t, writer.WriteField("resolution", "not-a-resolution"))
+	require.NoError(t, writer.WriteField("resolution_name", "still-invalid"))
+	part, err := writer.CreateFormFile("image", "input.txt")
+	require.NoError(t, err)
+	_, err = part.Write([]byte("preserve-this-file"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", bytes.NewReader(body.Bytes()))
+	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"task-invalid-multipart","status":"queued"}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: customVideoTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.ForwardGrokMedia(
+		context.Background(), c, customVideoTestAccount(), GrokMediaEndpointVideosGenerations, "", body.Bytes(), writer.FormDataContentType(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Empty(t, result.VideoResolution)
+	require.Empty(t, recorder.Body.Bytes())
+
+	mediaType, params, err := mime.ParseMediaType(upstream.lastReq.Header.Get("Content-Type"))
+	require.NoError(t, err)
+	require.Equal(t, "multipart/form-data", mediaType)
+	reader := multipart.NewReader(bytes.NewReader(upstream.lastBody), params["boundary"])
+	fields := map[string][]string{}
+	for {
+		part, nextErr := reader.NextPart()
+		if nextErr == io.EOF {
+			break
+		}
+		require.NoError(t, nextErr)
+		data, readErr := io.ReadAll(part)
+		require.NoError(t, readErr)
+		fields[part.FormName()] = append(fields[part.FormName()], string(data))
+	}
+	require.NotContains(t, fields, "resolution")
+	require.NotContains(t, fields, "resolution_name")
+	require.Equal(t, []string{"preserve-this-file"}, fields["image"])
+}
+
+func TestForwardCustomVideoMultipartResolutionNameNormalizesToResolution(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	require.NoError(t, writer.WriteField("model", "custom-video-model"))
+	require.NoError(t, writer.WriteField("resolution_name", "1280x720"))
+	require.NoError(t, writer.Close())
+	contentType := writer.FormDataContentType()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", bytes.NewReader(body.Bytes()))
+	c.Request.Header.Set("Content-Type", contentType)
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"task-valid-multipart","status":"queued"}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: customVideoTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.ForwardGrokMedia(
+		context.Background(), c, customVideoTestAccount(), GrokMediaEndpointVideosGenerations, "", body.Bytes(), contentType,
+	)
+	require.NoError(t, err)
+	require.Equal(t, VideoBillingResolution720P, result.VideoResolution)
+
+	mediaType, params, err := mime.ParseMediaType(upstream.lastReq.Header.Get("Content-Type"))
+	require.NoError(t, err)
+	require.Equal(t, "multipart/form-data", mediaType)
+	reader := multipart.NewReader(bytes.NewReader(upstream.lastBody), params["boundary"])
+	fields := map[string][]string{}
+	for {
+		part, nextErr := reader.NextPart()
+		if nextErr == io.EOF {
+			break
+		}
+		require.NoError(t, nextErr)
+		data, readErr := io.ReadAll(part)
+		require.NoError(t, readErr)
+		fields[part.FormName()] = append(fields[part.FormName()], string(data))
+	}
+	require.Equal(t, []string{"720p"}, fields["resolution"])
+	require.NotContains(t, fields, "resolution_name")
+}
+
+func TestParseGrokMediaResolutionMetadataDistinguishesMissingAndInvalid(t *testing.T) {
+	missing := ParseGrokMediaRequest("application/json", []byte(`{"model":"videos-standard-720p"}`))
+	require.False(t, missing.ResolutionProvided)
+	require.False(t, missing.ResolutionValid)
+	require.Equal(t, "", missing.RawResolution)
+	require.Equal(t, VideoBillingResolution720P, missing.Resolution, "Grok retains its model suffix default")
+
+	invalid := ParseGrokMediaRequest("application/json", []byte(`{"model":"videos-standard-720p","resolution":"invalid"}`))
+	require.True(t, invalid.ResolutionProvided)
+	require.False(t, invalid.ResolutionValid)
+	require.Equal(t, "invalid", invalid.RawResolution)
+	require.Equal(t, VideoBillingResolution720P, invalid.Resolution, "Grok retains its legacy fallback")
+
+	validAlias := ParseGrokMediaRequest("application/json", []byte(`{"model":"videos-standard-480p","resolution_name":"2160p"}`))
+	require.True(t, validAlias.ResolutionProvided)
+	require.True(t, validAlias.ResolutionValid)
+	require.Equal(t, "2160p", validAlias.RawResolution)
+	require.Equal(t, VideoBillingResolution4K, validAlias.Resolution)
+	require.Equal(t, VideoBillingResolution480P, validAlias.GrokResolution, "resolution_name must not change Grok's historical fallback")
 }
 
 func TestForwardCustomVideoStatusUsesBoundTaskURL(t *testing.T) {
@@ -318,6 +540,12 @@ func TestCustomVideoChannelBillingModeControlsUnits(t *testing.T) {
 			wantTotal:  unitPrice * videoCount,
 			wantActual: unitPrice * videoCount * 1.3,
 		},
+		{
+			name:       "image mode bills each completed clip",
+			mode:       BillingModeImage,
+			wantTotal:  unitPrice * videoCount,
+			wantActual: unitPrice * videoCount * 1.3,
+		},
 	}
 
 	for _, tt := range tests {
@@ -344,6 +572,80 @@ func TestCustomVideoChannelBillingModeControlsUnits(t *testing.T) {
 			require.InDelta(t, tt.wantActual, cost.ActualCost, 1e-12)
 		})
 	}
+}
+
+func TestCustomVideoEmptyResolutionDoesNotUseGroup480Price(t *testing.T) {
+	groupID := int64(714)
+	group480Price := 0.25
+	apiKey := &APIKey{
+		GroupID: testInt64Pointer(groupID),
+		Group: &Group{
+			ID:             groupID,
+			Platform:       PlatformComposite,
+			VideoPrice480P: &group480Price,
+		},
+	}
+	billingService := NewBillingService(&config.Config{}, nil)
+	svc := &OpenAIGatewayService{billingService: billingService}
+
+	cost := svc.calculateOpenAIVideoCost(
+		context.Background(),
+		"videos-standard-720p",
+		apiKey,
+		&OpenAIForwardResult{
+			VideoCount:           1,
+			VideoResolution:      "",
+			VideoDurationSeconds: 4,
+		},
+		1,
+	)
+
+	require.NotNil(t, cost)
+	require.Equal(t, string(BillingModeVideo), cost.BillingMode)
+	require.Zero(t, cost.TotalCost)
+	require.Zero(t, cost.ActualCost)
+}
+
+func TestCompositeGroupGrokAccountKeepsGrokResolutionFallback(t *testing.T) {
+	groupID := int64(715)
+	group720Price := 0.35
+	apiKey := &APIKey{
+		GroupID: testInt64Pointer(groupID),
+		Group: &Group{
+			ID:             groupID,
+			Platform:       PlatformComposite,
+			VideoPrice720P: &group720Price,
+		},
+	}
+	svc := &OpenAIGatewayService{billingService: NewBillingService(&config.Config{}, nil)}
+
+	cost := svc.calculateOpenAIVideoCost(
+		context.Background(),
+		"videos-standard-720p",
+		apiKey,
+		&OpenAIForwardResult{
+			VideoCount:           1,
+			VideoResolution:      "",
+			VideoDurationSeconds: 4,
+		},
+		1,
+		&Account{Platform: PlatformGrok},
+	)
+
+	require.NotNil(t, cost)
+	require.Equal(t, string(BillingModeVideo), cost.BillingMode)
+	require.InDelta(t, group720Price*4, cost.TotalCost, 1e-12)
+}
+
+func TestCompositeGroupUsageClassificationFollowsSelectedAccount(t *testing.T) {
+	groupID := int64(716)
+	apiKey := &APIKey{
+		GroupID: testInt64Pointer(groupID),
+		Group:   &Group{ID: groupID, Platform: PlatformComposite},
+	}
+
+	require.False(t, isCustomVideoUsageRequest(apiKey, &Account{Platform: PlatformGrok}))
+	require.True(t, isCustomVideoUsageRequest(apiKey, &Account{Platform: PlatformCustom}))
 }
 
 func TestValidateCustomVideoPricingRejectsUnpricedModels(t *testing.T) {

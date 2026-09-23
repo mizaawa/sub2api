@@ -1,5 +1,5 @@
 <template>
-  <AppLayout>
+  <AppLayout :class="{ 'channel-monitor-sort-open': showSortDialog }">
     <TablePageLayout>
       <template #filters>
         <MonitorFiltersBar
@@ -141,8 +141,13 @@
           <VueDraggable
             v-if="sortableMonitors.length > 0"
             v-model="sortableMonitors"
-            :animation="200"
-            class="space-y-2"
+            :animation="0"
+            :force-fallback="true"
+            :fallback-on-body="true"
+            :fallback-tolerance="4"
+            ghost-class="channel-monitor-sort-ghost"
+            chosen-class="channel-monitor-sort-chosen"
+            class="channel-monitor-sort-list space-y-2"
             data-testid="channel-monitor-sort-list"
           >
             <div
@@ -517,6 +522,18 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+:global(.channel-monitor-sort-ghost) {
+  opacity: 0.45;
+}
+
+:global(.channel-monitor-sort-chosen) {
+  cursor: grabbing;
+}
+
+:global(.channel-monitor-sort-open .channel-monitor-glow) {
+  animation-play-state: paused;
+}
+
 :deep(.channel-monitor-glow) {
   --monitor-glow-color: 57 197 187;
   animation: channel-monitor-pulse var(--monitor-glow-duration) ease-in-out infinite;

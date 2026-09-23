@@ -154,13 +154,26 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "request_id is required")
 		return
 	}
-	if targetPlatform == service.PlatformCustom && endpoint.IsVideoGenerationRequest() && !endpoint.IsSeedance() {
+	if (targetPlatform == service.PlatformCustom || targetPlatform == service.PlatformComposite) &&
+		endpoint.IsVideoGenerationRequest() && !endpoint.IsSeedance() {
+		validationResolution := requestInfo.Resolution
+		if !requestInfo.ResolutionValid {
+			// ParseGrokMediaRequest retains Grok's historical model/480p
+			// fallback in Resolution. Custom pricing diagnostics must instead
+			// reflect the absence/invalidity of a client-supplied resolution.
+			validationResolution = ""
+		}
 		if err := h.gatewayService.ValidateCustomVideoPricing(
-			c.Request.Context(), apiKey, requestModel, requestInfo.Resolution,
+			c.Request.Context(), apiKey, requestModel, validationResolution,
 		); err != nil {
-			reqLog.Info("custom_video.pricing_unavailable", zap.Error(err))
-			h.errorResponse(c, http.StatusBadRequest, "video_pricing_unavailable", "Custom video pricing is not configured for this model and resolution")
-			return
+			// Custom/Composite video creation must reach the upstream even when
+			// local pricing is not configured. Pricing is resolved again after a
+			// successful task response; this check is diagnostic only and must not
+			// turn an upstream-compatible request into a local 400.
+			reqLog.Warn("custom_video.pricing_unavailable",
+				zap.Error(err),
+				zap.String("resolution", validationResolution),
+			)
 		}
 	}
 

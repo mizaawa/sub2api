@@ -10,6 +10,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"strconv"
 	"strings"
@@ -69,12 +70,27 @@ func (e GrokMediaEndpoint) IsGenerationRequest() bool {
 }
 
 type GrokMediaRequestInfo struct {
-	Model              string
-	Prompt             string
-	N                  int
-	Size               string
-	SizeTier           string
-	Resolution         string
+	Model      string
+	Prompt     string
+	N          int
+	Size       string
+	SizeTier   string
+	Resolution string
+	// GrokResolution preserves the historical Grok resolution calculation. It
+	// intentionally considers only the original `resolution` field (plus the
+	// model/size/default fallback), so accepting resolution_name for Custom
+	// requests cannot change Grok's existing billing behavior.
+	GrokResolution string
+	// RawResolution is the trimmed value selected from the request's
+	// resolution/resolution_name fields before model/size based defaults are
+	// applied. ResolutionValid reports whether that selected value is one of
+	// the supported canonical values or aliases. ResolutionProvided lets
+	// callers distinguish an omitted resolution from an explicitly invalid
+	// value; both are intentionally represented by ResolutionValid=false.
+	RawResolution      string
+	ResolutionValid    bool
+	ResolutionProvided bool
+	grokRawResolution  string
 	DurationSeconds    int
 	InputImageURLs     []string
 	ReferenceVideoURLs []string
@@ -147,7 +163,19 @@ func ParseGrokMediaRequest(contentType string, body []byte) GrokMediaRequestInfo
 	info.Prompt = strings.TrimSpace(info.Prompt)
 	info.Size = strings.TrimSpace(info.Size)
 	info.SizeTier = NormalizeImageBillingTierOrDefault(info.Size)
-	info.Resolution = NormalizeVideoBillingResolutionForModelOrDefault(info.Model, info.Resolution, info.Size)
+	// Keep the client-selected canonical value in Resolution for Custom
+	// forwarding. Grok callers use the separate GrokResolution field below so
+	// an omitted or invalid Custom value does not silently become 480p.
+	if normalized, ok := normalizeVideoBillingResolution(info.RawResolution); ok {
+		info.Resolution = normalized
+		info.ResolutionValid = true
+	} else {
+		info.Resolution = NormalizeVideoBillingResolutionForModelOrDefault(info.Model, info.RawResolution, info.Size)
+	}
+	// Keep this separate from Resolution: Resolution represents the selected
+	// Custom-compatible value (which may come from resolution_name), while
+	// GrokResolution must retain the pre-existing primary-field behavior.
+	info.GrokResolution = NormalizeVideoBillingResolutionForModelOrDefault(info.Model, info.grokRawResolution, info.Size)
 	info.DurationSeconds = NormalizeVideoBillingDurationSecondsForModelOrDefault(info.Model, info.DurationSeconds)
 	if info.N <= 0 {
 		info.N = 1
@@ -162,7 +190,13 @@ func parseGrokMediaJSONRequest(body []byte, info *GrokMediaRequestInfo) {
 	info.Model = strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	info.Prompt = strings.TrimSpace(gjson.GetBytes(body, "prompt").String())
 	info.Size = strings.TrimSpace(gjson.GetBytes(body, "size").String())
-	info.Resolution = strings.TrimSpace(gjson.GetBytes(body, "resolution").String())
+	resolution := gjson.GetBytes(body, "resolution")
+	resolutionName := gjson.GetBytes(body, "resolution_name")
+	setGrokMediaResolutionFields(
+		info,
+		strings.TrimSpace(resolution.String()), resolution.Exists(),
+		strings.TrimSpace(resolutionName.String()), resolutionName.Exists(),
+	)
 	if duration := gjson.GetBytes(body, "duration"); duration.Exists() && duration.Type == gjson.Number {
 		info.DurationSeconds = int(duration.Int())
 	} else if seconds := gjson.GetBytes(body, "seconds"); seconds.Exists() {
@@ -267,6 +301,15 @@ func parseGrokMediaMultipartRequest(contentType string, body []byte, info *GrokM
 	if boundary == "" {
 		return
 	}
+	var resolution, resolutionName string
+	var resolutionProvided, resolutionNameProvided bool
+	defer func() {
+		setGrokMediaResolutionFields(
+			info,
+			resolution, resolutionProvided,
+			resolutionName, resolutionNameProvided,
+		)
+	}()
 	reader := multipart.NewReader(bytes.NewReader(body), boundary)
 	for {
 		part, err := reader.NextPart()
@@ -317,7 +360,11 @@ func parseGrokMediaMultipartRequest(contentType string, body []byte, info *GrokM
 		case "size":
 			info.Size = value
 		case "resolution":
-			info.Resolution = value
+			resolution = value
+			resolutionProvided = true
+		case "resolution_name":
+			resolutionName = value
+			resolutionNameProvided = true
 		case "duration":
 			if duration, err := strconv.Atoi(value); err == nil {
 				info.DurationSeconds = duration
@@ -346,6 +393,47 @@ func parseGrokMediaMultipartRequest(contentType string, body []byte, info *GrokM
 		case "mask", "mask_image_url":
 			info.MaskImageURL = value
 		}
+	}
+}
+
+// setGrokMediaResolutionFields records the effective client-supplied
+// resolution without applying the legacy model/size fallback. A valid
+// resolution field always wins over resolution_name; when it is absent,
+// empty, or invalid, resolution_name is considered next. The caller can then
+// apply platform-specific defaults while retaining enough metadata to avoid
+// forwarding an invalid value to a transparent Custom upstream.
+func setGrokMediaResolutionFields(
+	info *GrokMediaRequestInfo,
+	resolution string,
+	resolutionProvided bool,
+	resolutionName string,
+	resolutionNameProvided bool,
+) {
+	if info == nil {
+		return
+	}
+	resolution = strings.TrimSpace(resolution)
+	resolutionName = strings.TrimSpace(resolutionName)
+	info.grokRawResolution = resolution
+	info.ResolutionProvided = resolutionProvided || resolutionNameProvided
+	info.RawResolution = resolution
+	info.ResolutionValid = false
+	if normalized, ok := normalizeVideoBillingResolution(resolution); ok {
+		info.RawResolution = resolution
+		info.Resolution = normalized
+		info.ResolutionValid = true
+		return
+	}
+	if normalized, ok := normalizeVideoBillingResolution(resolutionName); ok {
+		info.RawResolution = resolutionName
+		info.Resolution = normalized
+		info.ResolutionValid = true
+		return
+	}
+	// Preserve the explicit primary value for diagnostics when present; if it
+	// was omitted, retain the alias value instead. Both remain invalid here.
+	if !resolutionProvided {
+		info.RawResolution = resolutionName
 	}
 }
 
@@ -643,6 +731,12 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	if err != nil {
 		return nil, err
 	}
+	if account.Platform == PlatformCustom && endpoint.IsVideoGenerationRequest() {
+		body, contentType, err = normalizeCustomVideoForwardBody(endpoint, body, contentType)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if account.Platform == PlatformGrok {
 		body, contentType, err = normalizeGrokMediaForwardBody(endpoint, body, contentType)
 		if err != nil {
@@ -650,6 +744,9 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 		}
 	}
 	requestInfo := ParseGrokMediaRequest(contentType, body)
+	if account.Platform == PlatformCustom && endpoint.IsVideoGenerationRequest() {
+		requestInfo = normalizeCustomVideoRequestInfo(requestInfo)
+	}
 	upstreamModel := requestInfo.Model
 	if endpoint.RequiresRequestBody() && account.Platform != PlatformCustom && gjson.ValidBytes(body) {
 		if mappedModel := strings.TrimSpace(account.GetMappedModel(requestInfo.Model)); mappedModel != "" {
@@ -675,6 +772,9 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	forwardedRequestInfo := requestInfo
 	if endpoint.IsVideoGenerationRequest() {
 		forwardedRequestInfo = ParseGrokMediaRequest(contentType, body)
+		if account.Platform == PlatformCustom {
+			forwardedRequestInfo = normalizeCustomVideoRequestInfo(forwardedRequestInfo)
+		}
 	}
 
 	var bodyReader io.Reader
@@ -1007,6 +1107,130 @@ func prepareGrokMediaForwardBody(endpoint GrokMediaEndpoint, body []byte, conten
 	return out, "application/json", nil
 }
 
+// normalizeCustomVideoForwardBody applies the small amount of normalization
+// needed by transparent Custom video accounts. Unlike Grok, Custom does not
+// infer a billing/upstream resolution from the model name or a missing field:
+// only an explicitly valid resolution (or resolution_name alias) is sent.
+func normalizeCustomVideoForwardBody(endpoint GrokMediaEndpoint, body []byte, contentType string) ([]byte, string, error) {
+	if !endpoint.IsVideoGenerationRequest() {
+		return body, contentType, nil
+	}
+	info := ParseGrokMediaRequest(contentType, body)
+	if gjson.ValidBytes(body) {
+		out := body
+		if info.ResolutionValid {
+			var err error
+			out, err = sjson.SetBytes(out, "resolution", info.Resolution)
+			if err != nil {
+				return nil, "", fmt.Errorf("normalize custom video resolution: %w", err)
+			}
+			// resolution_name is an input alias only; the transparent upstream
+			// receives one canonical resolution field.
+			out, err = sjson.DeleteBytes(out, "resolution_name")
+			if err != nil {
+				return nil, "", fmt.Errorf("remove custom video resolution_name: %w", err)
+			}
+			return out, contentType, nil
+		}
+		var err error
+		for _, field := range []string{"resolution", "resolution_name"} {
+			out, err = sjson.DeleteBytes(out, field)
+			if err != nil {
+				return nil, "", fmt.Errorf("remove custom video %s: %w", field, err)
+			}
+		}
+		return out, contentType, nil
+	}
+
+	mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(contentType))
+	if err != nil || !strings.EqualFold(mediaType, "multipart/form-data") {
+		return body, contentType, nil
+	}
+	boundary := strings.TrimSpace(params["boundary"])
+	if boundary == "" {
+		return body, contentType, nil
+	}
+
+	type multipartPart struct {
+		header textproto.MIMEHeader
+		data   []byte
+	}
+	reader := multipart.NewReader(bytes.NewReader(body), boundary)
+	parts := make([]multipartPart, 0)
+	hadResolutionField := false
+	for {
+		part, nextErr := reader.NextPart()
+		if nextErr == io.EOF {
+			break
+		}
+		if nextErr != nil {
+			// Keep malformed multipart requests transparent; the upstream should
+			// remain responsible for reporting their structural error.
+			return body, contentType, nil
+		}
+		// The handler has already applied the aggregate request-body limit. Keep
+		// each part byte-for-byte intact here so adding/removing resolution fields
+		// cannot truncate an otherwise valid uploaded file.
+		data, readErr := io.ReadAll(part)
+		_ = part.Close()
+		if readErr != nil {
+			return body, contentType, nil
+		}
+		name := strings.TrimSpace(part.FormName())
+		// Only text form fields are resolution controls. Preserve a file upload
+		// whose field happens to use the same name as an unrelated vendor field.
+		if part.FileName() == "" && (name == "resolution" || name == "resolution_name") {
+			hadResolutionField = true
+			continue
+		}
+		header := make(textproto.MIMEHeader, len(part.Header))
+		for key, values := range part.Header {
+			header[key] = append([]string(nil), values...)
+		}
+		parts = append(parts, multipartPart{header: header, data: data})
+	}
+	if !hadResolutionField {
+		return body, contentType, nil
+	}
+
+	var out bytes.Buffer
+	writer := multipart.NewWriter(&out)
+	if err := writer.SetBoundary(boundary); err != nil {
+		return body, contentType, nil
+	}
+	for _, part := range parts {
+		created, createErr := writer.CreatePart(part.header)
+		if createErr != nil {
+			return body, contentType, nil
+		}
+		if _, writeErr := created.Write(part.data); writeErr != nil {
+			return body, contentType, nil
+		}
+	}
+	if info.ResolutionValid {
+		if err := writer.WriteField("resolution", info.Resolution); err != nil {
+			return body, contentType, nil
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return body, contentType, nil
+	}
+	// SetBoundary above keeps the wire boundary stable. Return the caller's
+	// original Content-Type string so charset/parameter formatting is retained.
+	return out.Bytes(), contentType, nil
+}
+
+func normalizeCustomVideoRequestInfo(info GrokMediaRequestInfo) GrokMediaRequestInfo {
+	if !info.ResolutionValid {
+		info.Resolution = ""
+	}
+	// Usage extraction is shared by Grok and Custom. Once a request is known to
+	// be Custom, make the platform-specific empty/normalized value authoritative
+	// for that shared path instead of retaining Grok's model fallback.
+	info.GrokResolution = info.Resolution
+	return info
+}
+
 func normalizeGrokMediaForwardBody(endpoint GrokMediaEndpoint, body []byte, contentType string) ([]byte, string, error) {
 	if !endpoint.RequiresRequestBody() || !gjson.ValidBytes(body) {
 		return body, contentType, nil
@@ -1154,7 +1378,12 @@ func grokMediaUsageFromResponse(endpoint GrokMediaEndpoint, requestInfo GrokMedi
 		if meta.VideoCount > maxBillableRequestCount {
 			meta.VideoCount = maxBillableRequestCount
 		}
-		meta.VideoResolution = requestInfo.Resolution
+		meta.VideoResolution = requestInfo.GrokResolution
+		if meta.VideoResolution == "" {
+			// Preserve compatibility for callers that construct request metadata
+			// directly instead of going through ParseGrokMediaRequest.
+			meta.VideoResolution = requestInfo.Resolution
+		}
 		meta.VideoDurationSeconds = requestInfo.DurationSeconds
 		meta.VideoPriceMultiplier = VideoReferencePriceMultiplier(requestInfo.Model, requestInfo.HasReferenceVideo)
 		// Keep the legacy media-unit counter populated for existing usage displays.

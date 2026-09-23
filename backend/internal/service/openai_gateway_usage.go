@@ -240,6 +240,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		tokens,
 		serviceTier,
 		longContextBillingEnabled,
+		account,
 	)
 	if err != nil {
 		if !isUsagePricingUnavailableError(err) {
@@ -324,7 +325,15 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	isVideoUsage := isVideoUsageResult(result)
 	if isVideoUsage {
 		usageLog.VideoCount = result.VideoCount
-		usageLog.VideoResolution = optionalTrimmedStringPtr(NormalizeVideoBillingResolutionForModelOrDefault(billingModel, result.VideoResolution, ""))
+		// Grok historically infers a resolution from the model name (and then
+		// falls back to 480p). Transparent Custom/Composite video requests must
+		// keep an omitted or invalid resolution empty so the usage log cannot
+		// suggest that a 480p tier was selected or billed.
+		videoResolution := NormalizeVideoBillingResolutionForModelOrDefault(billingModel, result.VideoResolution, "")
+		if isCustomVideoUsageRequest(apiKey, account) {
+			videoResolution = normalizeCustomVideoBillingResolution(result.VideoResolution)
+		}
+		usageLog.VideoResolution = optionalTrimmedStringPtr(videoResolution)
 		videoDurationSeconds := NormalizeVideoBillingDurationSecondsForModelOrDefault(billingModel, result.VideoDurationSeconds)
 		usageLog.VideoDurationSeconds = &videoDurationSeconds
 	}
@@ -456,7 +465,12 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	tokens UsageTokens,
 	serviceTier string,
 	longContextBillingEnabled bool,
+	accounts ...*Account,
 ) (*CostBreakdown, error) {
+	var account *Account
+	if len(accounts) > 0 {
+		account = accounts[0]
+	}
 	billingModel := firstUsageBillingModel(billingModels)
 	if result != nil && result.WebSearchCalls > 0 {
 		// Codex alpha/search 网页搜索按次计费：上游不返回 usage/token 字段，单价只取
@@ -467,7 +481,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	}
 	if isVideoUsageResult(result) {
 		if resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey); resolved == nil || resolved.Mode != BillingModeToken {
-			return s.calculateOpenAIVideoCost(ctx, billingModel, apiKey, result, videoMultiplier), nil
+			return s.calculateOpenAIVideoCost(ctx, billingModel, apiKey, result, videoMultiplier, account), nil
 		}
 	}
 	if result != nil && result.ImageCount > 0 {
@@ -599,21 +613,41 @@ func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
 	apiKey *APIKey,
 	result *OpenAIForwardResult,
 	multiplier float64,
+	accounts ...*Account,
 ) *CostBreakdown {
+	var account *Account
+	if len(accounts) > 0 {
+		account = accounts[0]
+	}
 	videoCount := result.VideoCount
 	if videoCount <= 0 {
 		videoCount = 1
 	}
+	customVideo := isCustomVideoBillingRequest(apiKey, account)
 	resolution := NormalizeVideoBillingResolutionForModelOrDefault(billingModel, result.VideoResolution, "")
+	if customVideo {
+		// Custom/Composite upstreams receive only an explicitly valid
+		// resolution. Do not infer a model suffix or 480p when the client
+		// omitted the field or supplied an invalid value.
+		resolution = normalizeCustomVideoBillingResolution(result.VideoResolution)
+	}
 	durationSeconds := NormalizeVideoBillingDurationSecondsForModelOrDefault(billingModel, result.VideoDurationSeconds)
 	groupConfig := videoPriceConfigFromAPIKey(apiKey)
-	if apiKeyHasConfiguredVideoPrice(apiKey, resolution) {
+	if resolution != "" && apiKeyHasConfiguredVideoPrice(apiKey, resolution) {
 		return s.billingService.CalculateVideoCost(billingModel, resolution, videoCount, durationSeconds, groupConfig, multiplier)
 	}
 	if refreshed := s.apiKeyWithFreshGroupMediaPricing(ctx, apiKey); refreshed != apiKey {
 		apiKey = refreshed
 		groupConfig = videoPriceConfigFromAPIKey(apiKey)
-		if apiKeyHasConfiguredVideoPrice(apiKey, resolution) {
+		if isCustomVideoBillingRequest(apiKey, account) {
+			// Auth snapshots can omit media pricing (and, in older snapshots,
+			// the persisted group platform). Re-evaluate the Custom boundary after
+			// hydration so an omitted resolution cannot fall back to Grok's 480p
+			// model default.
+			customVideo = true
+			resolution = normalizeCustomVideoBillingResolution(result.VideoResolution)
+		}
+		if resolution != "" && apiKeyHasConfiguredVideoPrice(apiKey, resolution) {
 			return s.billingService.CalculateVideoCost(billingModel, resolution, videoCount, durationSeconds, groupConfig, multiplier)
 		}
 	}
@@ -627,6 +661,17 @@ func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
 			}
 			requestCount *= durationSeconds
 		}
+		channelResolved := resolved
+		if customVideo && resolution == "" && len(resolved.RequestTiers) > 0 {
+			// An empty Custom resolution must not fall through to
+			// GetRequestTierPriceByContext, whose legacy fallback can select the
+			// first resolution tier (often 480p). Keep a configured default
+			// per-request price available, but suppress resolution tiers until the
+			// client supplies a valid resolution.
+			cloned := *resolved
+			cloned.RequestTiers = nil
+			channelResolved = &cloned
+		}
 		gid := apiKey.Group.ID
 		cost, err := s.billingService.CalculateCostUnified(CostInput{
 			Ctx:            ctx,
@@ -636,16 +681,21 @@ func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
 			SizeTier:       resolution,
 			RateMultiplier: multiplier,
 			Resolver:       s.resolver,
-			Resolved:       resolved,
+			Resolved:       channelResolved,
 		})
 		if err == nil {
 			return cost
 		}
 		logger.LegacyPrintf("service.openai_gateway", "Calculate video channel cost failed: %v", err)
 	}
-	if isCustomVideoAPIKey(apiKey) {
+	if customVideo {
 		// Custom accepts arbitrary upstream model names. Never reinterpret the
 		// generic image fallback as an implicit per-second video price.
+		logger.L().Warn("custom_video.pricing_missing_fallback",
+			zap.String("model", strings.TrimSpace(billingModel)),
+			zap.String("resolution", resolution),
+			zap.Int("video_count", videoCount),
+		)
 		return &CostBreakdown{BillingMode: string(BillingModeVideo)}
 	}
 
@@ -663,13 +713,13 @@ func (s *OpenAIGatewayService) ValidateCustomVideoPricing(
 	if !isCustomVideoAPIKey(apiKey) {
 		return nil
 	}
-	resolution = NormalizeVideoBillingResolutionForModelOrDefault(model, resolution, "")
-	if apiKeyHasConfiguredVideoPrice(apiKey, resolution) {
+	resolution = normalizeCustomVideoBillingResolution(resolution)
+	if resolution != "" && apiKeyHasConfiguredVideoPrice(apiKey, resolution) {
 		return nil
 	}
 	if refreshed := s.apiKeyWithFreshGroupMediaPricing(ctx, apiKey); refreshed != apiKey {
 		apiKey = refreshed
-		if apiKeyHasConfiguredVideoPrice(apiKey, resolution) {
+		if resolution != "" && apiKeyHasConfiguredVideoPrice(apiKey, resolution) {
 			return nil
 		}
 	}
@@ -679,6 +729,9 @@ func (s *OpenAIGatewayService) ValidateCustomVideoPricing(
 			return nil
 		}
 	}
+	if resolution == "" {
+		return fmt.Errorf("%w for model %q without a valid resolution", ErrCustomVideoPricingUnavailable, strings.TrimSpace(model))
+	}
 	return fmt.Errorf("%w for model %q at %s", ErrCustomVideoPricingUnavailable, strings.TrimSpace(model), resolution)
 }
 
@@ -687,6 +740,32 @@ func isCustomVideoAPIKey(apiKey *APIKey) bool {
 		return false
 	}
 	return apiKey.Group.Platform == PlatformComposite || apiKey.Group.Platform == PlatformCustom
+}
+
+// normalizeCustomVideoBillingResolution intentionally differs from the
+// model-aware Grok normalizer: Custom/Composite video requests may omit a
+// resolution, and an invalid value must remain empty rather than becoming a
+// model suffix or the historical 480p default.
+func normalizeCustomVideoBillingResolution(resolution string) string {
+	normalized, ok := normalizeVideoBillingResolution(resolution)
+	if !ok {
+		return ""
+	}
+	return normalized
+}
+
+func isCustomVideoUsageRequest(apiKey *APIKey, account *Account) bool {
+	return isCustomVideoBillingRequest(apiKey, account)
+}
+
+// isCustomVideoBillingRequest uses the selected account when available. A
+// Composite API key can route a model to Grok, so the group platform alone is
+// not enough to decide whether Custom's no-resolution rules apply.
+func isCustomVideoBillingRequest(apiKey *APIKey, account *Account) bool {
+	if account != nil && strings.TrimSpace(account.Platform) != "" {
+		return account.Platform == PlatformCustom || account.Platform == PlatformComposite
+	}
+	return isCustomVideoAPIKey(apiKey)
 }
 
 func (s *OpenAIGatewayService) apiKeyWithFreshGroupMediaPricing(ctx context.Context, apiKey *APIKey) *APIKey {
