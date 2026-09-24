@@ -186,6 +186,25 @@ func openAICompatibleRequestPlatform(ctx context.Context, apiKey *service.APIKey
 	return service.PlatformOpenAI
 }
 
+// openAICompatibleSelectionModel returns the model that should participate in
+// Custom account scheduling. Custom channel mappings are applied to the body
+// before forwarding, so the scheduler must evaluate the mapped model as well
+// (for example, an alias A mapped to provider model B). Keep the original
+// requested model for OpenAI/Grok and for all client-facing accounting fields.
+func openAICompatibleSelectionModel(platform, requestedModel string, mapping service.ChannelMappingResult) string {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if platform != service.PlatformCustom && platform != service.PlatformComposite {
+		return requestedModel
+	}
+	if !mapping.Mapped {
+		return requestedModel
+	}
+	if mapped := strings.TrimSpace(mapping.MappedModel); mapped != "" {
+		return mapped
+	}
+	return requestedModel
+}
+
 func openAIResponsesRequiredCapability(requireNativeResponses bool, platform string) service.OpenAIEndpointCapability {
 	if requireNativeResponses && (platform == service.PlatformOpenAI || platform == service.PlatformCustom) {
 		return service.OpenAIEndpointCapabilityResponses
@@ -433,6 +452,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	selectionModel := openAICompatibleSelectionModel(requestPlatform, reqModel, channelMapping)
 	// Custom forwarding remains protocol-transparent; an explicit channel
 	// mapping is nevertheless a gateway-owned public-alias contract and must
 	// be applied before the transparent upstream call.
@@ -528,7 +548,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			apiKey.GroupID,
 			previousResponseID,
 			sessionHash,
-			reqModel,
+			selectionModel,
 			failedAccountIDs,
 			service.OpenAIUpstreamTransportAny,
 			requiredCapability,
@@ -691,7 +711,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						streamStarted = true
 					}
 					if failoverErr.ShouldReportAccountScheduleFailure() {
-						h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), false, nil)
+						h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(selectionModel), false, nil)
 					}
 					if !failoverErr.ShouldRetryNextAccount() {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
@@ -751,7 +771,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					reqLog.Warn("openai.upstream_failover_switching", failoverSwitchFields...)
 					continue
 				}
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), false, nil)
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(selectionModel), false, nil)
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false
 				if !upstreamErrorAlreadyCommunicated {
@@ -776,9 +796,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			if account.Type == service.AccountTypeOAuth && !account.IsShadow() {
 				h.gatewayService.UpdateCodexUsageSnapshotFromHeaders(c.Request.Context(), account.ID, result.ResponseHeaders)
 			}
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(selectionModel), openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
 		} else {
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(reqModel), openAIForwardSucceededForScheduling(result), nil)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, account.GetMappedModel(selectionModel), openAIForwardSucceededForScheduling(result), nil)
 		}
 
 		// 捕获请求信息（用于异步记录，避免在 goroutine 中访问 gin.Context）
@@ -1069,6 +1089,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMappingMsg, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	if requestPlatform == service.PlatformCustom || requestPlatform == service.PlatformComposite {
+		routingModel = openAICompatibleSelectionModel(requestPlatform, routingModel, channelMappingMsg)
+	}
 	mappedBodyForMessages := newOpenAIModelMappedBodyCache(body, h.gatewayService.ReplaceModelInBody)
 
 	// 绑定错误透传服务，允许 service 层在非 failover 错误场景复用规则。

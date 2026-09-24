@@ -21,6 +21,33 @@ func resolveOpenAIForwardModel(account *Account, requestedModel, messagesDispatc
 	return mappedModel
 }
 
+// customAccountModelMappingMatches reports whether a Custom account has an
+// effective account-level model_mapping entry for the requested public model.
+// Custom accounts remain transparent when no entry matches; this predicate is
+// only used to prefer an account that can perform the configured alias rewrite
+// when several Custom accounts are otherwise eligible.
+func customAccountModelMappingMatches(account *Account, requestedModel string) bool {
+	if account == nil || !account.IsCustom() || strings.TrimSpace(requestedModel) == "" {
+		return false
+	}
+	mappedModel, matched := account.ResolveMappedModel(requestedModel)
+	return matched && strings.TrimSpace(mappedModel) != ""
+}
+
+// isCustomRoutingPlatform treats both a directly selected Custom platform and
+// a Composite route resolved to Custom as eligible for account-level mapping
+// preference. Composite requests are normally resolved before scheduling, but
+// keeping this predicate explicit avoids silently falling back to OpenAI
+// semantics when a legacy path still carries the Composite platform value.
+func isCustomRoutingPlatform(platform string) bool {
+	return platform == PlatformCustom || platform == PlatformComposite
+}
+
+func customAccountMappingPreference(platform string, account *Account, requestedModel string) bool {
+	return isCustomRoutingPlatform(platform) &&
+		customAccountModelMappingMatches(account, requestedModel)
+}
+
 // openAIOAuthForeignModelPrefixes 列出明确属于其他厂商家族的模型名前缀。
 // Codex 上游不可能服务这些模型：转发阶段 normalizeOpenAIModelForUpstream
 // 对未知模型原样透传，上游必然返回不可重试的 400。

@@ -243,7 +243,7 @@ func expandPricingToCache(cache *channelCache, ch *Channel, gid int64, platform 
 // expandMappingToCache 将渠道的模型映射展开到缓存（按分组+平台维度）。
 // 各平台严格独立：antigravity 分组只匹配 antigravity 映射。
 func expandMappingToCache(cache *channelCache, ch *Channel, gid int64, platform string) {
-	for _, mappingPlatform := range matchingPlatforms(platform) {
+	for _, mappingPlatform := range matchingMappingPlatforms(platform) {
 		platformMapping, ok := ch.ModelMapping[mappingPlatform]
 		if !ok {
 			continue
@@ -361,6 +361,18 @@ func matchingPlatforms(groupPlatform string) []string {
 	return []string{groupPlatform}
 }
 
+// matchingMappingPlatforms keeps the current Custom key canonical while still
+// reading mappings persisted under the legacy Composite key. Custom groups are
+// stored as Composite in the database, and older API/UI clients could therefore
+// write model_mapping["composite"]. Without this fallback those aliases are
+// silently ignored and the public model is forwarded unchanged.
+func matchingMappingPlatforms(groupPlatform string) []string {
+	if groupPlatform == PlatformComposite || groupPlatform == PlatformCustom {
+		return []string{PlatformCustom, PlatformComposite}
+	}
+	return []string{groupPlatform}
+}
+
 func channelLookupPlatform(ctx context.Context, groupPlatform string) string {
 	if groupPlatform == PlatformComposite {
 		return PlatformCustom
@@ -428,13 +440,13 @@ func lookupPricingAcrossPlatforms(cache *channelCache, groupID int64, groupPlatf
 // lookupMappingAcrossPlatforms 在分组平台内查找模型映射。
 // 逻辑与 lookupPricingAcrossPlatforms 相同：先精确查找，再通配符。
 func lookupMappingAcrossPlatforms(cache *channelCache, groupID int64, groupPlatform, modelLower string) string {
-	for _, p := range matchingPlatforms(groupPlatform) {
+	for _, p := range matchingMappingPlatforms(groupPlatform) {
 		key := channelModelKey{groupID: groupID, platform: p, model: modelLower}
 		if mapped, ok := cache.mappingByGroupModel[key]; ok {
 			return mapped
 		}
 	}
-	for _, p := range matchingPlatforms(groupPlatform) {
+	for _, p := range matchingMappingPlatforms(groupPlatform) {
 		if mapped := cache.matchWildcardMapping(groupID, p, modelLower); mapped != "" {
 			return mapped
 		}

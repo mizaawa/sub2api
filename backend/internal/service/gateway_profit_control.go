@@ -94,6 +94,13 @@ func profitControlVetoLatest(ctx context.Context, selected *Account, snapshot *S
 		} else if !refreshed.UpdatedAt.Before(selected.UpdatedAt) {
 			// 选号路径可能已做过 DB recheck，selected 比缓存快照更新鲜；只有
 			// 快照不落后时才替换，避免终检把新鲜账号换回较旧的缓存对象。
+			// Custom 的 model_mapping 是转发语义的一部分，而调度快照可能
+			// 来自旧版本/旧发布周期，只保留了可调度元数据。保留快照替换
+			// 逻辑（利润倍率等字段仍以最新快照为准），但把刚通过选号与
+			// DB recheck 的路由凭据带过去，避免最后一步又把 A->B 映射丢掉。
+			if isCustomRoutingPlatform(selected.Platform) {
+				mergeSelectedOpenAICredentials(refreshed, selected)
+			}
 			latest = refreshed
 		}
 	}

@@ -601,6 +601,25 @@ func (s *OpenAIGatewayService) checkChannelPricingRestriction(ctx context.Contex
 	return s.channelService.IsModelRestricted(ctx, *groupID, billingModel)
 }
 
+// checkChannelPricingRestrictionForPlatform applies the local channel model
+// restriction only to platforms whose model catalogue is owned by the gateway.
+// Custom API-key accounts are transparent proxies: the configured upstream (and
+// its account-level model_mapping) owns model validity. Applying a local
+// pricing-list whitelist to a Custom alias can reject a request before the
+// alias reaches the selected account, which is especially visible to managed
+// channel-monitor probes.
+func (s *OpenAIGatewayService) checkChannelPricingRestrictionForPlatform(
+	ctx context.Context,
+	groupID *int64,
+	platform string,
+	requestedModel string,
+) bool {
+	if normalizeOpenAICompatiblePlatform(platform) == PlatformCustom {
+		return false
+	}
+	return s.checkChannelPricingRestriction(ctx, groupID, requestedModel)
+}
+
 func (s *OpenAIGatewayService) isUpstreamModelRestrictedByChannel(ctx context.Context, groupID int64, account *Account, requestedModel string, requireCompact bool) bool {
 	if s.channelService == nil {
 		return false
@@ -625,6 +644,22 @@ func (s *OpenAIGatewayService) needsUpstreamChannelRestrictionCheck(ctx context.
 		return false
 	}
 	return ch.BillingModelSource == BillingModelSourceUpstream
+}
+
+// needsUpstreamChannelRestrictionCheckForPlatform mirrors the channel
+// restriction policy while preserving Custom's transparent-proxy contract.
+// An upstream-model pricing whitelist is meaningful for gateway-owned model
+// catalogues, but it must not reject an opaque Custom alias before the
+// configured distributor receives it.
+func (s *OpenAIGatewayService) needsUpstreamChannelRestrictionCheckForPlatform(
+	ctx context.Context,
+	groupID *int64,
+	platform string,
+) bool {
+	if normalizeOpenAICompatiblePlatform(platform) == PlatformCustom {
+		return false
+	}
+	return s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
 }
 
 // ReplaceModelInBody 替换请求体中的 JSON model 字段（通用 gjson/sjson 实现）。

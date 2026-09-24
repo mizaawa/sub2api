@@ -322,6 +322,24 @@ func TestAccountGetMappedModel(t *testing.T) {
 	}
 }
 
+func TestAccountGetMappedModelSupportsStringMapCredentials(t *testing.T) {
+	account := &Account{
+		Platform: PlatformCustom,
+		Credentials: map[string]any{
+			"model_mapping": map[string]string{
+				"deepseek-v4-pro-0813": "deepseek-v4",
+			},
+		},
+	}
+
+	if got := account.GetMappedModel("deepseek-v4-pro-0813"); got != "deepseek-v4" {
+		t.Fatalf("GetMappedModel() = %q, want %q", got, "deepseek-v4")
+	}
+	if !account.IsModelSupported("deepseek-v4-pro-0813") {
+		t.Fatal("IsModelSupported() = false, want true for a map[string]string mapping")
+	}
+}
+
 func TestAccountGetModelMapping_AntigravityNormalizesGemini31ProAliases(t *testing.T) {
 	t.Parallel()
 

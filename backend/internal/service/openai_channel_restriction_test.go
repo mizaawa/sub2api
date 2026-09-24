@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -137,4 +138,109 @@ func TestOpenAISelectAccountForModelWithExclusions_StickyRestrictedUpstreamFalls
 	require.Equal(t, int64(2), account.ID)
 	require.Equal(t, 1, cache.deletedSessions["openai:sticky-session"])
 	require.Equal(t, int64(2), cache.sessionBindings["openai:sticky-session"])
+}
+
+func TestOpenAICustomSelectionDoesNotRejectUnpricedMonitorAlias(t *testing.T) {
+	t.Parallel()
+
+	groupID := int64(11)
+	channel := Channel{
+		ID:                 11,
+		Status:             StatusActive,
+		GroupIDs:           []int64{groupID},
+		RestrictModels:     true,
+		BillingModelSource: BillingModelSourceUpstream,
+		// The monitor sends a public alias that is intentionally not listed
+		// here. Custom upstreams own model validity and may resolve the alias
+		// through the account's model_mapping.
+		ModelPricing: []ChannelModelPricing{{Platform: PlatformCustom, Models: []string{"some-other-model"}}},
+	}
+	channelService := &ChannelService{}
+	channelService.cache.Store(populateChannelCache(
+		[]Channel{channel},
+		map[int64]string{groupID: PlatformCustom},
+	))
+
+	account := Account{
+		ID:          12,
+		Platform:    PlatformCustom,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "custom-monitor-key",
+			"base_url": "https://custom.example.test/v1",
+			"model_mapping": map[string]any{
+				"monitor-alias": "provider-model",
+			},
+		},
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:    stubOpenAIAccountRepo{accounts: []Account{account}},
+		channelService: channelService,
+	}
+
+	selection, err := svc.selectAccountWithLoadAwareness(
+		context.Background(), &groupID, PlatformCustom, "", "monitor-alias", nil,
+		false, "", false,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, account.ID, selection.Account.ID)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestOpenAICustomAdvancedSelectionDoesNotRejectUnpricedMonitorAlias(t *testing.T) {
+	groupID := int64(12)
+	channel := Channel{
+		ID:                 12,
+		Status:             StatusActive,
+		GroupIDs:           []int64{groupID},
+		RestrictModels:     true,
+		BillingModelSource: BillingModelSourceRequested,
+		ModelPricing:       []ChannelModelPricing{{Platform: PlatformCustom, Models: []string{"provider-model"}}},
+	}
+	channelService := &ChannelService{}
+	channelService.cache.Store(populateChannelCache(
+		[]Channel{channel},
+		map[int64]string{groupID: PlatformCustom},
+	))
+
+	account := Account{
+		ID:          13,
+		Platform:    PlatformCustom,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":       "custom-monitor-key",
+			"base_url":      "https://custom.example.test/v1",
+			"model_mapping": map[string]any{"monitor-alias": "provider-model"},
+		},
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: []Account{account}},
+		channelService:     channelService,
+		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+		cfg:                &config.Config{},
+	}
+
+	selection, _, err := svc.SelectAccountWithSchedulerForCapability(
+		context.Background(), &groupID, "", "monitor-session", "monitor-alias", nil,
+		OpenAIUpstreamTransportAny, OpenAIEndpointCapabilityChatCompletions,
+		false, false, true, PlatformCustom,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, account.ID, selection.Account.ID)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
 }

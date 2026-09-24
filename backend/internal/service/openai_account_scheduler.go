@@ -504,6 +504,10 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		return nil, false, nil
 	}
+	if s.shouldYieldTransparentCustomAccount(ctx, req, account) {
+		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		return nil, false, nil
+	}
 	escapeCfg := s.service.openAIStickyEscapeConfig()
 	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg); shouldEscape {
 		slog.Info("sticky_escape_triggered",
@@ -548,6 +552,27 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		}), false, nil
 	}
 	return nil, false, nil
+}
+
+// shouldYieldTransparentCustomAccount keeps Custom alias mappings effective in
+// the advanced scheduler's sticky paths. Transparent Custom accounts remain
+// eligible when no mapped candidate exists; they only yield when an eligible
+// mapped peer is present in the same scheduling pool.
+func (s *defaultOpenAIAccountScheduler) shouldYieldTransparentCustomAccount(
+	ctx context.Context,
+	req OpenAIAccountScheduleRequest,
+	account *Account,
+) bool {
+	if s == nil || s.service == nil || account == nil ||
+		!isCustomRoutingPlatform(req.Platform) ||
+		customAccountMappingPreference(req.Platform, account, req.RequestedModel) {
+		return false
+	}
+	accounts, err := s.service.listSchedulableAccounts(ctx, req.GroupID, req.Platform)
+	if err != nil {
+		return false
+	}
+	return s.service.customMappedAccountAvailable(ctx, req.GroupID, req.Platform, accounts, req.RequestedModel, req.ExcludedIDs, req.RequireCompact, req.RequiredCapability)
 }
 
 func openAIStickyAccountMatchesGroup(account *Account, groupID *int64) bool {
@@ -595,11 +620,15 @@ type openAIAccountCandidateScore struct {
 	account   *Account
 	loadInfo  *AccountLoadInfo
 	loadKnown bool
-	score     float64
-	priority  int
-	errorRate float64
-	ttft      float64
-	hasTTFT   bool
+	// mappingPreferred marks a Custom account whose account-level mapping
+	// matches the requested public model. Custom accounts without a match stay
+	// eligible as transparent fallbacks, but are ranked after mapped accounts.
+	mappingPreferred bool
+	score            float64
+	priority         int
+	errorRate        float64
+	ttft             float64
+	hasTTFT          bool
 }
 
 type openAIAccountCandidateHeap []openAIAccountCandidateScore
@@ -634,6 +663,9 @@ func (h *openAIAccountCandidateHeap) Pop() any {
 }
 
 func isOpenAIAccountCandidateBetter(left openAIAccountCandidateScore, right openAIAccountCandidateScore) bool {
+	if left.mappingPreferred != right.mappingPreferred {
+		return left.mappingPreferred
+	}
 	if left.score != right.score {
 		return left.score > right.score
 	}
@@ -812,12 +844,13 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			errorRate, ttft, hasTTFT = s.stats.snapshot(account.ID)
 		}
 		allCandidates = append(allCandidates, openAIAccountCandidateScore{
-			account:   account,
-			loadInfo:  loadInfo,
-			loadKnown: loadKnown,
-			errorRate: errorRate,
-			ttft:      ttft,
-			hasTTFT:   hasTTFT,
+			account:          account,
+			loadInfo:         loadInfo,
+			loadKnown:        loadKnown,
+			mappingPreferred: customAccountMappingPreference(req.Platform, account, req.RequestedModel),
+			errorRate:        errorRate,
+			ttft:             ttft,
+			hasTTFT:          hasTTFT,
 		})
 	}
 
@@ -997,50 +1030,74 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		if len(pool) == 0 || plan.topK <= 0 {
 			return nil
 		}
-		groupTopK := plan.topK
-		if groupTopK > len(pool) {
-			groupTopK = len(pool)
-		}
-		ranked := selectTopKOpenAICandidates(pool, groupTopK)
-		var primary []openAIAccountCandidateScore
-		if req.StickyWeighted {
-			for _, stickyID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
-				if stickyID <= 0 {
-					continue
-				}
-				for i, candidate := range ranked {
-					if candidate.account != nil && candidate.account.ID == stickyID {
-						primary = append([]openAIAccountCandidateScore{candidate}, ranked[:i]...)
-						primary = append(primary, ranked[i+1:]...)
+		buildRankedOrder := func(selectionPool []openAIAccountCandidateScore, limit int, includeOverflow bool) []openAIAccountCandidateScore {
+			if len(selectionPool) == 0 || limit <= 0 {
+				return nil
+			}
+			if limit > len(selectionPool) {
+				limit = len(selectionPool)
+			}
+			ranked := selectTopKOpenAICandidates(selectionPool, limit)
+			var primary []openAIAccountCandidateScore
+			if req.StickyWeighted {
+				for _, stickyID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
+					if stickyID <= 0 {
+						continue
+					}
+					for i, candidate := range ranked {
+						if candidate.account != nil && candidate.account.ID == stickyID {
+							primary = append([]openAIAccountCandidateScore{candidate}, ranked[:i]...)
+							primary = append(primary, ranked[i+1:]...)
+							break
+						}
+					}
+					if len(primary) > 0 {
 						break
 					}
 				}
-				if len(primary) > 0 {
-					break
+			}
+			if len(primary) == 0 {
+				primary = buildOpenAIWeightedSelectionOrder(ranked, req)
+			}
+			if !includeOverflow || limit >= len(selectionPool) {
+				return primary
+			}
+
+			selected := make(map[int64]struct{}, len(primary))
+			for _, candidate := range primary {
+				selected[candidate.account.ID] = struct{}{}
+			}
+			overflow := make([]openAIAccountCandidateScore, 0, len(selectionPool)-len(primary))
+			for _, candidate := range selectionPool {
+				if _, ok := selected[candidate.account.ID]; !ok {
+					overflow = append(overflow, candidate)
 				}
 			}
-		}
-		if len(primary) == 0 {
-			primary = buildOpenAIWeightedSelectionOrder(ranked, req)
-		}
-		if !plan.includeOverflowFallback || groupTopK >= len(pool) {
-			return primary
+			sort.Slice(overflow, func(i, j int) bool {
+				return isOpenAIAccountCandidateBetter(overflow[i], overflow[j])
+			})
+			return append(primary, overflow...)
 		}
 
-		selected := make(map[int64]struct{}, len(primary))
-		for _, candidate := range primary {
-			selected[candidate.account.ID] = struct{}{}
-		}
-		overflow := make([]openAIAccountCandidateScore, 0, len(pool)-len(primary))
+		mapped := make([]openAIAccountCandidateScore, 0, len(pool))
+		transparent := make([]openAIAccountCandidateScore, 0, len(pool))
 		for _, candidate := range pool {
-			if _, ok := selected[candidate.account.ID]; !ok {
-				overflow = append(overflow, candidate)
+			if candidate.mappingPreferred {
+				mapped = append(mapped, candidate)
+			} else {
+				transparent = append(transparent, candidate)
 			}
 		}
-		sort.Slice(overflow, func(i, j int) bool {
-			return isOpenAIAccountCandidateBetter(overflow[i], overflow[j])
-		})
-		return append(primary, overflow...)
+		if len(mapped) == 0 {
+			return buildRankedOrder(pool, plan.topK, plan.includeOverflowFallback)
+		}
+		// A mapped Custom account is a hard preference within each compact
+		// capability tier. Exhaust mapped candidates before transparent fallback
+		// candidates; this also prevents a sticky transparent account from
+		// bypassing an available alias rewrite.
+		mappedOrder := buildRankedOrder(mapped, len(mapped), true)
+		transparentOrder := buildRankedOrder(transparent, plan.topK, plan.includeOverflowFallback)
+		return append(mappedOrder, transparentOrder...)
 	}
 
 	if req.RequireCompact {
@@ -1073,6 +1130,9 @@ func sortOpenAICompactRetryCandidates(pool []openAIAccountCandidateScore) []open
 	ordered := append([]openAIAccountCandidateScore(nil), pool...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		a, b := ordered[i], ordered[j]
+		if a.mappingPreferred != b.mappingPreferred {
+			return a.mappingPreferred
+		}
 		if a.account.Priority != b.account.Priority {
 			return a.account.Priority < b.account.Priority
 		}
@@ -1244,6 +1304,12 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 			continue
 		}
 		if req.RequireCompact && openAICompactSupportTier(account) == 0 {
+			continue
+		}
+		if s.shouldYieldTransparentCustomAccount(ctx, req, account) {
+			if accountID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" {
+				_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, req.SessionHash)
+			}
 			continue
 		}
 		result, acquireErr := s.service.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
@@ -1725,7 +1791,7 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 		return false, "model_not_supported"
 	}
 	if req.GroupID != nil && s != nil && s.service != nil &&
-		s.service.needsUpstreamChannelRestrictionCheck(ctx, req.GroupID) &&
+		s.service.needsUpstreamChannelRestrictionCheckForPlatform(ctx, req.GroupID, req.Platform) &&
 		s.service.isUpstreamModelRestrictedByChannel(ctx, *req.GroupID, account, req.RequestedModel, req.RequireCompact) {
 		return false, "channel_upstream_restricted"
 	}
@@ -2070,7 +2136,7 @@ func (s *OpenAIGatewayService) SelectBoundAccountWithSchedulerForCapability(
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
 	ctx = s.withOpenAIProfitControlGate(ctx, groupID)
 	platform = normalizeOpenAICompatiblePlatform(platform)
-	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
+	if s.checkChannelPricingRestrictionForPlatform(ctx, groupID, platform, requestedModel) {
 		return nil, decision, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
 	}
 
@@ -2260,7 +2326,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	if strings.TrimSpace(previousResponseID) != "" &&
 		(platform == PlatformOpenAI || platform == PlatformCustom || platform == PlatformGrok) &&
 		!previousResponseCanMove {
-		if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
+		if s.checkChannelPricingRestrictionForPlatform(ctx, groupID, platform, requestedModel) {
 			slog.Warn("channel pricing restriction blocked strict response continuation",
 				"group_id", derefGroupID(groupID),
 				"model", requestedModel)
@@ -2335,7 +2401,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		}
 	}
 
-	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
+	if s.checkChannelPricingRestrictionForPlatform(ctx, groupID, platform, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)

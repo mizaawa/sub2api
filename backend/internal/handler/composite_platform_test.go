@@ -22,6 +22,18 @@ func TestCustomTargetPlatformAllowedResolvesArbitraryModelToCustom(t *testing.T)
 	require.Equal(t, service.PlatformCustom, platform)
 }
 
+func TestEnsureCompositeTargetPlatformResolvesLegacyCustomGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformCustom}}
+
+	ensureCompositeTargetPlatform(c, apiKey, "monitor-alias")
+	platform, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context())
+	require.True(t, ok)
+	require.Equal(t, service.PlatformCustom, platform)
+}
+
 func TestOpenAICompatibleTextTargetRoutesCustomModelsToCustom(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

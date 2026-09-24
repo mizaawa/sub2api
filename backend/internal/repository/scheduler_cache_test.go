@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -18,6 +19,38 @@ func TestFilterSchedulerCredentialsKeepsSubscriptionPlanType(t *testing.T) {
 	require.Equal(t, "plus", filtered["plan_type"])
 	require.NotContains(t, filtered, "access_token")
 	require.NotContains(t, filtered, "refresh_token")
+}
+
+func TestSchedulerMetadataAccountKeepsCustomBaseURLWithoutSecrets(t *testing.T) {
+	account := service.Account{
+		ID:       25,
+		Platform: service.PlatformCustom,
+		Type:     service.AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":       "custom-api-key",
+			"base_url":      "https://custom.example.test/v1",
+			"access_token":  "secret-access-token",
+			"refresh_token": "secret-refresh-token",
+			"client_secret": "secret-client-secret",
+		},
+	}
+
+	metadata := buildSchedulerMetadataAccount(account)
+	_, metaPayload, err := marshalSchedulerCacheAccount(account)
+	require.NoError(t, err)
+	var metadataPayload service.Account
+	require.NoError(t, json.Unmarshal(metaPayload, &metadataPayload))
+
+	require.Equal(t, "https://custom.example.test/v1", metadata.GetOpenAIBaseURL())
+	require.Equal(t, "custom-api-key", metadata.GetOpenAIApiKey())
+	require.Equal(t, "https://custom.example.test/v1", metadataPayload.GetOpenAIBaseURL())
+	require.Equal(t, "custom-api-key", metadataPayload.GetOpenAIApiKey())
+	require.NotContains(t, metadata.Credentials, "access_token")
+	require.NotContains(t, metadata.Credentials, "refresh_token")
+	require.NotContains(t, metadata.Credentials, "client_secret")
+	require.NotContains(t, metadataPayload.Credentials, "access_token")
+	require.NotContains(t, metadataPayload.Credentials, "refresh_token")
+	require.NotContains(t, metadataPayload.Credentials, "client_secret")
 }
 
 func TestSchedulerMetadataAccountKeepsOpenAISubscriptionIdentity(t *testing.T) {

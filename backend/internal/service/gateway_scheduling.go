@@ -68,7 +68,7 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 
 	// Claude Code 限制可能已将 groupID 解析为 fallback group，
 	// 渠道限制预检查必须使用解析后的分组。
-	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
+	if !isCustomRoutingPlatform(platform) && s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
@@ -118,15 +118,6 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	}
 	ctx = s.withGroupContext(ctx, group)
 	ctx = s.withGatewayProfitControlGate(ctx, groupID)
-
-	// Claude Code 限制可能已将 groupID 解析为 fallback group，
-	// 渠道限制预检查必须使用解析后的分组。
-	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
-		slog.Warn("channel pricing restriction blocked request",
-			"group_id", derefGroupID(groupID),
-			"model", requestedModel)
-		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
-	}
 
 	var stickyAccountID int64
 	var stickySource string
@@ -214,6 +205,14 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	platform, hasForcePlatform, err := s.resolvePlatform(ctx, groupID, group, requestedModel)
 	if err != nil {
 		return nil, err
+	}
+	// Custom is a transparent proxy: the upstream account owns model validity,
+	// so a local channel pricing whitelist must not reject its public alias.
+	if !isCustomRoutingPlatform(platform) && s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
+		slog.Warn("channel pricing restriction blocked request",
+			"group_id", derefGroupID(groupID),
+			"model", requestedModel)
+		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
 	}
 	preferOAuth := platform == PlatformGemini
 	if s.debugModelRoutingEnabled() && platform == PlatformAnthropic && requestedModel != "" {
@@ -439,7 +438,11 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 					loadInfo = &AccountLoadInfo{AccountID: acc.ID}
 				}
 				if loadInfo.LoadRate < 100 {
-					routingAvailable = append(routingAvailable, accountWithLoad{account: acc, loadInfo: loadInfo})
+					routingAvailable = append(routingAvailable, accountWithLoad{
+						account:          acc,
+						loadInfo:         loadInfo,
+						mappingPreferred: customAccountMappingPreference(platform, acc, requestedModel),
+					})
 				}
 			}
 
@@ -465,6 +468,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 					}
 				})
 				shuffleWithinSortGroups(routingAvailable)
+				prioritizeCustomMappedAccountLoads(platform, requestedModel, routingAvailable)
 
 				// 4. 尝试获取槽位
 				for _, item := range routingAvailable {
@@ -509,6 +513,9 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	}
 
 	// ============ Layer 1.5: 粘性会话（仅在无模型路由配置时生效） ============
+	mappedCustomAccountAvailable := s.hasEligibleCustomMappedAccount(
+		ctx, groupID, platform, accounts, requestedModel, excludedIDs, useMixed,
+	)
 	if len(routingAccountIDs) == 0 && sessionHash != "" && stickyAccountID > 0 && !isExcluded(stickyAccountID) {
 		accountID := stickyAccountID
 		if accountID > 0 && !isExcluded(accountID) {
@@ -516,6 +523,15 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			if ok {
 				// 检查账户是否需要清理粘性会话绑定
 				clearSticky := shouldClearStickySession(account, requestedModel)
+				if !clearSticky && mappedCustomAccountAvailable &&
+					!customAccountMappingPreference(platform, account, requestedModel) {
+					clearSticky = true
+					slog.Debug("sticky.layer1_5_no_routing_clear",
+						"account_id", accountID,
+						"reason", "mapped_custom_account_available",
+						"session", shortSessionHash(sessionHash),
+					)
+				}
 				if clearSticky {
 					slog.Debug("sticky.layer1_5_no_routing_clear",
 						"account_id", accountID,
@@ -688,7 +704,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 
 	loadMap, err := s.concurrencyService.GetAccountsLoadBatch(ctx, accountLoads)
 	if err != nil {
-		if result, ok, legacyErr := s.tryAcquireByLegacyOrder(ctx, candidates, groupID, sessionHash, preferOAuth); legacyErr != nil {
+		if result, ok, legacyErr := s.tryAcquireByLegacyOrder(ctx, candidates, groupID, sessionHash, preferOAuth, platform, requestedModel); legacyErr != nil {
 			return nil, legacyErr
 		} else if ok {
 			return result, nil
@@ -702,8 +718,9 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			}
 			if loadInfo.LoadRate < 100 {
 				available = append(available, accountWithLoad{
-					account:  acc,
-					loadInfo: loadInfo,
+					account:          acc,
+					loadInfo:         loadInfo,
+					mappingPreferred: customAccountMappingPreference(platform, acc, requestedModel),
 				})
 			}
 		}
@@ -751,6 +768,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 
 	// ============ Layer 3: 兜底排队 ============
 	s.sortCandidatesForFallback(candidates, preferOAuth, cfg.FallbackSelectionMode)
+	prioritizeCustomMappedAccounts(platform, requestedModel, candidates)
 	for _, acc := range candidates {
 		// 会话数量限制检查（等待计划也需要占用会话配额）
 		if !s.checkAndRegisterSession(ctx, acc, sessionHash) {
@@ -766,9 +784,17 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	return nil, ErrNoAvailableAccounts
 }
 
-func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates []*Account, groupID *int64, sessionHash string, preferOAuth bool) (*AccountSelectionResult, bool, error) {
+func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates []*Account, groupID *int64, sessionHash string, preferOAuth bool, routing ...string) (*AccountSelectionResult, bool, error) {
+	platform, requestedModel := "", ""
+	if len(routing) > 0 {
+		platform = routing[0]
+	}
+	if len(routing) > 1 {
+		requestedModel = routing[1]
+	}
 	ordered := append([]*Account(nil), candidates...)
 	sortAccountsByPriorityAndLastUsed(ordered, preferOAuth)
+	prioritizeCustomMappedAccounts(platform, requestedModel, ordered)
 
 	for _, acc := range ordered {
 		result, err := s.tryAcquireAccountSlot(ctx, acc.ID, acc.Concurrency)
@@ -961,6 +987,14 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 	if s.schedulerSnapshot != nil {
 		accounts, useMixed, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, hasForcePlatform)
 		if err == nil {
+			// The scheduler snapshot intentionally carries a reduced account
+			// representation and can lag an account edit.  Custom requests use
+			// account-level model_mapping as part of the forwarding contract, so
+			// refresh only those routing credentials before ranking candidates.
+			// Other platforms retain the snapshot-only hot path and ordering.
+			if isCustomRoutingPlatform(platform) {
+				s.refreshGatewayCustomSchedulingMappings(ctx, accounts)
+			}
 			slog.Debug("account_scheduling_list_snapshot",
 				"group_id", derefGroupID(groupID),
 				"platform", platform,
@@ -1060,6 +1094,37 @@ func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *i
 	return accounts, useMixed, nil
 }
 
+// refreshGatewayCustomSchedulingMappings overlays authoritative routing
+// credentials onto scheduler-snapshot candidates.  Snapshot scheduling
+// metadata remains untouched; a failed best-effort reread leaves the original
+// transparent candidate eligible rather than failing the request.
+func (s *GatewayService) refreshGatewayCustomSchedulingMappings(ctx context.Context, accounts []Account) {
+	if s == nil || s.accountRepo == nil || len(accounts) == 0 {
+		return
+	}
+	for i := range accounts {
+		if !isCustomRoutingPlatform(accounts[i].Platform) || accounts[i].ID <= 0 {
+			continue
+		}
+		s.refreshGatewayCustomSchedulingAccount(ctx, &accounts[i])
+	}
+}
+
+func (s *GatewayService) refreshGatewayCustomSchedulingAccount(ctx context.Context, account *Account) {
+	if s == nil || s.accountRepo == nil || account == nil ||
+		!isCustomRoutingPlatform(account.Platform) || account.ID <= 0 {
+		return
+	}
+	latest, err := s.accountRepo.GetByID(ctx, account.ID)
+	if err != nil || latest == nil {
+		return
+	}
+	// The repository row is authoritative for mapping keys. In particular, an
+	// absent model_mapping means an explicit removal and must clear a stale
+	// Redis value; merging only present keys would keep the old alias preferred.
+	replaceOpenAIMappingCredentials(account, latest)
+}
+
 // IsSingleAntigravityAccountGroup 检查指定分组是否只有一个 antigravity 平台的可调度账号。
 // 用于 Handler 层在首次请求时提前设置 SingleAccountRetry context，
 // 避免单账号分组收到 503 时错误地设置模型限流标记导致后续请求连续快速失败。
@@ -1082,6 +1147,50 @@ func (s *GatewayService) isAccountAllowedForPlatform(account *Account, platform 
 		return account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled()
 	}
 	return account.Platform == platform
+}
+
+// hasEligibleCustomMappedAccount reports whether a mapped Custom candidate is
+// available in the already loaded scheduler pool. Transparent Custom accounts
+// remain valid fallbacks; this helper is only used to decide whether a
+// transparent sticky binding should yield to an account that can rewrite the
+// requested public model.
+func (s *GatewayService) hasEligibleCustomMappedAccount(
+	ctx context.Context,
+	groupID *int64,
+	platform string,
+	accounts []Account,
+	requestedModel string,
+	excludedIDs map[int64]struct{},
+	useMixed bool,
+) bool {
+	if !isCustomRoutingPlatform(platform) {
+		return false
+	}
+	needsUpstreamCheck := !isCustomRoutingPlatform(platform) && s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
+	for i := range accounts {
+		account := &accounts[i]
+		if excludedIDs != nil {
+			if _, excluded := excludedIDs[account.ID]; excluded {
+				continue
+			}
+		}
+		if !customAccountMappingPreference(platform, account, requestedModel) ||
+			!s.isAccountSchedulableForSelection(account) ||
+			!s.isGatewayAccountProfitEligible(ctx, account) ||
+			!s.isAccountAllowedForPlatform(account, platform, useMixed) ||
+			(requestedModel != "" && !s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) ||
+			!s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) ||
+			!s.isAccountSchedulableForQuota(account) ||
+			!s.isAccountSchedulableForWindowCost(ctx, account, false) ||
+			!s.isAccountSchedulableForRPM(ctx, account, false) {
+			continue
+		}
+		if needsUpstreamCheck && groupID != nil && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func (s *GatewayService) isAccountSchedulableForSelection(account *Account) bool {
@@ -1429,7 +1538,15 @@ func (s *GatewayService) checkAndRegisterSession(ctx context.Context, account *A
 
 func (s *GatewayService) getSchedulableAccount(ctx context.Context, accountID int64) (*Account, error) {
 	if s.schedulerSnapshot != nil {
-		return s.schedulerSnapshot.GetAccount(ctx, accountID)
+		account, err := s.schedulerSnapshot.GetAccount(ctx, accountID)
+		if err != nil || account == nil {
+			return account, err
+		}
+		// Sticky-session lookups bypass listSchedulableAccounts, so apply the
+		// same Custom-only mapping overlay before the caller evaluates the
+		// account's model support and forwards the request.
+		s.refreshGatewayCustomSchedulingAccount(ctx, account)
+		return account, nil
 	}
 	return s.accountRepo.GetByID(ctx, accountID)
 }
@@ -1444,6 +1561,11 @@ func (s *GatewayService) hydrateSelectedAccount(ctx context.Context, account *Ac
 	}
 	if hydrated == nil {
 		return nil, fmt.Errorf("selected gateway account %d not found during hydration", account.ID)
+	}
+	if isCustomRoutingPlatform(account.Platform) {
+		// Preserve the mapping that passed selection when hydration reads an
+		// older Redis copy of the same account.
+		mergeSelectedOpenAICredentials(hydrated, account)
 	}
 	return hydrated, nil
 }
@@ -1465,6 +1587,26 @@ func (s *GatewayService) newSelectionResult(ctx context.Context, account *Accoun
 func filterByMinPriority(accounts []accountWithLoad) []accountWithLoad {
 	if len(accounts) == 0 {
 		return accounts
+	}
+	// A mapped Custom account is the only candidate that can turn the public
+	// model alias into the provider model. Prefer that tier before applying the
+	// normal priority/load/LRU filters, while retaining transparent accounts as
+	// fallback when the mapped tier is exhausted.
+	hasMappingPreferred := false
+	for _, acc := range accounts {
+		if acc.mappingPreferred {
+			hasMappingPreferred = true
+			break
+		}
+	}
+	if hasMappingPreferred {
+		result := make([]accountWithLoad, 0, len(accounts))
+		for _, acc := range accounts {
+			if acc.mappingPreferred {
+				result = append(result, acc)
+			}
+		}
+		return result
 	}
 	minPriority := accounts[0].account.Priority
 	for _, acc := range accounts[1:] {
@@ -1777,6 +1919,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 
 	var accounts []Account
 	accountsLoaded := false
+	var transparentCustomSticky *Account
 
 	// ============ Model Routing (legacy path): apply before sticky session ============
 	// When load-awareness is disabled (e.g. concurrency service not configured), we still honor model routing
@@ -1875,7 +2018,13 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 				selected = acc
 				continue
 			}
-			if acc.Priority < selected.Priority {
+			accMappingPreferred := customAccountMappingPreference(platform, acc, requestedModel)
+			selectedMappingPreferred := customAccountMappingPreference(platform, selected, requestedModel)
+			if accMappingPreferred != selectedMappingPreferred {
+				if accMappingPreferred {
+					selected = acc
+				}
+			} else if acc.Priority < selected.Priority {
 				selected = acc
 			} else if acc.Priority == selected.Priority {
 				switch {
@@ -1922,7 +2071,12 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 						_ = s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), sessionHash)
 					}
 					if !clearSticky && s.isGatewayAccountProfitEligible(ctx, account) && s.isAccountInGroup(account, groupID) && account.Platform == platform && (requestedModel == "" || s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) && s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) && s.isAccountSchedulableForQuota(account) && s.isAccountSchedulableForWindowCost(ctx, account, true) && s.isAccountSchedulableForRPM(ctx, account, true) {
-						return account, nil
+						if !isCustomRoutingPlatform(platform) || customAccountMappingPreference(platform, account, requestedModel) {
+							return account, nil
+						}
+						// Keep the transparent sticky account as the fallback while the
+						// normal pool is checked for an eligible mapped Custom account.
+						transparentCustomSticky = account
 					}
 				}
 			}
@@ -1938,6 +2092,9 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 		var err error
 		accounts, _, err = s.listSchedulableAccounts(ctx, groupID, platform, hasForcePlatform)
 		if err != nil {
+			if transparentCustomSticky != nil {
+				return transparentCustomSticky, nil
+			}
 			return nil, fmt.Errorf("query accounts failed: %w", err)
 		}
 	}
@@ -1949,7 +2106,7 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 	// 3. 按优先级+最久未用选择（考虑模型支持）
 	// needsUpstreamCheck 仅在主选择循环中使用；粘性会话命中时跳过此检查，
 	// 因为粘性会话优先保持连接一致性，且 upstream 计费基准极少使用。
-	needsUpstreamCheck := s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
+	needsUpstreamCheck := !isCustomRoutingPlatform(platform) && s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
 	var selected *Account
 	for i := range accounts {
 		acc := &accounts[i]
@@ -1993,7 +2150,13 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 			selected = acc
 			continue
 		}
-		if acc.Priority < selected.Priority {
+		accMappingPreferred := customAccountMappingPreference(platform, acc, requestedModel)
+		selectedMappingPreferred := customAccountMappingPreference(platform, selected, requestedModel)
+		if accMappingPreferred != selectedMappingPreferred {
+			if accMappingPreferred {
+				selected = acc
+			}
+		} else if acc.Priority < selected.Priority {
 			selected = acc
 		} else if acc.Priority == selected.Priority {
 			switch {
@@ -2011,6 +2174,11 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 				}
 			}
 		}
+	}
+
+	if transparentCustomSticky != nil &&
+		(selected == nil || !customAccountMappingPreference(platform, selected, requestedModel)) {
+		return transparentCustomSticky, nil
 	}
 
 	if selected == nil {
@@ -2143,7 +2311,13 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 				selected = acc
 				continue
 			}
-			if acc.Priority < selected.Priority {
+			accMappingPreferred := customAccountMappingPreference(nativePlatform, acc, requestedModel)
+			selectedMappingPreferred := customAccountMappingPreference(nativePlatform, selected, requestedModel)
+			if accMappingPreferred != selectedMappingPreferred {
+				if accMappingPreferred {
+					selected = acc
+				}
+			} else if acc.Priority < selected.Priority {
 				selected = acc
 			} else if acc.Priority == selected.Priority {
 				switch {
@@ -2214,7 +2388,7 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 
 	// 3. 按优先级+最久未用选择（考虑模型支持和混合调度）
 	// needsUpstreamCheck 仅在主选择循环中使用；粘性会话命中时跳过此检查。
-	needsUpstreamCheck := s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
+	needsUpstreamCheck := !isCustomRoutingPlatform(nativePlatform) && s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
 	var selected *Account
 	for i := range accounts {
 		acc := &accounts[i]
@@ -2262,7 +2436,13 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 			selected = acc
 			continue
 		}
-		if acc.Priority < selected.Priority {
+		accMappingPreferred := customAccountMappingPreference(nativePlatform, acc, requestedModel)
+		selectedMappingPreferred := customAccountMappingPreference(nativePlatform, selected, requestedModel)
+		if accMappingPreferred != selectedMappingPreferred {
+			if accMappingPreferred {
+				selected = acc
+			}
+		} else if acc.Priority < selected.Priority {
 			selected = acc
 		} else if acc.Priority == selected.Priority {
 			switch {

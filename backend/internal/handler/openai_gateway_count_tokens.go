@@ -129,6 +129,15 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(false, false)))
 
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
+	if requestPlatform == service.PlatformCustom || requestPlatform == service.PlatformComposite {
+		// Custom model IDs are opaque to the Messages bridge. Do not let the
+		// group's Claude-to-OpenAI default replace the channel/account mapping
+		// selected for this request.
+		preferredMappedModel = ""
+		routingModel = reqModel
+		routingModel = openAICompatibleSelectionModel(requestPlatform, routingModel, channelMapping)
+	}
 	mappedBodyForMessages := newOpenAIModelMappedBodyCache(body, h.gatewayService.ReplaceModelInBody)
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
@@ -163,7 +172,7 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 		false,
 		false,
 		false,
-		openAICompatibleRequestPlatform(c.Request.Context(), apiKey),
+		requestPlatform,
 	)
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	if err != nil {

@@ -10,7 +10,14 @@ import (
 )
 
 func ensureCompositeTargetPlatform(c *gin.Context, apiKey *service.APIKey, model string) {
-	if c == nil || c.Request == nil || apiKey == nil || apiKey.Group == nil || apiKey.Group.Platform != service.PlatformComposite {
+	if c == nil || c.Request == nil || apiKey == nil || apiKey.Group == nil {
+		return
+	}
+	// Composite is the persisted group value for the current Custom routing
+	// model, while older data may still carry the concrete Custom platform. Set
+	// the resolved context for both so legacy handlers that infer the platform
+	// only from request context do not silently fall back to OpenAI scheduling.
+	if apiKey.Group.Platform != service.PlatformComposite && apiKey.Group.Platform != service.PlatformCustom {
 		return
 	}
 	if _, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context()); ok {

@@ -1,8 +1,9 @@
 package service
 
-// Custom API-key accounts are deliberately boring: the gateway authenticates
-// and schedules the request, then forwards the payload to the configured
-// OpenAI-compatible endpoint without changing its protocol or model fields.
+// Custom API-key accounts keep the upstream protocol and payload semantics
+// transparent. The one gateway-owned payload rewrite is an account-level
+// model_mapping alias, which must be applied before dispatching to the
+// configured OpenAI-compatible endpoint.
 
 import (
 	"bufio"
@@ -29,9 +30,9 @@ const (
 )
 
 // forwardCustomTransparent dispatches either an OpenAI Responses or Chat
-// Completions request. body is intentionally treated as immutable; in
-// particular, no model mapping, policy filtering, protocol conversion,
-// stream usage injection, namespace normalization, or response rewriting is
+// Completions request. Apart from an account-level model_mapping alias, body
+// is treated as immutable: no policy filtering, protocol conversion, stream
+// usage injection, namespace normalization, or response rewriting is
 // performed here.
 func (s *OpenAIGatewayService) forwardCustomTransparent(
 	ctx context.Context,
@@ -54,9 +55,25 @@ func (s *OpenAIGatewayService) forwardCustomTransparent(
 		}
 		return nil, errors.New("missing model in Custom request")
 	}
+	// The handler may already have applied a channel alias to body. Preserve
+	// the first public model recorded in the request context for usage and
+	// observability while using body/model as the next mapping stage.
+	requestedModel := downstreamRequestedModel(ginRequestContext(c), model)
+	requestBody := body
+	// Custom forwarding remains protocol-transparent, but account-level model
+	// mappings are an explicit routing contract (for example, a monitor can
+	// request alias A while the configured distributor exposes model B). Apply
+	// only the top-level model field and leave every other byte/field untouched.
+	upstreamModel := model
+	if mapped := strings.TrimSpace(account.GetMappedModel(model)); mapped != "" {
+		upstreamModel = mapped
+		if upstreamModel != model {
+			body = ReplaceModelInBody(body, upstreamModel)
+		}
+	}
 	stream := gjson.GetBytes(body, "stream").Bool()
 	serviceTier := extractOpenAIServiceTierFromBody(body)
-	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, model)
+	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, upstreamModel)
 
 	apiKey := strings.TrimSpace(account.GetOpenAIApiKey())
 	if apiKey == "" {
@@ -133,14 +150,14 @@ func (s *OpenAIGatewayService) forwardCustomTransparent(
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(responseBody))
 		if shouldFailoverOpenAIPassthroughResponse(account, resp.StatusCode, responseBody) {
-			err := s.handleFailoverErrorResponsePassthrough(ctx, resp, c, account, body, responseBody)
+			err := s.handleFailoverErrorResponsePassthrough(ctx, resp, c, account, requestBody, responseBody)
 			var failoverErr *UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				failoverErr.RawResponsePassthrough = true
 			}
 			return nil, err
 		}
-		return nil, s.handleCustomRawErrorResponse(ctx, resp, c, account, body, responseBody)
+		return nil, s.handleCustomRawErrorResponse(ctx, resp, c, account, requestBody, responseBody)
 	}
 
 	var usage OpenAIUsage
@@ -165,8 +182,8 @@ func (s *OpenAIGatewayService) forwardCustomTransparent(
 		RequestID:                     resp.Header.Get("x-request-id"),
 		ResponseID:                    responseID,
 		Usage:                         usage,
-		Model:                         model,
-		UpstreamModel:                 model,
+		Model:                         requestedModel,
+		UpstreamModel:                 upstreamModel,
 		UpstreamResponseModel:         observedUpstreamResponseModel(c),
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 		UpstreamEndpoint:              endpoint,

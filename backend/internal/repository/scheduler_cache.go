@@ -954,7 +954,11 @@ func filterSchedulerCredentials(credentials map[string]any) map[string]any {
 	if len(credentials) == 0 {
 		return nil
 	}
-	keys := []string{"model_mapping", "compact_model_mapping", "api_key", "project_id", "oauth_type", "plan_type"}
+	// Keep only the credential metadata needed by the scheduler.  Custom
+	// API-key accounts need their upstream base URL during the snapshot
+	// compatibility check; it is configuration, not a secret.  Do not widen
+	// this allow-list to include access/refresh tokens or other credentials.
+	keys := []string{"model_mapping", "compact_model_mapping", "api_key", "base_url", "project_id", "oauth_type", "plan_type"}
 	filtered := make(map[string]any)
 	for _, key := range keys {
 		if value, ok := credentials[key]; ok && value != nil {

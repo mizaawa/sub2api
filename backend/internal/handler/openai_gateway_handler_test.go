@@ -2136,14 +2136,29 @@ type openAIResponsesWSUsageLogResult struct {
 
 type openAIWSUsageHandlerAccountRepoStub struct {
 	service.AccountRepository
-	account service.Account
+	account  service.Account
+	accounts []service.Account
+}
+
+func (s *openAIWSUsageHandlerAccountRepoStub) allAccounts() []service.Account {
+	if len(s.accounts) > 0 {
+		return s.accounts
+	}
+	if s.account.ID == 0 {
+		return nil
+	}
+	return []service.Account{s.account}
 }
 
 func (s *openAIWSUsageHandlerAccountRepoStub) ListSchedulableByPlatform(ctx context.Context, platform string) ([]service.Account, error) {
-	if s.account.Platform != platform {
-		return nil, nil
+	accounts := s.allAccounts()
+	filtered := make([]service.Account, 0, len(accounts))
+	for _, account := range accounts {
+		if account.Platform == platform {
+			filtered = append(filtered, account)
+		}
 	}
-	return []service.Account{s.account}, nil
+	return filtered, nil
 }
 
 func (s *openAIWSUsageHandlerAccountRepoStub) ListSchedulableByGroupIDAndPlatform(ctx context.Context, groupID int64, platform string) ([]service.Account, error) {
@@ -2151,11 +2166,13 @@ func (s *openAIWSUsageHandlerAccountRepoStub) ListSchedulableByGroupIDAndPlatfor
 }
 
 func (s *openAIWSUsageHandlerAccountRepoStub) GetByID(ctx context.Context, id int64) (*service.Account, error) {
-	if s.account.ID != id {
-		return nil, nil
+	for _, account := range s.allAccounts() {
+		if account.ID == id {
+			copy := account
+			return &copy, nil
+		}
 	}
-	account := s.account
-	return &account, nil
+	return nil, nil
 }
 
 type openAIWSFailoverHandlerAccountRepoStub struct {

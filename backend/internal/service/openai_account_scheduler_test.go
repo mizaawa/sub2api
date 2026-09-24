@@ -2021,6 +2021,290 @@ func TestOpenAIGatewayService_SelectAccountWithLoadAwareness_DBFreshGroupRecheck
 	require.Equal(t, staleBackup.ID, selection.WaitPlan.AccountID)
 }
 
+func TestDefaultOpenAIAccountScheduler_CustomMappingBypassesUpstreamRestriction(t *testing.T) {
+	t.Parallel()
+
+	groupID := int64(10109)
+	channelService := &ChannelService{}
+	channelService.cache.Store(populateChannelCache(
+		[]Channel{{
+			ID:                 groupID,
+			Status:             StatusActive,
+			GroupIDs:           []int64{groupID},
+			RestrictModels:     true,
+			BillingModelSource: BillingModelSourceUpstream,
+			// The distributor model is intentionally absent from the local
+			// pricing list. Custom owns model validity at the upstream.
+			ModelPricing: []ChannelModelPricing{{Platform: PlatformCustom, Models: []string{"different-model"}}},
+		}},
+		map[int64]string{groupID: PlatformCustom},
+	))
+	account := Account{
+		ID:          10110,
+		Platform:    PlatformCustom,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		GroupIDs:    []int64{groupID},
+		Credentials: map[string]any{
+			"api_key":       "custom-monitor-key",
+			"base_url":      "https://custom.example.test/v1",
+			"model_mapping": map[string]any{"monitor-alias": "provider-model"},
+		},
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:    schedulerTestOpenAIAccountRepo{accounts: []Account{account}},
+		channelService: channelService,
+		cfg:            &config.Config{RunMode: config.RunModeSimple},
+	}
+	scheduler := &defaultOpenAIAccountScheduler{service: svc, stats: newOpenAIAccountRuntimeStats()}
+
+	selection, _, err := scheduler.Select(context.Background(), OpenAIAccountScheduleRequest{
+		GroupID:            &groupID,
+		Platform:           PlatformCustom,
+		RequestedModel:     "monitor-alias",
+		RequiredCapability: OpenAIEndpointCapabilityChatCompletions,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, account.ID, selection.Account.ID)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestDefaultOpenAIAccountScheduler_CustomMappingPreferredOverTransparentPool(t *testing.T) {
+	t.Parallel()
+
+	groupID := int64(10111)
+	transparent := Account{
+		ID:          10112,
+		Platform:    PlatformCustom,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Priority:    -100, // would win ordinary priority/load ordering
+		GroupIDs:    []int64{groupID},
+		Credentials: map[string]any{
+			"api_key":  "transparent-key",
+			"base_url": "https://transparent.example.test/v1",
+		},
+	}
+	mapped := Account{
+		ID:          10113,
+		Platform:    PlatformCustom,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Priority:    100,
+		GroupIDs:    []int64{groupID},
+		Credentials: map[string]any{
+			"api_key":       "mapped-key",
+			"base_url":      "https://mapped.example.test/v1",
+			"model_mapping": map[string]any{"monitor-alias": "provider-model"},
+		},
+	}
+
+	// Keep Top-K wider than one so the assertion exercises the mapped-pool
+	// partition instead of passing only because the first ranked candidate is
+	// mapped.
+	cfg := newSchedulerTestOpenAIWSV2Config()
+	cfg.Gateway.OpenAIWS.LBTopK = 2
+	svc := &OpenAIGatewayService{
+		accountRepo: schedulerGroupAwareOpenAIAccountRepo{
+			schedulerTestOpenAIAccountRepo{accounts: []Account{transparent, mapped}},
+		},
+		cfg: cfg,
+	}
+	scheduler := &defaultOpenAIAccountScheduler{service: svc, stats: newOpenAIAccountRuntimeStats()}
+
+	selection, _, err := scheduler.Select(context.Background(), OpenAIAccountScheduleRequest{
+		GroupID:            &groupID,
+		Platform:           PlatformCustom,
+		StickyWeighted:     true,
+		StickyAccountID:    transparent.ID,
+		RequestedModel:     "monitor-alias",
+		RequiredCapability: OpenAIEndpointCapabilityChatCompletions,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, mapped.ID, selection.Account.ID,
+		"an account mapping must take precedence over a transparent Custom account")
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestDefaultOpenAIAccountScheduler_CustomTransparentStickyYieldsToMapping(t *testing.T) {
+	t.Parallel()
+
+	groupID := int64(10114)
+	transparent := Account{
+		ID:          10115,
+		Platform:    PlatformCustom,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		GroupIDs:    []int64{groupID},
+		Credentials: map[string]any{
+			"api_key":  "transparent-sticky-key",
+			"base_url": "https://transparent-sticky.example.test/v1",
+		},
+	}
+	mapped := Account{
+		ID:          10116,
+		Platform:    PlatformCustom,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		GroupIDs:    []int64{groupID},
+		Credentials: map[string]any{
+			"api_key":       "mapped-sticky-key",
+			"base_url":      "https://mapped-sticky.example.test/v1",
+			"model_mapping": map[string]any{"monitor-alias": "provider-model"},
+		},
+	}
+	const sessionHash = "custom:monitor-sticky"
+	const sessionCacheKey = "openai:" + sessionHash
+	cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{
+		sessionCacheKey: transparent.ID,
+	}}
+	svc := &OpenAIGatewayService{
+		accountRepo: schedulerGroupAwareOpenAIAccountRepo{
+			schedulerTestOpenAIAccountRepo{accounts: []Account{transparent, mapped}},
+		},
+		cache: cache,
+		cfg:   newSchedulerTestOpenAIWSV2Config(),
+	}
+	scheduler := &defaultOpenAIAccountScheduler{service: svc, stats: newOpenAIAccountRuntimeStats()}
+
+	selection, decision, err := scheduler.Select(context.Background(), OpenAIAccountScheduleRequest{
+		GroupID:        &groupID,
+		Platform:       PlatformCustom,
+		SessionHash:    sessionHash,
+		RequestedModel: "monitor-alias",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, mapped.ID, selection.Account.ID,
+		"a transparent sticky account must yield when a mapped Custom peer is available")
+	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
+	require.Equal(t, 1, cache.deletedSessions[sessionCacheKey])
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestDefaultOpenAIAccountScheduler_CustomMappingFallsBackWhenMappedSlotBusy(t *testing.T) {
+	t.Parallel()
+
+	groupID := int64(10120)
+	transparent := Account{
+		ID:          10121,
+		Platform:    PlatformCustom,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		GroupIDs:    []int64{groupID},
+		Credentials: map[string]any{"api_key": "transparent-fallback", "base_url": "https://fallback.example.test/v1"},
+	}
+	mapped := Account{
+		ID:          10122,
+		Platform:    PlatformCustom,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		GroupIDs:    []int64{groupID},
+		Credentials: map[string]any{
+			"api_key":       "mapped-busy",
+			"base_url":      "https://mapped-busy.example.test/v1",
+			"model_mapping": map[string]any{"monitor-alias": "provider-model"},
+		},
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo: schedulerGroupAwareOpenAIAccountRepo{
+			schedulerTestOpenAIAccountRepo{accounts: []Account{transparent, mapped}},
+		},
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{
+			acquireResults: map[int64]bool{mapped.ID: false, transparent.ID: true},
+		}),
+		cfg: newSchedulerTestOpenAIWSV2Config(),
+	}
+	scheduler := &defaultOpenAIAccountScheduler{service: svc, stats: newOpenAIAccountRuntimeStats()}
+
+	selection, _, err := scheduler.Select(context.Background(), OpenAIAccountScheduleRequest{
+		GroupID:        &groupID,
+		Platform:       PlatformCustom,
+		RequestedModel: "monitor-alias",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Equal(t, transparent.ID, selection.Account.ID,
+		"transparent Custom accounts remain a fallback when the mapped account cannot acquire a slot")
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestDefaultOpenAIAccountScheduler_CustomWithoutMappingRemainsTransparent(t *testing.T) {
+	t.Parallel()
+
+	groupID := int64(10117)
+	accounts := []Account{
+		{
+			ID:          10118,
+			Platform:    PlatformCustom,
+			Type:        AccountTypeAPIKey,
+			Status:      StatusActive,
+			Schedulable: true,
+			Concurrency: 1,
+			GroupIDs:    []int64{groupID},
+			Credentials: map[string]any{"api_key": "custom-one", "base_url": "https://one.example.test/v1"},
+		},
+		{
+			ID:          10119,
+			Platform:    PlatformCustom,
+			Type:        AccountTypeAPIKey,
+			Status:      StatusActive,
+			Schedulable: true,
+			Concurrency: 1,
+			GroupIDs:    []int64{groupID},
+			Credentials: map[string]any{"api_key": "custom-two", "base_url": "https://two.example.test/v1"},
+		},
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo: schedulerGroupAwareOpenAIAccountRepo{
+			schedulerTestOpenAIAccountRepo{accounts: accounts},
+		},
+		cfg: newSchedulerTestOpenAIWSV2Config(),
+	}
+	scheduler := &defaultOpenAIAccountScheduler{service: svc, stats: newOpenAIAccountRuntimeStats()}
+
+	selection, _, err := scheduler.Select(context.Background(), OpenAIAccountScheduleRequest{
+		GroupID:        &groupID,
+		Platform:       PlatformCustom,
+		RequestedModel: "opaque-upstream-model",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.NotNil(t, selection.Account)
+	require.Contains(t, []int64{accounts[0].ID, accounts[1].ID}, selection.Account.ID)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
 func TestOpenAIGatewayService_RecheckSelectedOpenAIAccountFromDB_SimpleModeUsesFullPool(t *testing.T) {
 	grouped := Account{ID: 34301, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{99}}
 	svc := &OpenAIGatewayService{

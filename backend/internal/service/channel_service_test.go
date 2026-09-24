@@ -2055,6 +2055,51 @@ func TestCustomChannelLookupIgnoresLegacyResolvedProvider(t *testing.T) {
 	require.Equal(t, "upstream-chat", result.MappedModel)
 }
 
+func TestCustomChannelMappingReadsLegacyCompositeKey(t *testing.T) {
+	channel := Channel{
+		ID:       1,
+		Status:   StatusActive,
+		GroupIDs: []int64{99},
+		ModelMapping: map[string]map[string]string{
+			PlatformComposite: {
+				"deepseek-v4-pro-0813": "deepseek-v3.1",
+			},
+		},
+	}
+	cache := populateChannelCache([]Channel{channel}, map[int64]string{99: PlatformComposite})
+	svc := &ChannelService{}
+	svc.cache.Store(cache)
+
+	result := svc.ResolveChannelMapping(context.Background(), 99, "deepseek-v4-pro-0813")
+
+	require.True(t, result.Mapped)
+	require.Equal(t, "deepseek-v3.1", result.MappedModel)
+}
+
+func TestCustomChannelMappingPrefersCanonicalCustomKey(t *testing.T) {
+	channel := Channel{
+		ID:       1,
+		Status:   StatusActive,
+		GroupIDs: []int64{99},
+		ModelMapping: map[string]map[string]string{
+			PlatformCustom: {
+				"public-a": "canonical-b",
+			},
+			PlatformComposite: {
+				"public-a": "legacy-b",
+			},
+		},
+	}
+	cache := populateChannelCache([]Channel{channel}, map[int64]string{99: PlatformComposite})
+	svc := &ChannelService{}
+	svc.cache.Store(cache)
+
+	result := svc.ResolveChannelMapping(context.Background(), 99, "public-a")
+
+	require.True(t, result.Mapped)
+	require.Equal(t, "canonical-b", result.MappedModel)
+}
+
 // ===========================================================================
 // 9. Antigravity platform isolation — no cross-platform pricing leakage
 // ===========================================================================

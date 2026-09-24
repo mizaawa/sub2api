@@ -71,6 +71,7 @@ type Account struct {
 	modelMappingCacheRawPtr         uintptr
 	modelMappingCacheRawLen         int
 	modelMappingCacheRawSig         uint64
+	modelMappingCacheRawType        string
 
 	// header_overrides 热路径缓存（非持久化字段，同 model_mapping 缓存先例）
 	headerOverrideCache               map[string]string
@@ -569,27 +570,25 @@ func stringMappingFromRaw(raw any) map[string]string {
 
 func (a *Account) GetModelMapping() map[string]string {
 	credentialsPtr := mapPtr(a.Credentials)
-	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
-	rawPtr := mapPtr(rawMapping)
-	rawLen := len(rawMapping)
-	rawSig := uint64(0)
-	rawSigReady := false
+	var rawValue any
+	if a.Credentials != nil {
+		rawValue = a.Credentials["model_mapping"]
+	}
+	rawMapping := modelMappingRawAsAny(rawValue)
+	rawPtr, rawLen, rawType := modelMappingRawMetadata(rawValue)
+	rawSig := modelMappingSignatureAny(rawValue)
 
 	if a.modelMappingCacheReady &&
 		a.modelMappingCacheCredentialsPtr == credentialsPtr &&
 		a.modelMappingCacheRawPtr == rawPtr &&
-		a.modelMappingCacheRawLen == rawLen {
-		rawSig = modelMappingSignature(rawMapping)
-		rawSigReady = true
+		a.modelMappingCacheRawLen == rawLen &&
+		a.modelMappingCacheRawType == rawType {
 		if a.modelMappingCacheRawSig == rawSig {
 			return a.modelMappingCache
 		}
 	}
 
 	mapping := a.resolveModelMapping(rawMapping)
-	if !rawSigReady {
-		rawSig = modelMappingSignature(rawMapping)
-	}
 
 	a.modelMappingCache = mapping
 	a.modelMappingCacheReady = true
@@ -597,7 +596,66 @@ func (a *Account) GetModelMapping() map[string]string {
 	a.modelMappingCacheRawPtr = rawPtr
 	a.modelMappingCacheRawLen = rawLen
 	a.modelMappingCacheRawSig = rawSig
+	a.modelMappingCacheRawType = rawType
 	return mapping
+}
+
+// modelMappingRawAsAny normalizes the two map representations that can occur
+// in credentials: Ent/JSON decoding typically produces map[string]any, while
+// in-memory callers and legacy caches may provide map[string]string.
+func modelMappingRawAsAny(raw any) map[string]any {
+	switch mapping := raw.(type) {
+	case map[string]any:
+		return mapping
+	case map[string]string:
+		if len(mapping) == 0 {
+			return nil
+		}
+		result := make(map[string]any, len(mapping))
+		for key, value := range mapping {
+			result[key] = value
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+func modelMappingRawMetadata(raw any) (ptr uintptr, length int, typeName string) {
+	if raw == nil {
+		return 0, 0, ""
+	}
+	rv := reflect.ValueOf(raw)
+	if rv.Kind() != reflect.Map {
+		return 0, 0, reflect.TypeOf(raw).String()
+	}
+	return rv.Pointer(), rv.Len(), rv.Type().String()
+}
+
+func modelMappingSignatureAny(raw any) uint64 {
+	switch mapping := raw.(type) {
+	case map[string]any:
+		return modelMappingSignature(mapping)
+	case map[string]string:
+		if len(mapping) == 0 {
+			return 0
+		}
+		keys := make([]string, 0, len(mapping))
+		for key := range mapping {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		h := fnv.New64a()
+		for _, key := range keys {
+			_, _ = h.Write([]byte(key))
+			_, _ = h.Write([]byte{0})
+			_, _ = h.Write([]byte(mapping[key]))
+			_, _ = h.Write([]byte{0xff})
+		}
+		return h.Sum64()
+	default:
+		return 0
+	}
 }
 
 func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]string {

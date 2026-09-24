@@ -119,6 +119,104 @@ func TestForwardCustomVideoGenerationPreservesRequestedClipCount(t *testing.T) {
 	require.Equal(t, 4, result.VideoDurationSeconds)
 }
 
+func TestForwardCustomVideoGenerationAppliesAccountModelMappingJSON(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	body := []byte(`{"model":"public-video","prompt":"waves","resolution":"720p","vendor_option":"keep"}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	account := customVideoTestAccount()
+	account.Credentials["model_mapping"] = map[string]any{"public-video": "vendor-video"}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"task-mapped-json","status":"queued"}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: customVideoTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.ForwardGrokMedia(
+		context.Background(), c, account, GrokMediaEndpointVideosGenerations, "", body, "application/json",
+	)
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "vendor-video", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "720p", gjson.GetBytes(upstream.lastBody, "resolution").String())
+	require.Equal(t, "keep", gjson.GetBytes(upstream.lastBody, "vendor_option").String())
+	require.Equal(t, "public-video", result.Model)
+	require.Equal(t, "public-video", result.BillingModel)
+	require.Equal(t, "vendor-video", result.UpstreamModel)
+	require.Equal(t, VideoBillingResolution720P, result.VideoResolution)
+	require.Empty(t, recorder.Body.Bytes(), "creation success must remain buffered until task metadata is durable")
+}
+
+func TestForwardCustomVideoGenerationAppliesAccountModelMappingMultipart(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	require.NoError(t, writer.WriteField("model", "public-video"))
+	require.NoError(t, writer.WriteField("prompt", "waves"))
+	require.NoError(t, writer.WriteField("resolution_name", "1280x720"))
+	require.NoError(t, writer.WriteField("vendor_option", "keep"))
+	part, err := writer.CreateFormFile("image", "input.bin")
+	require.NoError(t, err)
+	_, err = part.Write([]byte("preserve-this-file"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	contentType := writer.FormDataContentType()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/videos", bytes.NewReader(body.Bytes()))
+	c.Request.Header.Set("Content-Type", contentType)
+
+	account := customVideoTestAccount()
+	account.Credentials["model_mapping"] = map[string]any{"public-video": "vendor-video"}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"task-mapped-multipart","status":"queued"}`)),
+	}}
+	svc := &OpenAIGatewayService{cfg: customVideoTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.ForwardGrokMedia(
+		context.Background(), c, account, GrokMediaEndpointVideosGenerations, "", body.Bytes(), contentType,
+	)
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, contentType, upstream.lastReq.Header.Get("Content-Type"))
+	require.Equal(t, "public-video", result.Model)
+	require.Equal(t, "vendor-video", result.UpstreamModel)
+	require.Equal(t, VideoBillingResolution720P, result.VideoResolution)
+
+	mediaType, params, err := mime.ParseMediaType(upstream.lastReq.Header.Get("Content-Type"))
+	require.NoError(t, err)
+	require.Equal(t, "multipart/form-data", mediaType)
+	reader := multipart.NewReader(bytes.NewReader(upstream.lastBody), params["boundary"])
+	fields := map[string][]string{}
+	files := map[string][]byte{}
+	for {
+		part, nextErr := reader.NextPart()
+		if nextErr == io.EOF {
+			break
+		}
+		require.NoError(t, nextErr)
+		data, readErr := io.ReadAll(part)
+		require.NoError(t, readErr)
+		if part.FileName() != "" {
+			files[part.FormName()] = data
+			continue
+		}
+		fields[part.FormName()] = append(fields[part.FormName()], string(data))
+	}
+	require.Equal(t, []string{"vendor-video"}, fields["model"])
+	require.Equal(t, []string{"720p"}, fields["resolution"])
+	require.Equal(t, []string{"keep"}, fields["vendor_option"])
+	require.NotContains(t, fields, "resolution_name")
+	require.Equal(t, []byte("preserve-this-file"), files["image"])
+}
+
 func TestParseGrokMediaRequestAcceptsStringClipCount(t *testing.T) {
 	info := ParseGrokMediaRequest("application/json", []byte(`{"model":"videos-standard-720p","n":"2"}`))
 	require.Equal(t, 2, info.N)

@@ -748,14 +748,34 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 		requestInfo = normalizeCustomVideoRequestInfo(requestInfo)
 	}
 	upstreamModel := requestInfo.Model
-	if endpoint.RequiresRequestBody() && account.Platform != PlatformCustom && gjson.ValidBytes(body) {
+	// Custom video accounts are transparent by default, but their account-level
+	// model_mapping still has to be applied before the request reaches the
+	// selected upstream.  The handler intentionally skips group/channel mapping
+	// for Custom, so leaving this branch disabled would send the public alias
+	// unchanged (and commonly produce an upstream model_not_found response).
+	canRewriteAccountModel := (account.Platform != PlatformCustom && gjson.ValidBytes(body)) ||
+		(account.Platform == PlatformCustom && endpoint.IsVideoGenerationRequest())
+	if endpoint.RequiresRequestBody() && canRewriteAccountModel {
 		if mappedModel := strings.TrimSpace(account.GetMappedModel(requestInfo.Model)); mappedModel != "" {
 			upstreamModel = mappedModel
 		}
 		if upstreamModel != requestInfo.Model {
-			body, err = sjson.SetBytes(body, "model", upstreamModel)
-			if err != nil {
-				return nil, fmt.Errorf("rewrite grok media account mapped model: %w", err)
+			if gjson.ValidBytes(body) {
+				body, err = sjson.SetBytes(body, "model", upstreamModel)
+				if err != nil {
+					return nil, fmt.Errorf("rewrite grok media account mapped model: %w", err)
+				}
+			} else if account.Platform == PlatformCustom && endpoint.IsVideoGenerationRequest() {
+				var rewritten bool
+				body, contentType, rewritten, err = rewriteCustomVideoModelForwardBody(body, contentType, upstreamModel)
+				if err != nil {
+					return nil, err
+				}
+				// Keep the result metadata truthful if a malformed/non-multipart body
+				// could not be rewritten; the upstream still owns that validation.
+				if !rewritten {
+					upstreamModel = requestInfo.Model
+				}
 			}
 		}
 	}
@@ -1218,6 +1238,84 @@ func normalizeCustomVideoForwardBody(endpoint GrokMediaEndpoint, body []byte, co
 	// SetBoundary above keeps the wire boundary stable. Return the caller's
 	// original Content-Type string so charset/parameter formatting is retained.
 	return out.Bytes(), contentType, nil
+}
+
+// rewriteCustomVideoModelForwardBody applies an account-level model mapping to
+// a Custom video request while preserving the request's media type and, for
+// multipart bodies, its original boundary and uploaded part bytes.  A malformed
+// body is returned unchanged so the upstream remains responsible for reporting
+// its structural error instead of turning transparent forwarding into a local
+// validation failure.
+func rewriteCustomVideoModelForwardBody(body []byte, contentType, model string) ([]byte, string, bool, error) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return body, contentType, false, nil
+	}
+	if gjson.ValidBytes(body) {
+		rewritten, err := sjson.SetBytes(body, "model", model)
+		if err != nil {
+			return nil, "", false, fmt.Errorf("rewrite custom video model: %w", err)
+		}
+		return rewritten, contentType, true, nil
+	}
+
+	mediaType, params, err := mime.ParseMediaType(strings.TrimSpace(contentType))
+	if err != nil || !strings.EqualFold(mediaType, "multipart/form-data") {
+		return body, contentType, false, nil
+	}
+	boundary := strings.TrimSpace(params["boundary"])
+	if boundary == "" {
+		return body, contentType, false, nil
+	}
+
+	reader := multipart.NewReader(bytes.NewReader(body), boundary)
+	var out bytes.Buffer
+	writer := multipart.NewWriter(&out)
+	if err := writer.SetBoundary(boundary); err != nil {
+		return body, contentType, false, nil
+	}
+	modelWritten := false
+	for {
+		part, nextErr := reader.NextPart()
+		if nextErr == io.EOF {
+			break
+		}
+		if nextErr != nil {
+			return body, contentType, false, nil
+		}
+
+		header := cloneMultipartHeader(part.Header)
+		created, createErr := writer.CreatePart(header)
+		if createErr != nil {
+			_ = part.Close()
+			return body, contentType, false, nil
+		}
+		if strings.TrimSpace(part.FormName()) == "model" && part.FileName() == "" {
+			if _, writeErr := created.Write([]byte(model)); writeErr != nil {
+				_ = part.Close()
+				return body, contentType, false, nil
+			}
+			modelWritten = true
+			_ = part.Close()
+			continue
+		}
+		if _, copyErr := io.Copy(created, part); copyErr != nil {
+			_ = part.Close()
+			return body, contentType, false, nil
+		}
+		_ = part.Close()
+	}
+	if !modelWritten {
+		if err := writer.WriteField("model", model); err != nil {
+			return body, contentType, false, nil
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return body, contentType, false, nil
+	}
+	// SetBoundary above keeps the wire boundary stable. Return the caller's
+	// original Content-Type string so charset/parameter formatting is retained.
+	return out.Bytes(), contentType, true, nil
 }
 
 func normalizeCustomVideoRequestInfo(info GrokMediaRequestInfo) GrokMediaRequestInfo {
