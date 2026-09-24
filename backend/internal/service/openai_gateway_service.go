@@ -601,6 +601,13 @@ func (s *OpenAIGatewayService) checkChannelPricingRestriction(ctx context.Contex
 	return s.channelService.IsModelRestricted(ctx, *groupID, billingModel)
 }
 
+func (s *OpenAIGatewayService) checkChannelPricingRestrictionForPlatform(ctx context.Context, groupID *int64, platform, requestedModel string) bool {
+	if platform == PlatformComposite || normalizeOpenAICompatiblePlatform(platform) == PlatformCustom {
+		return false
+	}
+	return s.checkChannelPricingRestriction(ctx, groupID, requestedModel)
+}
+
 func (s *OpenAIGatewayService) isUpstreamModelRestrictedByChannel(ctx context.Context, groupID int64, account *Account, requestedModel string, requireCompact bool) bool {
 	if s.channelService == nil {
 		return false
@@ -625,6 +632,13 @@ func (s *OpenAIGatewayService) needsUpstreamChannelRestrictionCheck(ctx context.
 		return false
 	}
 	return ch.BillingModelSource == BillingModelSourceUpstream
+}
+
+func (s *OpenAIGatewayService) needsUpstreamChannelRestrictionCheckForPlatform(ctx context.Context, groupID *int64, platform string) bool {
+	if platform == PlatformComposite || normalizeOpenAICompatiblePlatform(platform) == PlatformCustom {
+		return false
+	}
+	return s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
 }
 
 // ReplaceModelInBody 替换请求体中的 JSON model 字段（通用 gjson/sjson 实现）。

@@ -28,11 +28,9 @@ const (
 	customMessagesEndpoint        = "/v1/messages"
 )
 
-// forwardCustomTransparent dispatches either an OpenAI Responses or Chat
-// Completions request. body is intentionally treated as immutable; in
-// particular, no model mapping, policy filtering, protocol conversion,
-// stream usage injection, namespace normalization, or response rewriting is
-// performed here.
+// forwardCustomTransparent dispatches OpenAI-compatible requests without
+// protocol conversion. Account-level model mapping is the only body rewrite;
+// all other request fields and the upstream response remain transparent.
 func (s *OpenAIGatewayService) forwardCustomTransparent(
 	ctx context.Context,
 	c *gin.Context,
@@ -54,9 +52,15 @@ func (s *OpenAIGatewayService) forwardCustomTransparent(
 		}
 		return nil, errors.New("missing model in Custom request")
 	}
-	stream := gjson.GetBytes(body, "stream").Bool()
-	serviceTier := extractOpenAIServiceTierFromBody(body)
-	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, model)
+	upstreamModel := model
+	forwardBody := body
+	if mappedModel := strings.TrimSpace(account.GetMappedModel(model)); mappedModel != "" && mappedModel != model {
+		upstreamModel = mappedModel
+		forwardBody = ReplaceModelInBody(body, mappedModel)
+	}
+	stream := gjson.GetBytes(forwardBody, "stream").Bool()
+	serviceTier := extractOpenAIServiceTierFromBody(forwardBody)
+	reasoningEffort := extractOpenAIReasoningEffortFromBody(forwardBody, model)
 
 	apiKey := strings.TrimSpace(account.GetOpenAIApiKey())
 	if apiKey == "" {
@@ -74,7 +78,7 @@ func (s *OpenAIGatewayService) forwardCustomTransparent(
 	SetActualOpenAIUpstreamEndpoint(c, endpoint)
 
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
-	req, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(forwardBody))
 	releaseUpstreamCtx()
 	if err != nil {
 		return nil, fmt.Errorf("build Custom upstream request: %w", err)
@@ -166,7 +170,7 @@ func (s *OpenAIGatewayService) forwardCustomTransparent(
 		ResponseID:                    responseID,
 		Usage:                         usage,
 		Model:                         model,
-		UpstreamModel:                 model,
+		UpstreamModel:                 upstreamModel,
 		UpstreamResponseModel:         observedUpstreamResponseModel(c),
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 		UpstreamEndpoint:              endpoint,

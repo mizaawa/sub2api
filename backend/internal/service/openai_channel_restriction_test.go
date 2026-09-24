@@ -138,3 +138,49 @@ func TestOpenAISelectAccountForModelWithExclusions_StickyRestrictedUpstreamFalls
 	require.Equal(t, 1, cache.deletedSessions["openai:sticky-session"])
 	require.Equal(t, int64(2), cache.sessionBindings["openai:sticky-session"])
 }
+
+func TestCustomSelectionIgnoresChannelPricingRestriction(t *testing.T) {
+	t.Parallel()
+
+	channelSvc := newTestChannelService(makeStandardRepo(Channel{
+		ID:                 1,
+		Status:             StatusActive,
+		GroupIDs:           []int64{10},
+		RestrictModels:     true,
+		BillingModelSource: BillingModelSourceChannelMapped,
+		ModelPricing: []ChannelModelPricing{
+			{Platform: PlatformCustom, Models: []string{"upstream-model"}},
+		},
+	}, map[int64]string{10: PlatformComposite}))
+
+	account := Account{
+		ID:          1,
+		Platform:    PlatformCustom,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		GroupIDs:    []int64{10},
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":       "sk-custom",
+			"base_url":      "https://custom.example.test",
+			"model_mapping": map[string]any{"client-alias": "upstream-model"},
+		},
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:    stubOpenAIAccountRepo{accounts: []Account{account}},
+		channelService: channelSvc,
+	}
+	groupID := int64(10)
+	ctx := context.Background()
+	require.True(t, svc.checkChannelPricingRestriction(ctx, &groupID, "client-alias"))
+	require.False(t, svc.checkChannelPricingRestrictionForPlatform(ctx, &groupID, PlatformComposite, "client-alias"))
+
+	selected, err := svc.selectAccountForModelWithExclusions(
+		ctx, &groupID, PlatformCustom, "", "client-alias", nil, false, 0, "", false,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	require.Equal(t, int64(1), selected.ID)
+}

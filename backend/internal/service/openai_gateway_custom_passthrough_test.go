@@ -75,6 +75,28 @@ func TestForwardCustomTransparentResponsesPreservesBodyAndUsesResponsesEndpoint(
 	require.Equal(t, `{"id":"resp_custom","object":"response","model":"vendor/arbitrary-42","output":[],"usage":{"input_tokens":2,"output_tokens":1}}`, recorder.Body.String())
 }
 
+func TestForwardCustomTransparentResponsesAppliesAccountModelMapping(t *testing.T) {
+	body := []byte(`{"model":"monitor-alias","stream":false,"input":"hello","vendor_extension":{"keep":true}}`)
+	upstreamBody := []byte(`{"id":"resp_custom_mapped","object":"response","model":"provider-model","output":[]}`)
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewReader(upstreamBody)),
+	}}
+	account := customTransparentTestAccount()
+	account.Credentials["model_mapping"] = map[string]any{"monitor-alias": "provider-model"}
+	svc := customTransparentTestService(upstream)
+	c, _ := customTransparentTestContext("/v1/responses", body)
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "monitor-alias", result.Model)
+	require.Equal(t, "provider-model", result.UpstreamModel)
+	require.JSONEq(t, `{"model":"provider-model","stream":false,"input":"hello","vendor_extension":{"keep":true}}`, string(upstream.lastBody))
+}
+
 func TestForwardAsChatCompletionsCustomTransparentPreservesBodyAndDoesNotInjectUsage(t *testing.T) {
 	body := []byte(`{"model":"vendor/chat-42","stream":true,"messages":[{"role":"user","content":"hello"}],"vendor_extension":{"opaque":[1,2,3]}}`)
 	upstreamBody := []byte("data: {\"id\":\"chat_custom\",\"object\":\"chat.completion.chunk\",\"model\":\"vendor/chat-42\",\"choices\":[]}\n\ndata: [DONE]\n\n")
@@ -95,6 +117,28 @@ func TestForwardAsChatCompletionsCustomTransparentPreservesBodyAndDoesNotInjectU
 	require.Equal(t, "http://custom-upstream.test/v1/chat/completions", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer sk-custom-secret", upstream.lastReq.Header.Get("Authorization"))
 	require.Equal(t, upstreamBody, recorder.Body.Bytes())
+}
+
+func TestForwardAsChatCompletionsCustomTransparentAppliesAccountModelMapping(t *testing.T) {
+	body := []byte(`{"model":"monitor-alias","stream":false,"messages":[{"role":"user","content":"hello"}],"vendor_extension":{"keep":true}}`)
+	upstreamBody := []byte(`{"id":"chat_custom_mapped","object":"chat.completion","model":"provider-model","choices":[]}`)
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewReader(upstreamBody)),
+	}}
+	account := customTransparentTestAccount()
+	account.Credentials["model_mapping"] = map[string]any{"monitor-alias": "provider-model"}
+	svc := customTransparentTestService(upstream)
+	c, _ := customTransparentTestContext("/v1/chat/completions", body)
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "monitor-alias", result.Model)
+	require.Equal(t, "provider-model", result.UpstreamModel)
+	require.JSONEq(t, `{"model":"provider-model","stream":false,"messages":[{"role":"user","content":"hello"}],"vendor_extension":{"keep":true}}`, string(upstream.lastBody))
 }
 
 func TestForwardAsAnthropicCustomTransparentPreservesMessagesBodyAndResponse(t *testing.T) {
@@ -124,6 +168,28 @@ func TestForwardAsAnthropicCustomTransparentPreservesMessagesBodyAndResponse(t *
 	require.Equal(t, 4, result.Usage.InputTokens)
 	require.Equal(t, 6, result.Usage.OutputTokens)
 	require.Equal(t, customMessagesEndpoint, result.UpstreamEndpoint)
+}
+
+func TestForwardAsAnthropicCustomTransparentAppliesAccountModelMapping(t *testing.T) {
+	body := []byte(`{"model":"monitor-alias","max_tokens":16,"stream":false,"messages":[{"role":"user","content":"hello"}]}`)
+	upstreamBody := []byte(`{"id":"msg_custom_mapped","type":"message","role":"assistant","model":"provider-model","content":[{"type":"text","text":"hello"}]}`)
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(bytes.NewReader(upstreamBody)),
+	}}
+	account := customTransparentTestAccount()
+	account.Credentials["model_mapping"] = map[string]any{"monitor-alias": "provider-model"}
+	svc := customTransparentTestService(upstream)
+	c, _ := customTransparentTestContext("/v1/messages", body)
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "monitor-alias", result.Model)
+	require.Equal(t, "provider-model", result.UpstreamModel)
+	require.JSONEq(t, `{"model":"provider-model","max_tokens":16,"stream":false,"messages":[{"role":"user","content":"hello"}]}`, string(upstream.lastBody))
 }
 
 func TestForwardAsAnthropicCustomTransparentPreservesSSEAndAnthropicUsage(t *testing.T) {

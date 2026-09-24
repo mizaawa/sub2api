@@ -1725,7 +1725,7 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 		return false, "model_not_supported"
 	}
 	if req.GroupID != nil && s != nil && s.service != nil &&
-		s.service.needsUpstreamChannelRestrictionCheck(ctx, req.GroupID) &&
+		s.service.needsUpstreamChannelRestrictionCheckForPlatform(ctx, req.GroupID, req.Platform) &&
 		s.service.isUpstreamModelRestrictedByChannel(ctx, *req.GroupID, account, req.RequestedModel, req.RequireCompact) {
 		return false, "channel_upstream_restricted"
 	}
@@ -2070,7 +2070,7 @@ func (s *OpenAIGatewayService) SelectBoundAccountWithSchedulerForCapability(
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
 	ctx = s.withOpenAIProfitControlGate(ctx, groupID)
 	platform = normalizeOpenAICompatiblePlatform(platform)
-	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
+	if s.checkChannelPricingRestrictionForPlatform(ctx, groupID, platform, requestedModel) {
 		return nil, decision, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
 	}
 
@@ -2260,7 +2260,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	if strings.TrimSpace(previousResponseID) != "" &&
 		(platform == PlatformOpenAI || platform == PlatformCustom || platform == PlatformGrok) &&
 		!previousResponseCanMove {
-		if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
+		if s.checkChannelPricingRestrictionForPlatform(ctx, groupID, platform, requestedModel) {
 			slog.Warn("channel pricing restriction blocked strict response continuation",
 				"group_id", derefGroupID(groupID),
 				"model", requestedModel)
@@ -2335,7 +2335,7 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		}
 	}
 
-	if s.checkChannelPricingRestriction(ctx, groupID, requestedModel) {
+	if s.checkChannelPricingRestrictionForPlatform(ctx, groupID, platform, requestedModel) {
 		slog.Warn("channel pricing restriction blocked request",
 			"group_id", derefGroupID(groupID),
 			"model", requestedModel)
