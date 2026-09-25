@@ -243,13 +243,19 @@ func expandPricingToCache(cache *channelCache, ch *Channel, gid int64, platform 
 // expandMappingToCache 将渠道的模型映射展开到缓存（按分组+平台维度）。
 // 各平台严格独立：antigravity 分组只匹配 antigravity 映射。
 func expandMappingToCache(cache *channelCache, ch *Channel, gid int64, platform string) {
-	for _, mappingPlatform := range matchingPlatforms(platform) {
+	for _, mappingPlatform := range matchingMappingPlatforms(platform) {
 		platformMapping, ok := ch.ModelMapping[mappingPlatform]
 		if !ok {
 			continue
 		}
-		// 使用映射条目的原始平台作为缓存 key，防止跨平台同名映射冲突
-		gpKey := channelGroupPlatformKey{groupID: gid, platform: mappingPlatform}
+		// Composite groups are normalized to Custom in the lookup hot path. Keep
+		// the legacy Composite source readable by storing it in that same key
+		// space; the current Custom source is processed first and wins conflicts.
+		cachePlatform := mappingPlatform
+		if platform == PlatformComposite {
+			cachePlatform = PlatformCustom
+		}
+		gpKey := channelGroupPlatformKey{groupID: gid, platform: cachePlatform}
 		for src, dst := range platformMapping {
 			if strings.HasSuffix(src, "*") {
 				prefix := strings.ToLower(strings.TrimSuffix(src, "*"))
@@ -258,7 +264,10 @@ func expandMappingToCache(cache *channelCache, ch *Channel, gid int64, platform 
 					target: dst,
 				})
 			} else {
-				key := channelModelKey{groupID: gid, platform: mappingPlatform, model: strings.ToLower(src)}
+				key := channelModelKey{groupID: gid, platform: cachePlatform, model: strings.ToLower(src)}
+				if _, exists := cache.mappingByGroupModel[key]; exists {
+					continue
+				}
 				cache.mappingByGroupModel[key] = dst
 			}
 		}
@@ -361,6 +370,17 @@ func matchingPlatforms(groupPlatform string) []string {
 	return []string{groupPlatform}
 }
 
+// matchingMappingPlatforms 返回渠道模型映射使用的兼容平台键。
+// Composite 分组对外使用 custom，但早期版本可能把同一映射保存为
+// composite。只对映射读取保留这个别名，避免把 legacy composite 定价
+// 混入 Custom 定价或改变其他平台的隔离语义。
+func matchingMappingPlatforms(groupPlatform string) []string {
+	if groupPlatform == PlatformComposite {
+		return []string{PlatformCustom, PlatformComposite}
+	}
+	return []string{groupPlatform}
+}
+
 func channelLookupPlatform(ctx context.Context, groupPlatform string) string {
 	if groupPlatform == PlatformComposite {
 		return PlatformCustom
@@ -428,13 +448,13 @@ func lookupPricingAcrossPlatforms(cache *channelCache, groupID int64, groupPlatf
 // lookupMappingAcrossPlatforms 在分组平台内查找模型映射。
 // 逻辑与 lookupPricingAcrossPlatforms 相同：先精确查找，再通配符。
 func lookupMappingAcrossPlatforms(cache *channelCache, groupID int64, groupPlatform, modelLower string) string {
-	for _, p := range matchingPlatforms(groupPlatform) {
+	for _, p := range matchingMappingPlatforms(groupPlatform) {
 		key := channelModelKey{groupID: groupID, platform: p, model: modelLower}
 		if mapped, ok := cache.mappingByGroupModel[key]; ok {
 			return mapped
 		}
 	}
-	for _, p := range matchingPlatforms(groupPlatform) {
+	for _, p := range matchingMappingPlatforms(groupPlatform) {
 		if mapped := cache.matchWildcardMapping(groupID, p, modelLower); mapped != "" {
 			return mapped
 		}

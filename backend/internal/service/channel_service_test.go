@@ -2055,6 +2055,49 @@ func TestCustomChannelLookupIgnoresLegacyResolvedProvider(t *testing.T) {
 	require.Equal(t, "upstream-chat", result.MappedModel)
 }
 
+func TestCustomChannelMappingReadsLegacyCompositeKey(t *testing.T) {
+	channel := Channel{
+		ID:       2,
+		Status:   StatusActive,
+		GroupIDs: []int64{100},
+		ModelMapping: map[string]map[string]string{
+			PlatformComposite: {
+				"public-a": "provider-b",
+			},
+		},
+	}
+	cache := populateChannelCache([]Channel{channel}, map[int64]string{100: PlatformComposite})
+	svc := &ChannelService{}
+	svc.cache.Store(cache)
+
+	result := svc.ResolveChannelMapping(context.Background(), 100, "public-a")
+	require.True(t, result.Mapped)
+	require.Equal(t, "provider-b", result.MappedModel)
+}
+
+func TestCustomChannelMappingPrefersCurrentCustomKey(t *testing.T) {
+	channel := Channel{
+		ID:       3,
+		Status:   StatusActive,
+		GroupIDs: []int64{101},
+		ModelMapping: map[string]map[string]string{
+			PlatformCustom: {
+				"public-a": "provider-current",
+			},
+			PlatformComposite: {
+				"public-a": "provider-legacy",
+			},
+		},
+	}
+	cache := populateChannelCache([]Channel{channel}, map[int64]string{101: PlatformComposite})
+	svc := &ChannelService{}
+	svc.cache.Store(cache)
+
+	result := svc.ResolveChannelMapping(context.Background(), 101, "public-a")
+	require.True(t, result.Mapped)
+	require.Equal(t, "provider-current", result.MappedModel)
+}
+
 // ===========================================================================
 // 9. Antigravity platform isolation — no cross-platform pricing leakage
 // ===========================================================================

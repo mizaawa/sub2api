@@ -197,7 +197,7 @@ func normalizeOpenAICompatiblePlatform(platform string) string {
 	switch platform {
 	case PlatformGrok:
 		return PlatformGrok
-	case PlatformCustom:
+	case PlatformCustom, PlatformComposite:
 		return PlatformCustom
 	default:
 		return PlatformOpenAI
@@ -651,6 +651,99 @@ func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedMode
 	return upstreamModel
 }
 
+// prioritizeCustomMappedAccounts keeps Custom alias accounts ahead of
+// transparent accounts while preserving the order established by the caller
+// (priority/load/rate). Accounts without a matching mapping remain eligible as
+// a fallback, so this is intentionally a stable partition rather than a
+// whitelist.
+func prioritizeCustomMappedAccounts(platform, requestedModel string, accounts []*Account) {
+	if !isCustomRoutingPlatform(platform) || len(accounts) < 2 {
+		return
+	}
+	hasMapped, hasTransparent := false, false
+	for _, account := range accounts {
+		if customAccountMappingPreference(platform, account, requestedModel) {
+			hasMapped = true
+		} else {
+			hasTransparent = true
+		}
+	}
+	if !hasMapped || !hasTransparent {
+		return
+	}
+	sort.SliceStable(accounts, func(i, j int) bool {
+		return customAccountMappingPreference(platform, accounts[i], requestedModel) &&
+			!customAccountMappingPreference(platform, accounts[j], requestedModel)
+	})
+}
+
+func prioritizeCustomMappedAccountLoads(platform, requestedModel string, accounts []accountWithLoad) {
+	if !isCustomRoutingPlatform(platform) || len(accounts) < 2 {
+		return
+	}
+	hasMapped, hasTransparent := false, false
+	for _, item := range accounts {
+		if customAccountMappingPreference(platform, item.account, requestedModel) {
+			hasMapped = true
+		} else {
+			hasTransparent = true
+		}
+	}
+	if !hasMapped || !hasTransparent {
+		return
+	}
+	sort.SliceStable(accounts, func(i, j int) bool {
+		return customAccountMappingPreference(platform, accounts[i].account, requestedModel) &&
+			!customAccountMappingPreference(platform, accounts[j].account, requestedModel)
+	})
+}
+
+// customMappedAccountAvailable is used only for sticky-session arbitration.
+// It verifies that a mapped Custom candidate is still schedulable before
+// allowing a transparent sticky account to yield.
+func (s *OpenAIGatewayService) customMappedAccountAvailable(
+	ctx context.Context,
+	groupID *int64,
+	platform string,
+	accounts []Account,
+	requestedModel string,
+	excludedIDs map[int64]struct{},
+	requireCompact bool,
+	requiredCapability OpenAIEndpointCapability,
+) bool {
+	if !isCustomRoutingPlatform(platform) {
+		return false
+	}
+	needsUpstreamCheck := s.needsUpstreamChannelRestrictionCheckForPlatform(ctx, groupID, platform)
+	for i := range accounts {
+		candidate := &accounts[i]
+		if excludedIDs != nil {
+			if _, excluded := excludedIDs[candidate.ID]; excluded {
+				continue
+			}
+		}
+		if !customAccountMappingPreference(platform, candidate, requestedModel) {
+			continue
+		}
+		fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, candidate, platform, requestedModel, false, requiredCapability)
+		if fresh == nil {
+			continue
+		}
+		fresh = s.recheckSelectedOpenAIAccountFromDB(ctx, fresh, groupID, platform, requestedModel, requireCompact, requiredCapability)
+		if fresh == nil {
+			continue
+		}
+		if requireCompact && openAICompactSupportTier(fresh) == 0 {
+			continue
+		}
+		if needsUpstreamCheck && groupID != nil && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, fresh, requestedModel, requireCompact) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, requiredCapability OpenAIEndpointCapability, preferLowUpstreamRate bool) (*Account, error) {
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	if s.checkChannelPricingRestrictionForPlatform(ctx, groupID, platform, requestedModel) {
@@ -660,15 +753,29 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 		return nil, fmt.Errorf("%w supporting model: %s (channel pricing restriction)", ErrNoAvailableAccounts, requestedModel)
 	}
 
-	// 1. 尝试粘性会话命中
-	// Try sticky session hit
+	// 1. 尝试粘性会话命中。Custom 的透明粘性账号需要让位于同池中
+	// 能执行账号级映射的账号；没有映射候选时仍保持透明透传。
+	// Try sticky session hit. A transparent Custom sticky account yields to a
+	// mapped account in the same pool, but remains a valid fallback otherwise.
+	var accounts []Account
 	if account := s.tryStickySessionHit(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability); account != nil {
-		return account, nil
+		if !isCustomRoutingPlatform(platform) || customAccountMappingPreference(platform, account, requestedModel) {
+			return account, nil
+		}
+		var listErr error
+		accounts, listErr = s.listSchedulableAccounts(ctx, groupID, platform)
+		if listErr != nil || !s.customMappedAccountAvailable(ctx, groupID, platform, accounts, requestedModel, excludedIDs, requireCompact, requiredCapability) {
+			return account, nil
+		}
+		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 	}
 
 	// 2. 获取可调度的 OpenAI 账号
 	// Get schedulable OpenAI accounts
-	accounts, err := s.listSchedulableAccounts(ctx, groupID, platform)
+	var err error
+	if accounts == nil {
+		accounts, err = s.listSchedulableAccounts(ctx, groupID, platform)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
 	}
@@ -826,6 +933,7 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 		}
 		return s.isBetterAccount(a, b)
 	})
+	prioritizeCustomMappedAccounts(platform, requestedModel, eligible)
 	return eligible[0], compactBlocked
 }
 
@@ -959,6 +1067,10 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else if !parentHealthyForShadow(account, s.parentAccountLookup(ctx)) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+					} else if isCustomRoutingPlatform(platform) &&
+						!customAccountMappingPreference(platform, account, requestedModel) &&
+						s.customMappedAccountAvailable(ctx, groupID, platform, accounts, requestedModel, excludedIDs, requireCompact, requiredCapability) {
+						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else {
 						result, err := s.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
 						if err == nil && result != nil && result.Acquired {
@@ -1086,6 +1198,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 				return rateOrder.compare(available[i].account, available[j].account) < 0
 			})
 		}
+		prioritizeCustomMappedAccountLoads(platform, requestedModel, available)
 
 		selectionOrder := make([]accountWithLoad, 0, len(available))
 		if requireCompact {
@@ -1145,6 +1258,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		if requireCompact {
 			ordered = prioritizeOpenAICompactAccounts(ordered)
 		}
+		prioritizeCustomMappedAccounts(platform, requestedModel, ordered)
 		for _, acc := range ordered {
 			fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, platform, requestedModel, false, requiredCapability)
 			if fresh == nil {
@@ -1195,6 +1309,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	if requireCompact {
 		candidates = prioritizeOpenAICompactAccounts(candidates)
 	}
+	prioritizeCustomMappedAccounts(platform, requestedModel, candidates)
 	for _, acc := range candidates {
 		fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, platform, requestedModel, false, requiredCapability)
 		if fresh == nil {
@@ -1225,7 +1340,17 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 	platform = normalizeOpenAICompatiblePlatform(platform)
 	if s.schedulerSnapshot != nil {
 		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, false)
-		return accounts, err
+		if err != nil {
+			return accounts, err
+		}
+		// The snapshot is intentionally asynchronous. Account model mappings are
+		// part of Custom routing semantics, so overlay just that field from the
+		// authoritative row before ranking candidates. This closes the short
+		// window where an admin edit has reached the database but not Redis yet.
+		if isCustomRoutingPlatform(platform) {
+			s.refreshCustomSchedulingMappings(ctx, accounts)
+		}
+		return accounts, nil
 	}
 	var accounts []Account
 	var err error
@@ -1240,6 +1365,42 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 		return nil, fmt.Errorf("query accounts failed: %w", err)
 	}
 	return accounts, nil
+}
+
+func (s *OpenAIGatewayService) refreshCustomSchedulingMappings(ctx context.Context, accounts []Account) {
+	if s == nil || s.accountRepo == nil || len(accounts) == 0 || ctx.Err() != nil {
+		return
+	}
+	ids := make([]int64, 0, len(accounts))
+	seen := make(map[int64]struct{}, len(accounts))
+	for i := range accounts {
+		if !isCustomRoutingPlatform(accounts[i].Platform) || accounts[i].ID <= 0 {
+			continue
+		}
+		if _, ok := seen[accounts[i].ID]; ok {
+			continue
+		}
+		seen[accounts[i].ID] = struct{}{}
+		ids = append(ids, accounts[i].ID)
+	}
+	if len(ids) == 0 {
+		return
+	}
+	latestAccounts, err := s.accountRepo.GetByIDs(ctx, ids)
+	if err != nil {
+		return
+	}
+	latestByID := make(map[int64]*Account, len(latestAccounts))
+	for _, latest := range latestAccounts {
+		if latest != nil && latest.ID > 0 {
+			latestByID[latest.ID] = latest
+		}
+	}
+	for i := range accounts {
+		if latest := latestByID[accounts[i].ID]; latest != nil {
+			replaceOpenAIMappingCredentials(&accounts[i], latest)
+		}
+	}
 }
 
 func (s *OpenAIGatewayService) tryAcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {
@@ -1353,7 +1514,22 @@ func (s *OpenAIGatewayService) getSchedulableAccount(ctx context.Context, accoun
 	if err != nil || account == nil {
 		return account, err
 	}
+	if s.schedulerSnapshot != nil {
+		s.refreshCustomSchedulingAccount(ctx, account)
+	}
 	return account, nil
+}
+
+func (s *OpenAIGatewayService) refreshCustomSchedulingAccount(ctx context.Context, account *Account) {
+	if s == nil || s.accountRepo == nil || account == nil ||
+		!isCustomRoutingPlatform(account.Platform) || account.ID <= 0 || ctx.Err() != nil {
+		return
+	}
+	latest, err := s.accountRepo.GetByID(ctx, account.ID)
+	if err != nil || latest == nil {
+		return
+	}
+	replaceOpenAIMappingCredentials(account, latest)
 }
 
 func (s *OpenAIGatewayService) hydrateSelectedAccount(ctx context.Context, account *Account) (*Account, error) {
@@ -1367,7 +1543,118 @@ func (s *OpenAIGatewayService) hydrateSelectedAccount(ctx context.Context, accou
 	if hydrated == nil {
 		return nil, fmt.Errorf("selected openai account %d not found during hydration", account.ID)
 	}
+	// Selection may have passed after re-reading the authoritative account row,
+	// while Redis still contains an older credential snapshot. Preserve the
+	// routing credentials from the selected candidate during hydration so the
+	// account-level alias is not lost before forwarding.
+	if isCustomRoutingPlatform(account.Platform) {
+		s.refreshCustomSchedulingAccount(ctx, account)
+	}
+	mergeSelectedOpenAICredentials(hydrated, account)
 	return hydrated, nil
+}
+
+// mergeSelectedOpenAICredentials carries routing-relevant credentials from
+// the candidate that passed selection into a hydrated scheduler snapshot. The
+// snapshot remains authoritative for scheduling metadata, but a stale Redis
+// copy must not replace a current Custom mapping or forwarding credential.
+func mergeSelectedOpenAICredentials(hydrated, selected *Account) {
+	if hydrated == nil || selected == nil || selected.Credentials == nil {
+		return
+	}
+	if hydrated.Credentials == nil {
+		hydrated.Credentials = make(map[string]any)
+	}
+	changed := false
+	authoritativeCustomCredentials := isCustomRoutingPlatform(selected.Platform)
+	for _, key := range []string{"model_mapping", "compact_model_mapping"} {
+		if value, ok := selected.Credentials[key]; ok {
+			hydrated.Credentials[key] = cloneOpenAICredentialValue(value)
+			changed = true
+		} else if authoritativeCustomCredentials {
+			if _, exists := hydrated.Credentials[key]; exists {
+				delete(hydrated.Credentials, key)
+				changed = true
+			}
+		}
+	}
+	for _, key := range []string{"api_key", "base_url"} {
+		value, ok := selected.Credentials[key]
+		if !ok || value == nil {
+			continue
+		}
+		if authoritativeCustomCredentials {
+			hydrated.Credentials[key] = cloneOpenAICredentialValue(value)
+			changed = true
+			continue
+		}
+		if _, exists := hydrated.Credentials[key]; !exists {
+			hydrated.Credentials[key] = cloneOpenAICredentialValue(value)
+			changed = true
+		}
+	}
+	if changed {
+		hydrated.modelMappingCacheReady = false
+		hydrated.modelMappingCache = nil
+	}
+}
+
+func cloneOpenAICredentialValue(value any) any {
+	switch mapping := value.(type) {
+	case map[string]any:
+		cloned := make(map[string]any, len(mapping))
+		for key, item := range mapping {
+			cloned[key] = item
+		}
+		return cloned
+	case map[string]string:
+		// Account credentials normally come from JSON as map[string]any, but
+		// tests and in-process callers may provide map[string]string. Normalize
+		// both forms to the representation Account.GetModelMapping consumes.
+		cloned := make(map[string]any, len(mapping))
+		for key, item := range mapping {
+			cloned[key] = item
+		}
+		return cloned
+	default:
+		return value
+	}
+}
+
+// replaceOpenAIMappingCredentials overlays the routing credentials from the
+// authoritative account row. An absent mapping key is meaningful: it clears
+// a stale snapshot mapping after an administrator removes an alias.
+func replaceOpenAIMappingCredentials(hydrated, latest *Account) {
+	if hydrated == nil || latest == nil {
+		return
+	}
+	if hydrated.Credentials == nil {
+		hydrated.Credentials = make(map[string]any)
+	}
+	changed := false
+	for _, key := range []string{"model_mapping", "compact_model_mapping"} {
+		value, ok := latest.Credentials[key]
+		if !ok {
+			if _, exists := hydrated.Credentials[key]; exists {
+				delete(hydrated.Credentials, key)
+				changed = true
+			}
+			continue
+		}
+		hydrated.Credentials[key] = cloneOpenAICredentialValue(value)
+		changed = true
+	}
+	for _, key := range []string{"api_key", "base_url"} {
+		value, ok := latest.Credentials[key]
+		if !ok || value == nil {
+			continue
+		}
+		hydrated.Credentials[key] = cloneOpenAICredentialValue(value)
+	}
+	if changed {
+		hydrated.modelMappingCacheReady = false
+		hydrated.modelMappingCache = nil
+	}
 }
 
 func (s *OpenAIGatewayService) newSelectionResult(ctx context.Context, account *Account, acquired bool, release func(), waitPlan *AccountWaitPlan) (*AccountSelectionResult, error) {

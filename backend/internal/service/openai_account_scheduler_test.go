@@ -34,6 +34,25 @@ func (r schedulerTestOpenAIAccountRepo) GetByID(ctx context.Context, id int64) (
 	return nil, errors.New("account not found")
 }
 
+func (r schedulerTestOpenAIAccountRepo) GetByIDs(ctx context.Context, ids []int64) ([]*Account, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	wanted := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	result := make([]*Account, 0, len(ids))
+	for i := range r.accounts {
+		if _, ok := wanted[r.accounts[i].ID]; !ok {
+			continue
+		}
+		account := r.accounts[i]
+		result = append(result, &account)
+	}
+	return result, nil
+}
+
 func (r schedulerTestOpenAIAccountRepo) ListSchedulableByGroupIDAndPlatform(ctx context.Context, groupID int64, platform string) ([]Account, error) {
 	var result []Account
 	for _, acc := range r.accounts {

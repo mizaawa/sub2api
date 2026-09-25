@@ -258,6 +258,16 @@ func TestAccountGetMappedModel(t *testing.T) {
 			requestedModel: "claude-sonnet-4-5",
 			expected:       "target-model",
 		},
+		{
+			name: "map string string match",
+			credentials: map[string]any{
+				"model_mapping": map[string]string{
+					"public-alias": "provider-model",
+				},
+			},
+			requestedModel: "public-alias",
+			expected:       "provider-model",
+		},
 
 		// 通配符匹配（最长优先）
 		{
@@ -319,6 +329,15 @@ func TestAccountGetMappedModel(t *testing.T) {
 				t.Errorf("GetMappedModel(%q) = %q, want %q", tt.requestedModel, result, tt.expected)
 			}
 		})
+	}
+}
+
+func TestAccountGetModelMappingKeepsProviderDefaultsWithoutCredentials(t *testing.T) {
+	for _, platform := range []string{PlatformGrok, PlatformAntigravity} {
+		account := &Account{Platform: platform}
+		if len(account.GetModelMapping()) == 0 {
+			t.Fatalf("provider defaults must remain available for %s", platform)
+		}
 	}
 }
 

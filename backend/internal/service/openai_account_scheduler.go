@@ -504,6 +504,10 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		return nil, false, nil
 	}
+	if s.shouldYieldTransparentCustomAccount(ctx, req, account) {
+		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		return nil, false, nil
+	}
 	escapeCfg := s.service.openAIStickyEscapeConfig()
 	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg); shouldEscape {
 		slog.Info("sticky_escape_triggered",
@@ -548,6 +552,36 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		}), false, nil
 	}
 	return nil, false, nil
+}
+
+// shouldYieldTransparentCustomAccount keeps a sticky Custom alias effective
+// when another eligible account in the same pool can perform the requested
+// account-level mapping. Transparent accounts remain valid when no mapped
+// candidate exists, preserving the original passthrough fallback behavior.
+func (s *defaultOpenAIAccountScheduler) shouldYieldTransparentCustomAccount(
+	ctx context.Context,
+	req OpenAIAccountScheduleRequest,
+	account *Account,
+) bool {
+	if s == nil || s.service == nil || account == nil ||
+		!isCustomRoutingPlatform(req.Platform) ||
+		customAccountMappingPreference(req.Platform, account, req.RequestedModel) {
+		return false
+	}
+	accounts, err := s.service.listSchedulableAccounts(ctx, req.GroupID, req.Platform)
+	if err != nil {
+		return false
+	}
+	return s.service.customMappedAccountAvailable(
+		ctx,
+		req.GroupID,
+		req.Platform,
+		accounts,
+		req.RequestedModel,
+		req.ExcludedIDs,
+		req.RequireCompact,
+		req.RequiredCapability,
+	)
 }
 
 func openAIStickyAccountMatchesGroup(account *Account, groupID *int64) bool {
@@ -595,11 +629,15 @@ type openAIAccountCandidateScore struct {
 	account   *Account
 	loadInfo  *AccountLoadInfo
 	loadKnown bool
-	score     float64
-	priority  int
-	errorRate float64
-	ttft      float64
-	hasTTFT   bool
+	// mappingPreferred is meaningful only for Custom/Composite requests. A
+	// matching account-level alias must be tried before transparent fallback
+	// accounts, while the latter remain in the candidate pool for failover.
+	mappingPreferred bool
+	score            float64
+	priority         int
+	errorRate        float64
+	ttft             float64
+	hasTTFT          bool
 }
 
 type openAIAccountCandidateHeap []openAIAccountCandidateScore
@@ -634,6 +672,9 @@ func (h *openAIAccountCandidateHeap) Pop() any {
 }
 
 func isOpenAIAccountCandidateBetter(left openAIAccountCandidateScore, right openAIAccountCandidateScore) bool {
+	if left.mappingPreferred != right.mappingPreferred {
+		return left.mappingPreferred
+	}
 	if left.score != right.score {
 		return left.score > right.score
 	}
@@ -812,12 +853,13 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			errorRate, ttft, hasTTFT = s.stats.snapshot(account.ID)
 		}
 		allCandidates = append(allCandidates, openAIAccountCandidateScore{
-			account:   account,
-			loadInfo:  loadInfo,
-			loadKnown: loadKnown,
-			errorRate: errorRate,
-			ttft:      ttft,
-			hasTTFT:   hasTTFT,
+			account:          account,
+			loadInfo:         loadInfo,
+			loadKnown:        loadKnown,
+			mappingPreferred: customAccountMappingPreference(req.Platform, account, req.RequestedModel),
+			errorRate:        errorRate,
+			ttft:             ttft,
+			hasTTFT:          hasTTFT,
 		})
 	}
 
@@ -993,15 +1035,17 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 	req OpenAIAccountScheduleRequest,
 	plan openAIAccountLoadPlan,
 ) []openAIAccountCandidateScore {
-	buildSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
+	buildRankedOrder := func(pool []openAIAccountCandidateScore, limit int, includeOverflow bool) []openAIAccountCandidateScore {
 		if len(pool) == 0 || plan.topK <= 0 {
 			return nil
 		}
-		groupTopK := plan.topK
-		if groupTopK > len(pool) {
-			groupTopK = len(pool)
+		if limit <= 0 {
+			return nil
 		}
-		ranked := selectTopKOpenAICandidates(pool, groupTopK)
+		if limit > len(pool) {
+			limit = len(pool)
+		}
+		ranked := selectTopKOpenAICandidates(pool, limit)
 		var primary []openAIAccountCandidateScore
 		if req.StickyWeighted {
 			for _, stickyID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
@@ -1023,7 +1067,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		if len(primary) == 0 {
 			primary = buildOpenAIWeightedSelectionOrder(ranked, req)
 		}
-		if !plan.includeOverflowFallback || groupTopK >= len(pool) {
+		if !includeOverflow || limit >= len(pool) {
 			return primary
 		}
 
@@ -1041,6 +1085,31 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 			return isOpenAIAccountCandidateBetter(overflow[i], overflow[j])
 		})
 		return append(primary, overflow...)
+	}
+
+	buildSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
+		if len(pool) == 0 || plan.topK <= 0 {
+			return nil
+		}
+		// A matching Custom mapping is a hard preference, but transparent
+		// accounts must remain available after mapped candidates are exhausted.
+		// This stable partition preserves the existing score/weighted behavior
+		// inside each tier and is a no-op for all non-Custom requests.
+		mapped := make([]openAIAccountCandidateScore, 0, len(pool))
+		transparent := make([]openAIAccountCandidateScore, 0, len(pool))
+		for _, candidate := range pool {
+			if candidate.mappingPreferred {
+				mapped = append(mapped, candidate)
+			} else {
+				transparent = append(transparent, candidate)
+			}
+		}
+		if len(mapped) == 0 {
+			return buildRankedOrder(pool, plan.topK, plan.includeOverflowFallback)
+		}
+		mappedOrder := buildRankedOrder(mapped, len(mapped), true)
+		transparentOrder := buildRankedOrder(transparent, plan.topK, plan.includeOverflowFallback)
+		return append(mappedOrder, transparentOrder...)
 	}
 
 	if req.RequireCompact {
@@ -1073,6 +1142,9 @@ func sortOpenAICompactRetryCandidates(pool []openAIAccountCandidateScore) []open
 	ordered := append([]openAIAccountCandidateScore(nil), pool...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		a, b := ordered[i], ordered[j]
+		if a.mappingPreferred != b.mappingPreferred {
+			return a.mappingPreferred
+		}
 		if a.account.Priority != b.account.Priority {
 			return a.account.Priority < b.account.Priority
 		}
@@ -1244,6 +1316,12 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 			continue
 		}
 		if req.RequireCompact && openAICompactSupportTier(account) == 0 {
+			continue
+		}
+		if s.shouldYieldTransparentCustomAccount(ctx, req, account) {
+			if accountID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" {
+				_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, req.SessionHash)
+			}
 			continue
 		}
 		result, acquireErr := s.service.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)

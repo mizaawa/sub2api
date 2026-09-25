@@ -568,6 +568,20 @@ func stringMappingFromRaw(raw any) map[string]string {
 }
 
 func (a *Account) GetModelMapping() map[string]string {
+	if a == nil {
+		return nil
+	}
+	// JSON-backed credentials normally decode nested objects as map[string]any,
+	// but in-process updates and scheduler snapshots may retain map[string]string.
+	// Normalize that representation before the cached map[string]any path so an
+	// otherwise valid account alias is never silently ignored.
+	if raw, ok := a.Credentials["model_mapping"].(map[string]string); ok {
+		normalized := make(map[string]any, len(raw))
+		for key, value := range raw {
+			normalized[key] = value
+		}
+		return a.resolveModelMapping(normalized)
+	}
 	credentialsPtr := mapPtr(a.Credentials)
 	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
 	rawPtr := mapPtr(rawMapping)
