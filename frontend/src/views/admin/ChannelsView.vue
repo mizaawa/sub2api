@@ -445,7 +445,7 @@
               <div v-else class="space-y-2">
                 <PricingEntryCard
                   v-for="(entry, idx) in section.model_pricing"
-                  :key="idx"
+                  :key="entry.key"
                   :entry="entry"
                   :platform="section.platform"
                   @update="updatePricingEntry(sIdx, idx, $event)"
@@ -677,6 +677,12 @@ interface FormPricingRule {
 
 type ChannelPricingPlatform = Exclude<GroupPlatform, 'composite'> | 'custom'
 
+interface ModelPricingFormEntry extends PricingFormEntry {
+  key: number
+}
+
+let nextPricingEntryKey = 0
+
 // ── Platform Section type ──
 interface PlatformSection {
   platform: ChannelPricingPlatform
@@ -684,7 +690,7 @@ interface PlatformSection {
   collapsed: boolean
   group_ids: number[]
   model_mapping: Record<string, string>
-  model_pricing: PricingFormEntry[]
+  model_pricing: ModelPricingFormEntry[]
   web_search_emulation: boolean
   codex_image_generation_bridge: boolean
   bedrock_cc_compat: boolean
@@ -856,7 +862,8 @@ function toggleGroupInSection(sectionIdx: number, groupId: number) {
 
 // ── Pricing helpers ──
 function addPricingEntry(sectionIdx: number) {
-  form.platforms[sectionIdx].model_pricing.push({
+  form.platforms[sectionIdx].model_pricing.unshift({
+    key: nextPricingEntryKey++,
     models: [],
     billing_mode: 'token',
     input_price: null,
@@ -890,6 +897,7 @@ async function syncLatestModels(sectionIdx: number) {
     }
     // Add new models as a single new pricing entry (user fills in prices)
     form.platforms[sectionIdx].model_pricing.push({
+      key: nextPricingEntryKey++,
       models: newModels,
       billing_mode: 'token',
       input_price: null,
@@ -910,7 +918,8 @@ async function syncLatestModels(sectionIdx: number) {
 }
 
 function updatePricingEntry(sectionIdx: number, idx: number, updated: PricingFormEntry) {
-  form.platforms[sectionIdx].model_pricing.splice(idx, 1, updated)
+  const entries = form.platforms[sectionIdx].model_pricing
+  entries.splice(idx, 1, { ...updated, key: entries[idx].key })
 }
 
 function removePricingEntry(sectionIdx: number, idx: number) {
@@ -1215,6 +1224,7 @@ function apiToForm(channel: Channel): PlatformSection[] {
     const pricing = (channel.model_pricing || [])
       .filter(p => (p.platform || 'anthropic') === platform)
       .map(p => ({
+        key: nextPricingEntryKey++,
         models: p.models || [],
         billing_mode: p.billing_mode,
         input_price: perTokenToMTok(p.input_price),
@@ -1225,7 +1235,7 @@ function apiToForm(channel: Channel): PlatformSection[] {
         image_output_price: perTokenToMTok(p.image_output_price),
         per_request_price: p.per_request_price,
         intervals: apiIntervalsToForm(p.intervals || [])
-      } as PricingFormEntry))
+      } as ModelPricingFormEntry))
 
     // Read web_search_emulation from features_config
     const fc = channel.features_config

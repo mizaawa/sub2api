@@ -57,6 +57,7 @@ vi.mock('vue-i18n', async () => {
 })
 
 import ChannelsView from '@/views/admin/ChannelsView.vue'
+import PricingEntryCard from '@/components/admin/channel/PricingEntryCard.vue'
 
 const groups = [
   { id: 12, name: 'Custom group', platform: 'composite', rate_multiplier: 1, account_count: 2 },
@@ -123,7 +124,7 @@ const PricingEntryCardStub = defineComponent({
   template: '<div data-testid="pricing-entry" :data-platform="platform">{{ entry.models.join(",") }}</div>',
 })
 
-function mountView() {
+function mountView(stubPricingEntries = true) {
   return mount(ChannelsView, {
     global: {
       stubs: {
@@ -138,7 +139,7 @@ function mountView() {
         Icon: true,
         PlatformIcon: true,
         Toggle: ToggleStub,
-        PricingEntryCard: PricingEntryCardStub,
+        PricingEntryCard: stubPricingEntries ? PricingEntryCardStub : false,
       },
     },
   })
@@ -243,5 +244,58 @@ describe('ChannelsView Custom pricing', () => {
         billing_mode: 'video',
       })],
     }))
+  })
+
+  it('prepends expanded pricing entries and preserves existing card state when editing', async () => {
+    listChannels.mockResolvedValue({ items: [customChannel], total: 1 })
+    const wrapper = mountView(false)
+    await flushPromises()
+
+    const editButton = wrapper.findAll('button').find(button => button.text().includes('common.edit'))
+    if (!editButton) throw new Error('Edit button not found')
+    await editButton.trigger('click')
+    await flushPromises()
+
+    const customTab = wrapper.findAll('button.channel-tab').find(button => button.text().includes('Custom'))
+    if (!customTab) throw new Error('Custom tab not found')
+    await customTab.trigger('click')
+
+    const existingCard = wrapper.getComponent(PricingEntryCard)
+    expect(existingCard.get('.collapsible-content').classes()).toContain('collapsible-content--collapsed')
+
+    const pricingSection = wrapper.findAll('div').find(element => (
+      element.element.firstElementChild?.textContent?.trim() === 'admin.channels.form.modelPricing'
+    ))
+    if (!pricingSection) throw new Error('Model pricing section not found')
+    const addButton = pricingSection.get('button')
+    await addButton.trigger('click')
+
+    let cards = wrapper.findAllComponents(PricingEntryCard)
+    expect(cards.map(card => card.props('entry').models)).toEqual([[], ['videos-mini-480p']])
+    expect(cards[0].get('.collapsible-content').classes()).not.toContain('collapsible-content--collapsed')
+    expect(cards[1].element).toBe(existingCard.element)
+    expect(cards[1].get('.collapsible-content').classes()).toContain('collapsible-content--collapsed')
+
+    const firstAddedCard = cards[0]
+    await firstAddedCard.get('input[type="text"]').setValue('draft-model')
+    await addButton.trigger('click')
+
+    cards = wrapper.findAllComponents(PricingEntryCard)
+    expect(cards.map(card => card.props('entry').models)).toEqual([[], [], ['videos-mini-480p']])
+    expect((cards[0].get('input[type="text"]').element as HTMLInputElement).value).toBe('')
+    expect(cards[1].element).toBe(firstAddedCard.element)
+    expect((cards[1].get('input[type="text"]').element as HTMLInputElement).value).toBe('draft-model')
+
+    await cards[1].get('input[type="number"]').setValue('1.5')
+    expect(wrapper.findAllComponents(PricingEntryCard)[1].element).toBe(firstAddedCard.element)
+    expect(wrapper.findAllComponents(PricingEntryCard)[1].props('entry').input_price).toBe('1.5')
+    expect(existingCard.props('entry').per_request_price).toBe(0.25)
+
+    await cards[0].get('button').trigger('click')
+    cards = wrapper.findAllComponents(PricingEntryCard)
+    expect(cards).toHaveLength(2)
+    expect(cards[0].element).toBe(firstAddedCard.element)
+    expect(cards[1].element).toBe(existingCard.element)
+    wrapper.unmount()
   })
 })
