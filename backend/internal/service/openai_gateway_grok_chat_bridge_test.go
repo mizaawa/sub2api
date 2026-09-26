@@ -492,6 +492,7 @@ func TestForwardGrokChatRuntimeGateFallsBackToRaw(t *testing.T) {
 	}{
 		{name: "missing cache identity", wantUpstream: "grok-4.5"},
 		{name: "non cache capable mapped model", setAPIKey: true, mappedModel: "grok-4.3", wantUpstream: "grok-4.3"},
+		{name: "newer model without cache bridge support", setAPIKey: true, mappedModel: "grok-4.7", wantUpstream: "grok-4.7"},
 	}
 
 	for index, tt := range tests {
@@ -663,6 +664,8 @@ func grokChatBridgeTestAccount(id int64) *Account {
 			"refresh_token": "refresh-token",
 			"expires_at":    time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339),
 			"base_url":      xai.DefaultCLIBaseURL,
+			// Cache bridge tests require Grok 4.5 regardless of the default alias.
+			"model_mapping": map[string]any{"grok": "grok-4.5"},
 		},
 	}
 }
