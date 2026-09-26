@@ -119,6 +119,56 @@ func TestForwardCustomVideoGenerationPreservesRequestedClipCount(t *testing.T) {
 	require.Equal(t, 4, result.VideoDurationSeconds)
 }
 
+func TestCustomVideoTextOnlyResolutionIsNotSilentlyChanged(t *testing.T) {
+	for _, resolution := range []string{"", "1080p"} {
+		t.Run("json_"+resolution, func(t *testing.T) {
+			body := `{"model":"minimax-h3-f","prompt":"waves","duration":4,"ratio":"16:9"}`
+			if resolution != "" {
+				body = `{"model":"minimax-h3-f","prompt":"waves","duration":4,"ratio":"16:9","resolution":"1080p"}`
+			}
+			out, contentType, err := normalizeCustomVideoForwardBody(GrokMediaEndpointVideosGenerations, []byte(body), "application/json")
+			require.NoError(t, err)
+			require.Equal(t, "application/json", contentType)
+			require.JSONEq(t, body, string(out))
+		})
+	}
+
+	t.Run("canvas_multipart_1080p_without_image", func(t *testing.T) {
+		fields := map[string]string{
+			"model": "minimax-h3-f", "prompt": "waves", "seconds": "4",
+			"size": "1920x1080", "resolution_name": "1080p", "mode": "frames",
+			"generate_audio": "true", "watermark": "false",
+		}
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		for name, value := range fields {
+			require.NoError(t, writer.WriteField(name, value))
+		}
+		require.NoError(t, writer.Close())
+		out, contentType, err := normalizeCustomVideoForwardBody(GrokMediaEndpointVideosGenerations, body.Bytes(), writer.FormDataContentType())
+		require.NoError(t, err)
+		_, params, err := mime.ParseMediaType(contentType)
+		require.NoError(t, err)
+		reader := multipart.NewReader(bytes.NewReader(out), params["boundary"])
+		actual := map[string]string{}
+		for {
+			part, err := reader.NextPart()
+			if err == io.EOF {
+				break
+			}
+			require.NoError(t, err)
+			require.Empty(t, part.FileName())
+			data, err := io.ReadAll(part)
+			require.NoError(t, err)
+			require.NotContains(t, actual, part.FormName())
+			actual[part.FormName()] = string(data)
+		}
+		delete(fields, "resolution_name")
+		fields["resolution"] = "1080p"
+		require.Equal(t, fields, actual, "text-only requests must not acquire synthetic reference images or lose their selected resolution")
+	})
+}
+
 func TestParseGrokMediaRequestAcceptsStringClipCount(t *testing.T) {
 	info := ParseGrokMediaRequest("application/json", []byte(`{"model":"videos-standard-720p","n":"2"}`))
 	require.Equal(t, 2, info.N)
