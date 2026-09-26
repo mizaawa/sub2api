@@ -69,6 +69,7 @@ func (s *GroupRepoSuite) TestCreate() {
 }
 
 func (s *GroupRepoSuite) TestCreateFromSourcePreservesPriorityAndFiltersIneligibleAccounts() {
+	inputPrice := 0.000002
 	source := &service.Group{
 		Name:             "duplicate-source",
 		Platform:         service.PlatformOpenAI,
@@ -76,6 +77,10 @@ func (s *GroupRepoSuite) TestCreateFromSourcePreservesPriorityAndFiltersIneligib
 		Status:           service.StatusActive,
 		SubscriptionType: service.SubscriptionTypeStandard,
 		RequireOAuthOnly: true,
+		ModelPricing: []service.ChannelModelPricing{{
+			Platform: service.PlatformOpenAI, Models: []string{"custom-model"},
+			BillingMode: service.BillingModeToken, InputPrice: &inputPrice,
+		}},
 	}
 	s.Require().NoError(s.repo.Create(s.ctx, source))
 
@@ -119,6 +124,7 @@ func (s *GroupRepoSuite) TestCreateFromSourcePreservesPriorityAndFiltersIneligib
 		SubscriptionType:     source.SubscriptionType,
 		RequireOAuthOnly:     true,
 		DuplicateOperationID: strings.Repeat("a", 64),
+		ModelPricing:         source.ModelPricing,
 	}
 	s.Require().NoError(s.repo.CreateFromSource(s.ctx, duplicate, source.ID))
 	s.Require().EqualValues(1, duplicate.AccountCount)
@@ -141,6 +147,7 @@ func (s *GroupRepoSuite) TestCreateFromSourcePreservesPriorityAndFiltersIneligib
 	recovered, err := s.repo.FindByDuplicateOperationID(s.ctx, duplicate.DuplicateOperationID)
 	s.Require().NoError(err)
 	s.Require().Equal(duplicate.ID, recovered.ID)
+	s.Require().Equal(source.ModelPricing, recovered.ModelPricing)
 
 	var outboxCount int
 	s.Require().NoError(scanSingleRow(

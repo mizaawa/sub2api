@@ -498,6 +498,12 @@ func (_c *GroupCreate) SetNillableWebSearchPricePerCall(v *float64) *GroupCreate
 	return _c
 }
 
+// SetModelPricing sets the "model_pricing" field.
+func (_c *GroupCreate) SetModelPricing(v []domain.ModelPricing) *GroupCreate {
+	_c.mutation.SetModelPricing(v)
+	return _c
+}
+
 // SetClaudeCodeOnly sets the "claude_code_only" field.
 func (_c *GroupCreate) SetClaudeCodeOnly(v bool) *GroupCreate {
 	_c.mutation.SetClaudeCodeOnly(v)
@@ -1398,6 +1404,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldWebSearchPricePerCall, field.TypeFloat64, value)
 		_node.WebSearchPricePerCall = &value
 	}
+	if value, ok := _c.mutation.ModelPricing(); ok {
+		_spec.SetField(group.FieldModelPricing, field.TypeJSON, value)
+		_node.ModelPricing = value
+	}
 	if value, ok := _c.mutation.ClaudeCodeOnly(); ok {
 		_spec.SetField(group.FieldClaudeCodeOnly, field.TypeBool, value)
 		_node.ClaudeCodeOnly = value
@@ -2209,6 +2219,24 @@ func (u *GroupUpsert) AddWebSearchPricePerCall(v float64) *GroupUpsert {
 // ClearWebSearchPricePerCall clears the value of the "web_search_price_per_call" field.
 func (u *GroupUpsert) ClearWebSearchPricePerCall() *GroupUpsert {
 	u.SetNull(group.FieldWebSearchPricePerCall)
+	return u
+}
+
+// SetModelPricing sets the "model_pricing" field.
+func (u *GroupUpsert) SetModelPricing(v []domain.ModelPricing) *GroupUpsert {
+	u.Set(group.FieldModelPricing, v)
+	return u
+}
+
+// UpdateModelPricing sets the "model_pricing" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateModelPricing() *GroupUpsert {
+	u.SetExcluded(group.FieldModelPricing)
+	return u
+}
+
+// ClearModelPricing clears the value of the "model_pricing" field.
+func (u *GroupUpsert) ClearModelPricing() *GroupUpsert {
+	u.SetNull(group.FieldModelPricing)
 	return u
 }
 
@@ -3214,6 +3242,27 @@ func (u *GroupUpsertOne) UpdateWebSearchPricePerCall() *GroupUpsertOne {
 func (u *GroupUpsertOne) ClearWebSearchPricePerCall() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearWebSearchPricePerCall()
+	})
+}
+
+// SetModelPricing sets the "model_pricing" field.
+func (u *GroupUpsertOne) SetModelPricing(v []domain.ModelPricing) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetModelPricing(v)
+	})
+}
+
+// UpdateModelPricing sets the "model_pricing" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateModelPricing() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateModelPricing()
+	})
+}
+
+// ClearModelPricing clears the value of the "model_pricing" field.
+func (u *GroupUpsertOne) ClearModelPricing() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearModelPricing()
 	})
 }
 
@@ -4436,6 +4485,27 @@ func (u *GroupUpsertBulk) UpdateWebSearchPricePerCall() *GroupUpsertBulk {
 func (u *GroupUpsertBulk) ClearWebSearchPricePerCall() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearWebSearchPricePerCall()
+	})
+}
+
+// SetModelPricing sets the "model_pricing" field.
+func (u *GroupUpsertBulk) SetModelPricing(v []domain.ModelPricing) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetModelPricing(v)
+	})
+}
+
+// UpdateModelPricing sets the "model_pricing" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateModelPricing() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateModelPricing()
+	})
+}
+
+// ClearModelPricing clears the value of the "model_pricing" field.
+func (u *GroupUpsertBulk) ClearModelPricing() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearModelPricing()
 	})
 }
 

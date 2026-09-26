@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"log/slog"
+	"strings"
 )
 
 // PricingSource 定价来源标识
 const (
+	PricingSourceGroup    = "group"
 	PricingSourceChannel  = "channel"
 	PricingSourceLiteLLM  = "litellm"
 	PricingSourceFallback = "fallback"
@@ -30,7 +32,7 @@ type ResolvedPricing struct {
 	DefaultPerRequestPrice float64
 
 	// 来源标识
-	Source string // "channel", "litellm", "fallback"
+	Source string // "group", "channel", "litellm", "fallback"
 
 	// 是否支持缓存细分
 	SupportsCacheBreakdown bool
@@ -40,7 +42,7 @@ type ResolvedPricing struct {
 }
 
 // ModelPricingResolver 统一模型定价解析器。
-// 解析链：Channel → LiteLLM → Fallback。
+// 解析链：Group → Channel → LiteLLM → Fallback。
 type ModelPricingResolver struct {
 	channelService *ChannelService
 	billingService *BillingService
@@ -58,29 +60,36 @@ func NewModelPricingResolver(channelService *ChannelService, billingService *Bil
 type PricingInput struct {
 	Model   string
 	GroupID *int64 // nil 表示不检查渠道
+	Group   *Group // authenticated billing group, including custom model prices
 }
 
 // Resolve 解析模型定价。
-// 1. 获取基础定价（LiteLLM → Fallback）
-// 2. 如果指定了 GroupID，查找渠道定价并覆盖
+// Group pricing takes precedence over channel pricing and built-in prices.
 func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) *ResolvedPricing {
 	var chPricing *ChannelModelPricing
-	if input.GroupID != nil && r.channelService != nil {
-		chPricing = r.channelService.GetChannelModelPricing(ctx, *input.GroupID, input.Model)
+	pricingSource := PricingSourceChannel
+	if input.Group != nil && (input.GroupID == nil || *input.GroupID == input.Group.ID) {
+		chPricing = input.Group.GetModelPricing(input.Model)
 		if chPricing != nil {
-			mode := chPricing.BillingMode
-			if mode == "" {
-				mode = BillingModeToken
+			pricingSource = PricingSourceGroup
+		}
+	}
+	if chPricing == nil && input.GroupID != nil && r.channelService != nil {
+		chPricing = r.channelService.GetChannelModelPricing(ctx, *input.GroupID, input.Model)
+	}
+	if chPricing != nil {
+		mode := chPricing.BillingMode
+		if mode == "" {
+			mode = BillingModeToken
+		}
+		if mode == BillingModePerRequest || mode == BillingModeImage || mode == BillingModeVideo {
+			resolved := &ResolvedPricing{
+				Mode:           mode,
+				Source:         pricingSource,
+				channelPricing: chPricing,
 			}
-			if mode == BillingModePerRequest || mode == BillingModeImage || mode == BillingModeVideo {
-				resolved := &ResolvedPricing{
-					Mode:           mode,
-					Source:         PricingSourceChannel,
-					channelPricing: chPricing,
-				}
-				r.applyRequestTierOverrides(chPricing, resolved)
-				return resolved
-			}
+			r.applyRequestTierOverrides(chPricing, resolved)
+			return resolved
 		}
 	}
 
@@ -96,14 +105,47 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 
 	// 2. 如果有 GroupID，尝试渠道覆盖
 	if chPricing != nil {
-		resolved.Source = PricingSourceChannel
+		resolved.Source = pricingSource
 		resolved.channelPricing = chPricing
 		r.applyTokenOverrides(chPricing, resolved)
-	} else if input.GroupID != nil {
-		r.applyChannelOverrides(ctx, *input.GroupID, input.Model, resolved)
 	}
 
 	return resolved
+}
+
+// GetModelPricing applies the same exact-before-prefix matching as channel pricing.
+// Group prices belong to the billing group even when routing selects another platform.
+func (g *Group) GetModelPricing(model string) *ChannelModelPricing {
+	if g == nil {
+		return nil
+	}
+	model = normalizeChannelPricingModelName(model)
+	var wildcard *ChannelModelPricing
+	for i := range g.ModelPricing {
+		pricing := &g.ModelPricing[i]
+		if pricing.Platform != "" && !isPlatformPricingMatch(g.Platform, pricing.Platform) {
+			continue
+		}
+		for _, pattern := range pricing.Models {
+			pattern = normalizeChannelPricingModelName(pattern)
+			if pattern == model {
+				cloned := pricing.Clone()
+				return &cloned
+			}
+			if wildcard == nil && strings.HasSuffix(pattern, "*") && strings.HasPrefix(model, strings.TrimSuffix(pattern, "*")) {
+				wildcard = pricing
+			}
+		}
+	}
+	if wildcard != nil {
+		cloned := wildcard.Clone()
+		return &cloned
+	}
+	return nil
+}
+
+func (p *ResolvedPricing) hasCustomPricing() bool {
+	return p != nil && (p.Source == PricingSourceGroup || p.Source == PricingSourceChannel)
 }
 
 // resolveBasePricing 从 LiteLLM 或 Fallback 获取基础定价
@@ -115,28 +157,6 @@ func (r *ModelPricingResolver) resolveBasePricing(model string) (*ModelPricing, 
 		return nil, PricingSourceFallback
 	}
 	return pricing, PricingSourceLiteLLM
-}
-
-// applyChannelOverrides 应用渠道定价覆盖
-func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupID int64, model string, resolved *ResolvedPricing) {
-	chPricing := r.channelService.GetChannelModelPricing(ctx, groupID, model)
-	if chPricing == nil {
-		return
-	}
-
-	resolved.Source = PricingSourceChannel
-	resolved.channelPricing = chPricing
-	resolved.Mode = chPricing.BillingMode
-	if resolved.Mode == "" {
-		resolved.Mode = BillingModeToken
-	}
-
-	switch resolved.Mode {
-	case BillingModeToken:
-		r.applyTokenOverrides(chPricing, resolved)
-	case BillingModePerRequest, BillingModeImage, BillingModeVideo:
-		r.applyRequestTierOverrides(chPricing, resolved)
-	}
 }
 
 // applyTokenOverrides 应用 token 模式的渠道覆盖

@@ -153,6 +153,9 @@ func (Group) Fields() []ent.Field {
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
 			Comment("Codex alpha/search 网页搜索单次价格（USD/次）；nil 表示使用默认价 0.01（官方 $10/1000 次）"),
+		field.JSON("model_pricing", []domain.ModelPricing{}).
+			Optional().
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}),
 
 		// Claude Code 客户端限制 (added by migration 029)
 		field.Bool("claude_code_only").

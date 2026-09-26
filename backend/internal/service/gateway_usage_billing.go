@@ -945,8 +945,8 @@ func (s *GatewayService) resolveChannelPricing(ctx context.Context, billingModel
 		return nil
 	}
 	gid := apiKey.Group.ID
-	resolved := s.resolver.Resolve(ctx, PricingInput{Model: billingModel, GroupID: &gid})
-	if resolved.Source == PricingSourceChannel {
+	resolved := s.resolver.Resolve(ctx, PricingInput{Model: billingModel, GroupID: &gid, Group: apiKey.Group})
+	if resolved.hasCustomPricing() {
 		return resolved
 	}
 	return nil

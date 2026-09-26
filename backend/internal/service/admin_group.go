@@ -318,6 +318,10 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	}
 
 	platform := NormalizeGroupPlatform(input.Platform)
+	modelPricing, err := normalizeGroupModelPricing(platform, input.ModelPricing)
+	if err != nil {
+		return nil, err
+	}
 	maxReasoningEffort, err := normalizeMaxReasoningEffortForPlatform(platform, input.MaxReasoningEffort)
 	if err != nil {
 		return nil, infraerrors.Newf(http.StatusBadRequest, "INVALID_MAX_REASONING_EFFORT", "%v", err)
@@ -469,6 +473,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		Description:                     input.Description,
 		Platform:                        platform,
 		RateMultiplier:                  input.RateMultiplier,
+		ModelPricing:                    modelPricing,
 		IsExclusive:                     input.IsExclusive,
 		Status:                          StatusActive,
 		SubscriptionType:                subscriptionType,
@@ -864,6 +869,19 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.ModelsListConfig != nil {
 		group.ModelsListConfig = normalizeGroupModelsListConfig(*input.ModelsListConfig)
+	}
+	if input.ModelPricing != nil {
+		modelPricing, err := normalizeGroupModelPricing(group.Platform, *input.ModelPricing)
+		if err != nil {
+			return nil, err
+		}
+		group.ModelPricing = modelPricing
+	} else if input.Platform != "" {
+		modelPricing, err := normalizeGroupModelPricing(group.Platform, group.ModelPricing)
+		if err != nil {
+			return nil, err
+		}
+		group.ModelPricing = modelPricing
 	}
 	if input.RPMLimit != nil {
 		group.RPMLimit = *input.RPMLimit

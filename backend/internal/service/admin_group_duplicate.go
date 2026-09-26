@@ -84,6 +84,7 @@ func cloneGroupForDuplicate(source *Group, operationID string) *Group {
 		Description:                     source.Description,
 		Platform:                        source.Platform,
 		RateMultiplier:                  source.RateMultiplier,
+		ModelPricing:                    CloneGroupModelPricing(source.ModelPricing),
 		PeakRateEnabled:                 source.PeakRateEnabled,
 		PeakStart:                       source.PeakStart,
 		PeakEnd:                         source.PeakEnd,
