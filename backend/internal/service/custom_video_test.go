@@ -427,6 +427,62 @@ func TestForwardCustomVideoContentFetchesContentDirectly(t *testing.T) {
 	require.Equal(t, "mp4-binary-content", recorder.Body.String())
 }
 
+func TestForwardCustomVideoContentRetriesTransientBadGateway(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	originalDelay := grokMediaVideoContentRetryDelay
+	grokMediaVideoContentRetryDelay = 0
+	defer func() { grokMediaVideoContentRetryDelay = originalDelay }()
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task-abc123/content", nil)
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{StatusCode: http.StatusBadGateway, Body: io.NopCloser(strings.NewReader("content is still being copied"))},
+		{StatusCode: http.StatusBadGateway, Body: io.NopCloser(strings.NewReader("content is still being copied"))},
+		{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"video/mp4"}}, Body: io.NopCloser(strings.NewReader("mp4-after-retry"))},
+	}}
+	svc := &OpenAIGatewayService{cfg: customVideoTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.ForwardGrokMedia(
+		context.Background(), c, customVideoTestAccount(), GrokMediaEndpointVideoContent, "task-abc123", nil, "",
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.requests, 3)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Equal(t, "mp4-after-retry", recorder.Body.String())
+}
+
+func TestForwardCustomVideoContentStopsAfterSixBadGatewayResponses(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	originalDelay := grokMediaVideoContentRetryDelay
+	grokMediaVideoContentRetryDelay = 0
+	defer func() { grokMediaVideoContentRetryDelay = originalDelay }()
+
+	responses := make([]*http.Response, grokMediaVideoContentMaxAttempts)
+	for i := range responses {
+		responses[i] = &http.Response{
+			StatusCode: http.StatusBadGateway,
+			Body:       io.NopCloser(strings.NewReader("content is still being copied")),
+		}
+	}
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task-abc123/content", nil)
+	upstream := &httpUpstreamRecorder{responses: responses}
+	svc := &OpenAIGatewayService{cfg: customVideoTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.ForwardGrokMedia(
+		context.Background(), c, customVideoTestAccount(), GrokMediaEndpointVideoContent, "task-abc123", nil, "",
+	)
+
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Len(t, upstream.requests, grokMediaVideoContentMaxAttempts)
+}
+
 func TestCustomVideoBillingResolutionFromModelSuffix(t *testing.T) {
 	tests := []struct {
 		model string

@@ -60,6 +60,15 @@ func (e GrokMediaEndpoint) IsVideoGenerationRequest() bool {
 	}
 }
 
+func (e GrokMediaEndpoint) IsImageGenerationRequest() bool {
+	switch e {
+	case GrokMediaEndpointImagesGenerations, GrokMediaEndpointImagesEdits:
+		return true
+	default:
+		return false
+	}
+}
+
 func (e GrokMediaEndpoint) IsGenerationRequest() bool {
 	switch e {
 	case GrokMediaEndpointImagesGenerations, GrokMediaEndpointImagesEdits, GrokMediaEndpointVideosGenerations, GrokMediaEndpointVideosEdits, GrokMediaEndpointVideosExtensions, SeedanceEndpointCreate:
@@ -447,6 +456,13 @@ func GrokMediaVideoRequestSessionHash(requestID string, userID, apiKeyID int64) 
 }
 
 const mediaVideoRequestBindingTTL = 7 * 24 * time.Hour
+
+// A task may report completed before the provider has finished copying the
+// binary into its content store. Retry that narrow window without retrying
+// other upstream failures, which could hide a real task/content error.
+const grokMediaVideoContentMaxAttempts = 6
+
+var grokMediaVideoContentRetryDelay = 5 * time.Second
 
 const grokMediaVideoBillingPrefix = "grok-video-billing:"
 
@@ -991,10 +1007,39 @@ func (s *OpenAIGatewayService) forwardGrokMediaVideoContent(
 		account.ApplyHeaderOverrides(contentReq.Header)
 	}
 
-	contentResp, err := s.httpUpstream.Do(contentReq, proxyURL, account.ID, account.Concurrency)
+	retryCtx := ctx
+	if retryCtx == nil {
+		retryCtx = context.Background()
+	}
+	var contentResp *http.Response
+	for attempt := 1; attempt <= grokMediaVideoContentMaxAttempts; attempt++ {
+		contentResp, err = s.httpUpstream.Do(contentReq, proxyURL, account.ID, account.Concurrency)
+		if err != nil || contentResp == nil || contentResp.StatusCode != http.StatusBadGateway || attempt == grokMediaVideoContentMaxAttempts {
+			break
+		}
+
+		// Drain and close the failed response before retrying so transports can
+		// reuse the connection and the response body is never leaked.
+		if contentResp.Body != nil {
+			_, _ = io.Copy(io.Discard, contentResp.Body)
+			_ = contentResp.Body.Close()
+		}
+		timer := time.NewTimer(grokMediaVideoContentRetryDelay)
+		select {
+		case <-retryCtx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return nil, retryCtx.Err()
+		case <-timer.C:
+		}
+	}
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+	}
+	if contentResp == nil {
+		return nil, fmt.Errorf("grok media content upstream returned an empty response")
 	}
 	defer func() { _ = contentResp.Body.Close() }()
 	contentRequestID := firstNonEmpty(contentResp.Header.Get("x-request-id"), contentResp.Header.Get("xai-request-id"), statusRequestID)

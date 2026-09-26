@@ -95,6 +95,15 @@ func TestGrokMediaRequiredCapability(t *testing.T) {
 	}
 }
 
+func TestGrokMediaImageGenerationPermissionOnlyAppliesToImages(t *testing.T) {
+	require.True(t, service.GrokMediaEndpointImagesGenerations.IsImageGenerationRequest())
+	require.True(t, service.GrokMediaEndpointImagesEdits.IsImageGenerationRequest())
+	require.False(t, service.GrokMediaEndpointVideosGenerations.IsImageGenerationRequest())
+	require.False(t, service.GrokMediaEndpointVideosEdits.IsImageGenerationRequest())
+	require.False(t, service.GrokMediaEndpointVideosExtensions.IsImageGenerationRequest())
+	require.False(t, service.SeedanceEndpointCreate.IsImageGenerationRequest())
+}
+
 func TestGrokMediaScheduleModelUsesNormalizedMappedUpstream(t *testing.T) {
 	account := &service.Account{
 		Platform: service.PlatformGrok,

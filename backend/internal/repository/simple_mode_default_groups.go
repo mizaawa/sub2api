@@ -6,6 +6,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -59,8 +60,7 @@ func ensureSimpleModeDefaultGroups(ctx context.Context, client *dbent.Client) er
 }
 
 // ensureCustomDefaultGroup is intentionally independent from simple mode.
-// Custom accounts are backed by composite groups, and without one a newly
-// created account has no schedulable route in a standard deployment.
+// It seeds the first custom route but respects operator-managed group changes.
 func ensureCustomDefaultGroup(ctx context.Context, client *dbent.Client) error {
 	if client == nil {
 		return fmt.Errorf("nil ent client")
@@ -79,6 +79,18 @@ func ensureCustomDefaultGroup(ctx context.Context, client *dbent.Client) error {
 		return fmt.Errorf("repair custom default group: %w", err)
 	}
 	if updated > 0 {
+		return nil
+	}
+
+	// Names are editable and deletion is an operator decision. Include deleted
+	// rows only for this bootstrap check so upgrades do not recreate the group.
+	exists, err := client.Group.Query().
+		Where(group.PlatformIn(service.PlatformCustom, service.PlatformComposite)).
+		Exist(mixins.SkipSoftDelete(ctx))
+	if err != nil {
+		return fmt.Errorf("check custom group history: %w", err)
+	}
+	if exists {
 		return nil
 	}
 	return createGroupIfNotExists(ctx, client, name, service.PlatformComposite)

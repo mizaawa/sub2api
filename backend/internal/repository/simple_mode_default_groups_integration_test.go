@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -56,6 +57,15 @@ func TestEnsureCustomDefaultGroup_CreatesCompositeRoute(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, service.PlatformComposite, customDefault.Platform)
 	require.True(t, customDefault.AllowImageGeneration)
+
+	require.NoError(t, ensureCustomDefaultGroup(seedCtx, client))
+	require.NoError(t, ensureCustomDefaultGroup(seedCtx, client))
+	groups, err := client.Group.Query().
+		Where(group.PlatformIn(service.PlatformCustom, service.PlatformComposite)).
+		All(mixins.SkipSoftDelete(seedCtx))
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	require.Equal(t, customDefault.ID, groups[0].ID)
 }
 
 func TestEnsureCustomDefaultGroup_RepairsLegacyPlatform(t *testing.T) {
@@ -84,6 +94,116 @@ func TestEnsureCustomDefaultGroup_RepairsLegacyPlatform(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, service.PlatformComposite, legacy.Platform)
 	require.True(t, legacy.AllowImageGeneration)
+}
+
+func TestEnsureCustomDefaultGroup_PreservesDeletedDefault(t *testing.T) {
+	seedCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client := testEntTx(t).Client()
+
+	require.NoError(t, ensureCustomDefaultGroup(seedCtx, client))
+	customDefault, err := client.Group.Query().
+		Where(group.NameEQ(service.PlatformCustom + "-default")).
+		Only(seedCtx)
+	require.NoError(t, err)
+	require.NoError(t, client.Group.DeleteOneID(customDefault.ID).Exec(seedCtx))
+
+	require.NoError(t, ensureCustomDefaultGroup(seedCtx, client))
+	require.NoError(t, ensureCustomDefaultGroup(seedCtx, client))
+	activeCount, err := client.Group.Query().
+		Where(group.PlatformIn(service.PlatformCustom, service.PlatformComposite)).
+		Count(seedCtx)
+	require.NoError(t, err)
+	require.Zero(t, activeCount)
+	deletedDefault, err := client.Group.Query().
+		Where(group.PlatformIn(service.PlatformCustom, service.PlatformComposite)).
+		Only(mixins.SkipSoftDelete(seedCtx))
+	require.NoError(t, err)
+	require.Equal(t, customDefault.ID, deletedDefault.ID)
+	require.NotNil(t, deletedDefault.DeletedAt)
+}
+
+func TestEnsureCustomDefaultGroup_PreservesRenamedDefault(t *testing.T) {
+	seedCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client := testEntTx(t).Client()
+
+	require.NoError(t, ensureCustomDefaultGroup(seedCtx, client))
+	customDefault, err := client.Group.Query().
+		Where(group.NameEQ(service.PlatformCustom + "-default")).
+		Only(seedCtx)
+	require.NoError(t, err)
+	_, err = client.Group.UpdateOneID(customDefault.ID).
+		SetName("operator-custom-route").
+		Save(seedCtx)
+	require.NoError(t, err)
+
+	require.NoError(t, ensureCustomDefaultGroup(seedCtx, client))
+	require.NoError(t, ensureCustomDefaultGroup(seedCtx, client))
+	groups, err := client.Group.Query().
+		Where(group.PlatformIn(service.PlatformCustom, service.PlatformComposite)).
+		All(mixins.SkipSoftDelete(seedCtx))
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	require.Equal(t, customDefault.ID, groups[0].ID)
+	require.Equal(t, "operator-custom-route", groups[0].Name)
+}
+
+func TestEnsureCustomDefaultGroup_PreservesOperatorCreatedGroup(t *testing.T) {
+	for _, platform := range []string{service.PlatformCustom, service.PlatformComposite} {
+		t.Run(platform, func(t *testing.T) {
+			seedCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			client := testEntTx(t).Client()
+
+			operatorGroup, err := client.Group.Create().
+				SetName("operator-custom-route").
+				SetPlatform(platform).
+				SetAllowImageGeneration(false).
+				Save(seedCtx)
+			require.NoError(t, err)
+
+			require.NoError(t, ensureCustomDefaultGroup(seedCtx, client))
+			groups, err := client.Group.Query().
+				Where(group.PlatformIn(service.PlatformCustom, service.PlatformComposite)).
+				All(mixins.SkipSoftDelete(seedCtx))
+			require.NoError(t, err)
+			require.Len(t, groups, 1)
+			require.Equal(t, operatorGroup.ID, groups[0].ID)
+			require.Equal(t, "operator-custom-route", groups[0].Name)
+			require.Equal(t, platform, groups[0].Platform)
+			require.False(t, groups[0].AllowImageGeneration)
+		})
+	}
+}
+
+func TestEnsureCustomDefaultGroup_PreservesCompositeDefaultConfiguration(t *testing.T) {
+	for _, status := range []string{service.StatusActive, service.StatusDisabled} {
+		t.Run(status, func(t *testing.T) {
+			seedCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			client := testEntTx(t).Client()
+
+			customDefault, err := client.Group.Create().
+				SetName(service.PlatformCustom + "-default").
+				SetDescription(simpleModeDefaultGroupDescription).
+				SetPlatform(service.PlatformComposite).
+				SetStatus(status).
+				SetAllowImageGeneration(false).
+				Save(seedCtx)
+			require.NoError(t, err)
+
+			require.NoError(t, ensureCustomDefaultGroup(seedCtx, client))
+			groups, err := client.Group.Query().
+				Where(group.PlatformIn(service.PlatformCustom, service.PlatformComposite)).
+				All(mixins.SkipSoftDelete(seedCtx))
+			require.NoError(t, err)
+			require.Len(t, groups, 1)
+			require.Equal(t, customDefault.ID, groups[0].ID)
+			require.Equal(t, status, groups[0].Status)
+			require.False(t, groups[0].AllowImageGeneration)
+		})
+	}
 }
 
 func TestEnsureSimpleModeDefaultGroups_BackfillsOnlyAutoCreatedGrokDefault(t *testing.T) {

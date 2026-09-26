@@ -89,9 +89,8 @@ func InitEnt(cfg *config.Config) (*ent.Client, *sql.DB, error) {
 		return nil, nil, fmt.Errorf("validate config after secret bootstrap: %w", err)
 	}
 
-	// Custom accounts use the legacy composite group discriminator. Keep their
-	// default route available in every run mode so account creation does not
-	// depend on simple-mode-only bootstrap behavior.
+	// Seed the first custom route in every run mode, preserving group history
+	// so upgrades do not recreate defaults removed or renamed by an operator.
 	customGroupCtx, customGroupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer customGroupCancel()
 	if err := ensureCustomDefaultGroup(customGroupCtx, client); err != nil {
